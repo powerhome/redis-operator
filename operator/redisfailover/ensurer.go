@@ -19,6 +19,10 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 		}
 	}
 
+	if err := w.rfService.EnsureNetworkPolicy(rf, labels, or); err != nil {
+		return err
+	}
+
 	sentinelsAllowed := rf.SentinelsAllowed()
 	if sentinelsAllowed {
 		if err := w.rfService.EnsureSentinelService(rf, labels, or); err != nil {
