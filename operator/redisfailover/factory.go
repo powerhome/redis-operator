@@ -3,6 +3,7 @@ package redisfailover
 import (
 	"context"
 	"time"
+	"os"
 
 	"github.com/spotahome/kooper/v2/controller"
 	"github.com/spotahome/kooper/v2/controller/leaderelection"
@@ -34,9 +35,16 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 	rfChecker := rfservice.NewRedisFailoverChecker(k8sService, redisClient, logger, kooperMetricsRecorder)
 	rfHealer := rfservice.NewRedisFailoverHealer(k8sService, redisClient, logger)
 
+	opType := os.Getenv("OP_TYPE")
+	opNamespace := ""
+
+	if opType == "namespaced" {
+		opNamespace = lockNamespace
+	}
+
 	// Create the handlers.
 	rfHandler := NewRedisFailoverHandler(cfg, rfService, rfChecker, rfHealer, k8sService, kooperMetricsRecorder, logger)
-	rfRetriever := NewRedisFailoverRetriever(k8sService, lockNamespace)
+	rfRetriever := NewRedisFailoverRetriever(k8sService, opNamespace)
 
 	kooperLogger := kooperlogger{Logger: logger.WithField("operator", "redisfailover")}
 	// Leader election service.
