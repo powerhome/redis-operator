@@ -38,7 +38,7 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 	
 	// Create the handlers.
 	rfHandler := NewRedisFailoverHandler(cfg, rfService, rfChecker, rfHealer, k8sService, kooperMetricsRecorder, logger)
-	rfRetriever := NewRedisFailoverRetriever(k8sService, opNamespace)
+	rfRetriever := NewRedisFailoverRetriever(k8sService, watchNamespace)
 
 	kooperLogger := kooperlogger{Logger: logger.WithField("operator", "redisfailover")}
 	// Leader election service.
@@ -60,13 +60,13 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 	})
 }
 
-func NewRedisFailoverRetriever(cli k8s.Services, lockNamespace string) controller.Retriever {
+func NewRedisFailoverRetriever(cli k8s.Services, watchNamespace string) controller.Retriever {
 	return controller.MustRetrieverFromListerWatcher(&cache.ListWatch{
 		ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
-			return cli.ListRedisFailovers(context.Background(), lockNamespace, options)
+			return cli.ListRedisFailovers(context.Background(), watchNamespace, options)
 		},
 		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-			return cli.WatchRedisFailovers(context.Background(), lockNamespace, options)
+			return cli.WatchRedisFailovers(context.Background(), watchNamespace, options)
 		},
 	})
 }
