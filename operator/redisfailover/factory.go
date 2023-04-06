@@ -34,14 +34,8 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 	rfService := rfservice.NewRedisFailoverKubeClient(k8sService, logger, kooperMetricsRecorder)
 	rfChecker := rfservice.NewRedisFailoverChecker(k8sService, redisClient, logger, kooperMetricsRecorder)
 	rfHealer := rfservice.NewRedisFailoverHealer(k8sService, redisClient, logger)
-
-	opType := os.Getenv("OP_TYPE")
-	opNamespace := ""
-
-	if opType == "namespaced" {
-		opNamespace = lockNamespace
-	}
-
+	opNamespace := os.Getenv("WATCH_NAMESPACE")
+	
 	// Create the handlers.
 	rfHandler := NewRedisFailoverHandler(cfg, rfService, rfChecker, rfHealer, k8sService, kooperMetricsRecorder, logger)
 	rfRetriever := NewRedisFailoverRetriever(k8sService, opNamespace)
