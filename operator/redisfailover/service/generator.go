@@ -56,6 +56,7 @@ func generateNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]
 
 	sentinelTargetPort := intstr.FromInt(26379)
 	redisTargetPort := intstr.FromInt(6379)
+	metricsTargetPort := intstr.FromInt(9121)
 
 	return &np.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -75,6 +76,11 @@ func generateNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]
 							NamespaceSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{"app.kubernetes.io/instance": namespace},
 							},
+						},
+						np.NetworkPolicyPeer{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"name": "monitoring"},
+							},
 						},					
 					},
 					Ports: []np.NetworkPolicyPort{
@@ -83,6 +89,9 @@ func generateNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]
 						},
 						np.NetworkPolicyPort{
 							Port: &sentinelTargetPort,
+						},
+						np.NetworkPolicyPort{
+							Port: &metricsTargetPort,
 						},					
 					},
 				},
