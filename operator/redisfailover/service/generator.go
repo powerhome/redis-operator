@@ -51,12 +51,28 @@ func generateNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]
 	name := GetNetworkPolicyName(rf)
 	namespace := rf.Namespace
 
+	networkPolicyNsList := rf.Spec.NetworkPolicyNsList
+
 	selectorLabels := generateSelectorLabels(networkPolicyName, rf.Name)
 	labels = util.MergeLabels(labels, selectorLabels)
 
 	sentinelTargetPort := intstr.FromInt(26379)
 	redisTargetPort := intstr.FromInt(6379)
 	metricsTargetPort := intstr.FromInt(9121)
+
+	peers := []np.NetworkPolicyPeer{}
+
+	for _, inputPeer := range networkPolicyNsList {
+		
+		labelKey := inputPeer.MatchLabelKey
+		labelValue := inputPeer.MatchLabelValue
+
+		peers = append(peers, np.NetworkPolicyPeer{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{labelKey: labelValue},
+			},
+		})
+	}
 
 	return &np.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -71,18 +87,7 @@ func generateNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]
 			},
 			Ingress: []np.NetworkPolicyIngressRule{
 				np.NetworkPolicyIngressRule{
-					From: []np.NetworkPolicyPeer{
-						np.NetworkPolicyPeer{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{"app.kubernetes.io/instance": namespace},
-							},
-						},
-						np.NetworkPolicyPeer{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{"name": "monitoring"},
-							},
-						},					
-					},
+					From: peers,
 					Ports: []np.NetworkPolicyPort{
 						np.NetworkPolicyPort{
 							Port: &redisTargetPort,
