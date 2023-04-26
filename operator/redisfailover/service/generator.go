@@ -63,7 +63,7 @@ func generateNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]
 	peers := []np.NetworkPolicyPeer{}
 
 	for _, inputPeer := range networkPolicyNsList {
-		
+
 		labelKey := inputPeer.MatchLabelKey
 		labelValue := inputPeer.MatchLabelValue
 
@@ -97,7 +97,7 @@ func generateNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]
 						},
 						np.NetworkPolicyPort{
 							Port: &metricsTargetPort,
-						},					
+						},
 					},
 				},
 			},
