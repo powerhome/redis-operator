@@ -222,6 +222,9 @@ func (in *RedisFailoverSpec) DeepCopyInto(out *RedisFailoverSpec) {
 		*out = new(BootstrapSettings)
 		**out = **in
 	}
+
+	out.NetworkPolicyNsList = in.NetworkPolicyNsList
+	
 	return
 }
 
@@ -338,6 +341,21 @@ func (in *RedisSettings) DeepCopyInto(out *RedisSettings) {
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
+	}
+	if in.CustomLivenessProbe != nil {
+		in, out := &in.CustomLivenessProbe, &out.CustomLivenessProbe
+		*out = new(corev1.Probe)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.CustomReadinessProbe != nil {
+		in, out := &in.CustomReadinessProbe, &out.CustomReadinessProbe
+		*out = new(corev1.Probe)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.CustomStartupProbe != nil {
+		in, out := &in.CustomStartupProbe, &out.CustomStartupProbe
+		*out = new(corev1.Probe)
+		(*in).DeepCopyInto(*out)
 	}
 	return
 }
@@ -497,6 +515,21 @@ func (in *SentinelSettings) DeepCopyInto(out *SentinelSettings) {
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
+	}
+	if in.CustomLivenessProbe != nil {
+		in, out := &in.CustomLivenessProbe, &out.CustomLivenessProbe
+		*out = new(corev1.Probe)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.CustomReadinessProbe != nil {
+		in, out := &in.CustomReadinessProbe, &out.CustomReadinessProbe
+		*out = new(corev1.Probe)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.CustomStartupProbe != nil {
+		in, out := &in.CustomStartupProbe, &out.CustomStartupProbe
+		*out = new(corev1.Probe)
+		(*in).DeepCopyInto(*out)
 	}
 	return
 }

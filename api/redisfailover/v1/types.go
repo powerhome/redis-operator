@@ -22,11 +22,15 @@ type RedisFailover struct {
 
 // RedisFailoverSpec represents a Redis failover spec
 type RedisFailoverSpec struct {
-	Redis          RedisSettings      `json:"redis,omitempty"`
-	Sentinel       SentinelSettings   `json:"sentinel,omitempty"`
-	Auth           AuthSettings       `json:"auth,omitempty"`
-	LabelWhitelist []string           `json:"labelWhitelist,omitempty"`
-	BootstrapNode  *BootstrapSettings `json:"bootstrapNode,omitempty"`
+	Redis               RedisSettings      `json:"redis,omitempty"`
+	Sentinel            SentinelSettings   `json:"sentinel,omitempty"`
+	Auth                AuthSettings       `json:"auth,omitempty"`
+	LabelWhitelist      []string           `json:"labelWhitelist,omitempty"`
+	BootstrapNode       *BootstrapSettings `json:"bootstrapNode,omitempty"`
+	NetworkPolicyNsList []struct {
+		MatchLabelKey   string `json:"matchLabelKey,omitempty"`
+		MatchLabelValue string `json:"matchLabelValue,omitempty"`
+	} `json:"networkPolicyNsList,omitempty"`
 }
 
 // RedisCommandRename defines the specification of a "rename-command" configuration option
@@ -67,6 +71,9 @@ type RedisSettings struct {
 	TerminationGracePeriodSeconds int64                             `json:"terminationGracePeriod,omitempty"`
 	ExtraVolumes                  []corev1.Volume                   `json:"extraVolumes,omitempty"`
 	ExtraVolumeMounts             []corev1.VolumeMount              `json:"extraVolumeMounts,omitempty"`
+	CustomLivenessProbe           *corev1.Probe                     `json:"customLivenessProbe,omitempty"`
+	CustomReadinessProbe          *corev1.Probe                     `json:"customReadinessProbe,omitempty"`
+	CustomStartupProbe            *corev1.Probe                     `json:"customStartupProbe,omitempty"`
 }
 
 // SentinelSettings defines the specification of the sentinel cluster
@@ -97,6 +104,9 @@ type SentinelSettings struct {
 	ServiceAccountName        string                            `json:"serviceAccountName,omitempty"`
 	ExtraVolumes              []corev1.Volume                   `json:"extraVolumes,omitempty"`
 	ExtraVolumeMounts         []corev1.VolumeMount              `json:"extraVolumeMounts,omitempty"`
+	CustomLivenessProbe       *corev1.Probe                     `json:"customLivenessProbe,omitempty"`
+	CustomReadinessProbe      *corev1.Probe                     `json:"customReadinessProbe,omitempty"`
+	CustomStartupProbe        *corev1.Probe                     `json:"customStartupProbe,omitempty"`
 }
 
 // AuthSettings contains settings about auth
