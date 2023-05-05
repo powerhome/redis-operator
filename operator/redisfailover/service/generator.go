@@ -327,7 +327,7 @@ func generateNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]
 		},
 		Spec: np.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{"app.kubernetes.io/part-of": "redis-failover"},
+				MatchLabels: map[string]string{"redisfailovers.databases.spotahome.com/name": "redisfailover"},
 			},
 			Ingress: []np.NetworkPolicyIngressRule{
 				np.NetworkPolicyIngressRule{
