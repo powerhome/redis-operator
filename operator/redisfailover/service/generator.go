@@ -205,6 +205,10 @@ func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[stri
     server-template redis %d _redis._tcp.redis.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none
 `, port, rf.Spec.Redis.Replicas, namespace, port)
 
+	if rf.Spec.Haproxy.CustomConfig != "" {
+		haproxyCfg = rf.Spec.Haproxy.CustomConfig
+	}
+
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -327,7 +331,7 @@ func generateNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]
 		},
 		Spec: np.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{"redisfailovers.databases.spotahome.com/name": "redisfailover"},
+				MatchLabels: map[string]string{"redisfailovers.databases.spotahome.com/name": rf.Name},
 			},
 			Ingress: []np.NetworkPolicyIngressRule{
 				np.NetworkPolicyIngressRule{
