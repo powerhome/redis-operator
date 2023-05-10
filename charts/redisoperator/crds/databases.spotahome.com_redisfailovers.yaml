@@ -82,6 +82,9 @@ spec:
                 description: Enable HAProxy balancer to connect to the master redis pod
                 type: object
                 properties:
+                  customConfig:
+                    description: This is an optional parameter with a HAProxy config
+                    type: string
                   image:
                     type: string
                   redisHost:

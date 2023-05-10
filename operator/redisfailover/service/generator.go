@@ -159,8 +159,7 @@ func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[stri
 	})
 
 	port := rf.Spec.Redis.Port
-	haproxyCfg := fmt.Sprintf(`
-    global
+	haproxyCfg := fmt.Sprintf(`global
     daemon
     maxconn 256
 
