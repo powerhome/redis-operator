@@ -87,23 +87,6 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 		},
 	}
 
-	podAntiAffinity := corev1.PodAntiAffinity{
-		RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
-			{
-				LabelSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      appName + ".powerapp.cloud/redis",
-							Operator: metav1.LabelSelectorOpIn,
-							Values:   []string{"haproxy"},
-						},
-					},
-				},
-				TopologyKey: "physicalmachine",
-			},
-		},
-	}
-
 	sd := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -121,9 +104,6 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 					Labels: selectorLabels,
 				},
 				Spec: corev1.PodSpec{
-					Affinity: &corev1.Affinity{
-						PodAntiAffinity: &podAntiAffinity,
-					},
 					Containers: []corev1.Container{
 						{
 							Name:  "haproxy",
@@ -145,6 +125,10 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 				},
 			},
 		},
+	}
+
+	if rf.Spec.Haproxy.Affinity != nil {
+		sd.Spec.Template.Spec.Affinity = rf.Spec.Haproxy.Affinity
 	}
 
 	return sd
