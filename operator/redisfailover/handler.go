@@ -110,7 +110,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 			clusterCondition := redisfailoverv1.ClusterCondition{
 				Status:  redisfailoverv1.ConditionTrue,
 				Type:    redisfailoverv1.AppStateReady,
-				Message: "successfully deployed",
+				Message: "RedisFailover initialized successfully",
 			}
 
 			rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
