@@ -64,7 +64,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 		clusterCondition := redisfailoverv1.ClusterCondition{
 			Status:  redisfailoverv1.ConditionTrue,
 			Type:    redisfailoverv1.AppStatePending,
-			Message: "Services starging...",
+			Message: "Initializing RedisFailover...",
 		}
 
 		rf.Status.ObservedGeneration = int64(0)
