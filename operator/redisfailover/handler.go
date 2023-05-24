@@ -120,7 +120,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 
 			if err != nil {
 				r.mClient.SetClusterError(rf.Namespace, rf.Name)
-				r.logger.Errorf("Can not update RedisFailover Status")
+				r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
 				return err
 			}
 		}
