@@ -104,8 +104,8 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 	// if last condition `Type` is not `Ready`, add it to the list
 	if rf.Status.Conditions[len(rf.Status.Conditions)-1].Type != redisfailoverv1.AppStateReady {
 
-		// make sure that redis and sentinel are running as expected
-		if r.rfChecker.IsRedisRunning(rf) && r.rfChecker.IsSentinelRunning(rf) {
+		// make sure that all required resources are running as expected
+		if r.rfChecker.IsClusterRunning(rf) {
 
 			clusterCondition := redisfailoverv1.ClusterCondition{
 				Status:  redisfailoverv1.ConditionTrue,
