@@ -47,10 +47,10 @@ sentinel parallel-syncs mymaster 2`
 	graceTime = 30
 )
 
-const redisHaproxyName = "redis-haproxy"
+const redisHAProxyName = "redis-haproxy"
 
 func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
-	name := redisHaproxyName
+	name := redisHAProxyName
 
 	namespace := rf.Namespace
 
