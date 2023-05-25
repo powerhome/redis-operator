@@ -50,7 +50,6 @@ sentinel parallel-syncs mymaster 2`
 const (
 	redisHAProxyName     = "redis-haproxy"
 	redisHAProxyHostName = "redis-haproxy"
-	redisHAProxyImage    = "haproxy:2.4"
 )
 
 func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
@@ -87,10 +86,6 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 	}
 
 	image := rf.Spec.Haproxy.Image
-
-	if image == "" {
-		image = redisHAProxyImage
-	}
 
 	sd := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
