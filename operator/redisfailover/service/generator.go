@@ -85,8 +85,6 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 		},
 	}
 
-	image := rf.Spec.Haproxy.Image
-
 	sd := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -107,7 +105,7 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 					Containers: []corev1.Container{
 						{
 							Name:  "haproxy",
-							Image: image,
+							Image: rf.Spec.Haproxy.Image,
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 8080,
