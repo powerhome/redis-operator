@@ -125,7 +125,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 			}
 		}
 	} else {
-		// app was deployed, make sure ObservedGeneration equails Generation
+		// app was deployed, make sure status.observedGeneration equals metadata.generation
 		if rf.GetObjectMeta().GetGeneration() != rf.Status.ObservedGeneration {
 			rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
 			r.rfService.UpdateStatus(rf)
