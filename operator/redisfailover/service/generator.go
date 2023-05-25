@@ -47,10 +47,7 @@ sentinel parallel-syncs mymaster 2`
 	graceTime = 30
 )
 
-const (
-	redisHAProxyName     = "redis-haproxy"
-	redisHAProxyHostName = "redis-haproxy"
-)
+const redisHAProxyName = "redis-haproxy"
 
 func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
 	name := redisHAProxyName
@@ -78,7 +75,7 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: "redis-haproxy",
+						Name: redisHAProxyName,
 					},
 				},
 			},
@@ -133,7 +130,7 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 }
 
 func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
-	name := "redis-haproxy"
+	name := redisHAProxyName
 	namespace := rf.Namespace
 
 	labels = util.MergeLabels(labels, map[string]string{
@@ -241,7 +238,7 @@ func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string
 	name := rf.Spec.Haproxy.RedisHost
 
 	if name == "" {
-		name = redisHAProxyHostName
+		name = redisHAProxyName
 	}
 
 	namespace := rf.Namespace
