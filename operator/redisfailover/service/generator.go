@@ -47,7 +47,11 @@ sentinel parallel-syncs mymaster 2`
 	graceTime = 30
 )
 
-const redisHAProxyName = "redis-haproxy"
+const (
+	redisHAProxyName     = "redis-haproxy"
+	redisHAProxyHostName = "redis-haproxy"
+	redisHAProxyImage    = "haproxy:2.4"
+)
 
 func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
 	name := redisHAProxyName
@@ -82,6 +86,12 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 		},
 	}
 
+	image := rf.Spec.Haproxy.Image
+
+	if image == "" {
+		image = redisHAProxyImage
+	}
+
 	sd := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -102,7 +112,7 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 					Containers: []corev1.Container{
 						{
 							Name:  "haproxy",
-							Image: rf.Spec.Haproxy.Image,
+							Image: image,
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 8080,
@@ -236,6 +246,11 @@ func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[
 
 func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 	name := rf.Spec.Haproxy.RedisHost
+
+	if name == "" {
+		name = redisHAProxyHostName
+	}
+
 	namespace := rf.Namespace
 	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
 	selectorLabels := map[string]string{
