@@ -75,7 +75,7 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: "redis-haproxy",
+						Name: redisHAProxyName,
 					},
 				},
 			},
@@ -130,7 +130,7 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 }
 
 func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
-	name := "redis-haproxy"
+	name := redisHAProxyName
 	namespace := rf.Namespace
 
 	labels = util.MergeLabels(labels, map[string]string{
@@ -236,6 +236,11 @@ func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[
 
 func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 	name := rf.Spec.Haproxy.RedisHost
+
+	if name == "" {
+		name = redisHAProxyName
+	}
+
 	namespace := rf.Namespace
 	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
 	selectorLabels := map[string]string{
