@@ -83,6 +83,14 @@ spec:
                 description: Enable HAProxy balancer to connect to the master redis pod
                 type: object
                 properties:
+                  service:
+                    description: Describes the Service type for HAProxy
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      nodePort:
+                        type: integer
                   affinity:
                     description: Affinity is a group of affinity scheduling rules.
                     properties:
