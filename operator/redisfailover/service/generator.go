@@ -251,6 +251,23 @@ func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string
 
 	selectorLabels = util.MergeLabels(labels, selectorLabels)
 
+	serviceType := corev1.ServiceTypeClusterIP
+
+	servicePort := &[]corev1.ServicePort{
+		{
+			Name:       "redis-master",
+			Port:       rf.Spec.Redis.Port,
+			TargetPort: redisTargetPort,
+			Protocol:   "TCP",
+		}}
+
+	if rf.Spec.Haproxy.Service != nil {
+		serviceType = *rf.Spec.Haproxy.Service.Type
+		if rf.Spec.Haproxy.Service.NodePort != 0 {
+			(*servicePort)[0].NodePort = int32(rf.Spec.Haproxy.Service.NodePort)
+		}
+	}
+
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -260,15 +277,8 @@ func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: selectorLabels,
-			Type:     "ClusterIP",
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "redis-master",
-					Port:       rf.Spec.Redis.Port,
-					TargetPort: redisTargetPort,
-					Protocol:   "TCP",
-				},
-			},
+			Type:     serviceType,
+			Ports:    *servicePort,
 		},
 	}
 }

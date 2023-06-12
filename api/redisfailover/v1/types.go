@@ -69,12 +69,18 @@ type HaproxySettings struct {
 	Resources    corev1.ResourceRequirements `json:"resources,omitempty"`
 	CustomConfig string                      `json:"customConfig,omitempty"`
 	Affinity     *corev1.Affinity            `json:"affinity,omitempty"`
+	Service      *ServiceSettings            `json:"service,omitempty"`
 }
 
 // RedisCommandRename defines the specification of a "rename-command" configuration option
 type RedisCommandRename struct {
 	From string `json:"from,omitempty"`
 	To   string `json:"to,omitempty"`
+}
+
+type ServiceSettings struct {
+	Type     *corev1.ServiceType `json:"type,omitempty" protobuf:"bytes,4,opt,name=type,casttype=ServiceType"`
+	NodePort int32               `json:"nodePort,omitempty"`
 }
 
 // RedisSettings defines the specification of the redis cluster
