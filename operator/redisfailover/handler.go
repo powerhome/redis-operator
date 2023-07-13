@@ -59,7 +59,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 		return fmt.Errorf("can't handle the received object: not a redisfailover")
 	}
 
-	// if versions are not equaled, that means resource was updated and status needs to be updated
+	// If the versions do not match, this signifies that the resource has been updated and therefore, the status also requires updating.
 	if rf.GetObjectMeta().GetGeneration() != rf.Status.ObservedGeneration {
 		rf.Status.AddCondition(redisfailoverv1.ClusterCondition{
 			Status:  redisfailoverv1.ConditionTrue,
