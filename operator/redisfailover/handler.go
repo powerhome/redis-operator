@@ -59,16 +59,6 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 		return fmt.Errorf("can't handle the received object: not a redisfailover")
 	}
 
-	// If the versions do not match, this signifies that the resource has been updated and therefore, the status also requires updating.
-	if rf.GetObjectMeta().GetGeneration() != rf.Status.ObservedGeneration {
-		rf.Status.AddCondition(redisfailoverv1.ClusterCondition{
-			Status:  redisfailoverv1.ConditionTrue,
-			Type:    redisfailoverv1.AppStatePending,
-			Message: "RedisFailover reconciling...",
-		})
-		r.rfService.UpdateStatus(rf)
-	}
-
 	// initial condition type is `Pending`
 	if len(rf.Status.Conditions) == 0 {
 		clusterCondition := redisfailoverv1.ClusterCondition{
@@ -86,6 +76,16 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 			r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
 			r.mClient.SetClusterError(rf.Namespace, rf.Name)
 			return err
+		}
+	} else {
+		// If the versions do not match, this signifies that the resource has been updated and therefore, the status also requires updating.
+		if rf.GetObjectMeta().GetGeneration() != rf.Status.ObservedGeneration {
+			rf.Status.AddCondition(redisfailoverv1.ClusterCondition{
+				Status:  redisfailoverv1.ConditionTrue,
+				Type:    redisfailoverv1.AppStatePending,
+				Message: "RedisFailover reconciling...",
+			})
+			r.rfService.UpdateStatus(rf)
 		}
 	}
 
