@@ -82,6 +82,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 		// If the versions do not match, this signifies that the resource has been updated and therefore, the status also requires updating.
 		if rf.GetObjectMeta().GetGeneration() != rf.Status.ObservedGeneration {
 
+			rf.Status.Conditions = []redisfailoverv1.ClusterCondition{}
 			rf.Status.AddCondition(redisfailoverv1.ClusterCondition{
 				Status:  redisfailoverv1.ConditionTrue,
 				Type:    redisfailoverv1.AppStatePending,
