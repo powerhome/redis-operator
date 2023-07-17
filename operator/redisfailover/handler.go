@@ -61,7 +61,6 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 
 	// initial condition type is `Pending`
 	if len(rf.Status.Conditions) == 0 {
-
 		clusterCondition := redisfailoverv1.ClusterCondition{
 			Status:  redisfailoverv1.ConditionTrue,
 			Type:    redisfailoverv1.AppStatePending,
