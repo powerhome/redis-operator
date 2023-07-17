@@ -89,7 +89,13 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 				Message: "RedisFailover reconciling...",
 			})
 			rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
-			r.rfService.UpdateStatus(rf)
+			_, err := r.rfService.UpdateStatus(rf)
+
+			if err != nil {
+				r.mClient.SetClusterError(rf.Namespace, rf.Name)
+				r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
+				return err
+			}
 		}
 	}
 
