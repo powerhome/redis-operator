@@ -67,7 +67,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 			Message: "Initializing RedisFailover...",
 		}
 
-		rf.Status.ObservedGeneration = int64(0)
+		rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
 		rf.Status.AddCondition(clusterCondition)
 
 		rf, err := r.rfService.UpdateStatus(rf)
@@ -76,6 +76,25 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 			r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
 			r.mClient.SetClusterError(rf.Namespace, rf.Name)
 			return err
+		}
+	} else {
+		// If the versions do not match, this signifies that the resource has been updated and therefore, the status also requires updating.
+		if rf.GetObjectMeta().GetGeneration() != rf.Status.ObservedGeneration {
+
+			rf.Status.Conditions = []redisfailoverv1.ClusterCondition{}
+			rf.Status.AddCondition(redisfailoverv1.ClusterCondition{
+				Status:  redisfailoverv1.ConditionTrue,
+				Type:    redisfailoverv1.AppStatePending,
+				Message: "RedisFailover reconciling...",
+			})
+			rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
+			_, err := r.rfService.UpdateStatus(rf)
+
+			if err != nil {
+				r.mClient.SetClusterError(rf.Namespace, rf.Name)
+				r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
+				return err
+			}
 		}
 	}
 
@@ -123,12 +142,6 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 				r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
 				return err
 			}
-		}
-	} else {
-		// app was deployed, make sure status.observedGeneration equals metadata.generation
-		if rf.GetObjectMeta().GetGeneration() != rf.Status.ObservedGeneration {
-			rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
-			r.rfService.UpdateStatus(rf)
 		}
 	}
 
