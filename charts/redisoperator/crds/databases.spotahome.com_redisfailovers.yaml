@@ -7098,9 +7098,6 @@ spec:
                       type: object
                     type: array
                   topologySpreadConstraints:
-                  port:
-                    format: int32
-                    type: integer
                     items:
                       description: TopologySpreadConstraint specifies how to spread
                         matching pods among the given topology.
@@ -7242,6 +7239,9 @@ spec:
                 description: SentinelSettings defines the specification of the sentinel
                   cluster
                 properties:
+                  port:
+                    format: int32
+                    type: integer
                   affinity:
                     description: Affinity is a group of affinity scheduling rules.
                     properties:
