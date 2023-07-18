@@ -7098,6 +7098,9 @@ spec:
                       type: object
                     type: array
                   topologySpreadConstraints:
+                  port:
+                    format: int32
+                    type: integer
                     items:
                       description: TopologySpreadConstraint specifies how to spread
                         matching pods among the given topology.

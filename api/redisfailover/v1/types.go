@@ -119,6 +119,7 @@ type SentinelSettings struct {
 	Image                     string                            `json:"image,omitempty"`
 	ImagePullPolicy           corev1.PullPolicy                 `json:"imagePullPolicy,omitempty"`
 	Replicas                  int32                             `json:"replicas,omitempty"`
+	Port                      int32                             `json:"port,omitempty"`
 	Resources                 corev1.ResourceRequirements       `json:"resources,omitempty"`
 	CustomConfig              []string                          `json:"customConfig,omitempty"`
 	Command                   []string                          `json:"command,omitempty"`

@@ -217,8 +217,9 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 	}
 
 	port := getRedisPort(rf.Spec.Redis.Port)
+	sentinelPort := strconv.Itoa(int(rf.Spec.Sentinel.Port))
 	for _, sip := range sentinels {
-		err = r.rfChecker.CheckSentinelMonitor(sip, master, port)
+		err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, master, port)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Fixing sentinel not monitoring expected master: %s", err.Error())
@@ -295,12 +296,13 @@ func (r *RedisFailoverHandler) applyRedisCustomConfig(rf *redisfailoverv1.RedisF
 }
 
 func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFailover, sentinels []string) error {
+	sentinelPort := strconv.Itoa(int(rf.Spec.Sentinel.Port))
 	for _, sip := range sentinels {
 		err := r.rfChecker.CheckSentinelNumberInMemory(sip, rf)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_NUMBER_IN_MEMORY_MISMATCH, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Sentinel %s mismatch number of sentinels in memory. resetting", sip)
-			if err := r.rfHealer.RestoreSentinel(sip); err != nil {
+			if err := r.rfHealer.RestoreSentinel(sip, sentinelPort); err != nil {
 				return err
 			}
 		}
@@ -311,7 +313,7 @@ func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFa
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.REDIS_SLAVES_NUMBER_IN_MEMORY_MISMATCH, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Sentinel %s mismatch number of expected slaves in memory. resetting", sip)
-			if err := r.rfHealer.RestoreSentinel(sip); err != nil {
+			if err := r.rfHealer.RestoreSentinel(sip, sentinelPort); err != nil {
 				return err
 			}
 		}

@@ -25,7 +25,7 @@ type RedisFailoverCheck interface {
 	CheckSentinelSlavesNumberInMemory(sentinel string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelQuorum(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	CheckIfMasterLocalhost(rFailover *redisfailoverv1.RedisFailover) (bool, error)
-	CheckSentinelMonitor(sentinel string, monitor ...string) error
+	CheckSentinelMonitor(sentinel string, sentinelPort string, monitor ...string) error
 	GetMasterIP(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetNumberMasters(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
@@ -142,7 +142,8 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 
 // CheckSentinelNumberInMemory controls that the provided sentinel has only the living sentinels on its memory.
 func (r *RedisFailoverChecker) CheckSentinelNumberInMemory(sentinel string, rf *redisfailoverv1.RedisFailover) error {
-	nSentinels, err := r.redisClient.GetNumberSentinelsInMemory(sentinel)
+	portString := strconv.Itoa(int(rf.Spec.Sentinel.Port))
+	nSentinels, err := r.redisClient.GetNumberSentinelsInMemory(sentinel, portString)
 	if err != nil {
 		return err
 	} else if nSentinels != rf.Spec.Sentinel.Replicas {
@@ -209,9 +210,11 @@ func (r *RedisFailoverChecker) CheckSentinelQuorum(rFailover *redisfailoverv1.Re
 		return unhealthyCnt, errors.New("insufficnet sentinel to reach Quorum")
 	}
 
+	portString := strconv.Itoa(int(rFailover.Spec.Sentinel.Port))
+
 	unhealthyCnt = 0
 	for _, sip := range sentinels {
-		err = r.redisClient.SentinelCheckQuorum(sip)
+		err = r.redisClient.SentinelCheckQuorum(sip, portString)
 		if err != nil {
 			unhealthyCnt += 1
 		} else {
@@ -228,7 +231,8 @@ func (r *RedisFailoverChecker) CheckSentinelQuorum(rFailover *redisfailoverv1.Re
 
 // CheckSentinelSlavesNumberInMemory controls that the provided sentinel has only the expected slaves number.
 func (r *RedisFailoverChecker) CheckSentinelSlavesNumberInMemory(sentinel string, rf *redisfailoverv1.RedisFailover) error {
-	nSlaves, err := r.redisClient.GetNumberSentinelSlavesInMemory(sentinel)
+	portString := strconv.Itoa(int(rf.Spec.Sentinel.Port))
+	nSlaves, err := r.redisClient.GetNumberSentinelSlavesInMemory(sentinel, portString)
 	if err != nil {
 		return err
 	} else {
@@ -247,13 +251,14 @@ func (r *RedisFailoverChecker) CheckSentinelSlavesNumberInMemory(sentinel string
 }
 
 // CheckSentinelMonitor controls if the sentinels are monitoring the expected master
-func (r *RedisFailoverChecker) CheckSentinelMonitor(sentinel string, monitor ...string) error {
+func (r *RedisFailoverChecker) CheckSentinelMonitor(sentinel string, sentinelPort string, monitor ...string) error {
 	monitorIP := monitor[0]
 	monitorPort := ""
 	if len(monitor) > 1 {
 		monitorPort = monitor[1]
 	}
-	actualMonitorIP, actualMonitorPort, err := r.redisClient.GetSentinelMonitor(sentinel)
+
+	actualMonitorIP, actualMonitorPort, err := r.redisClient.GetSentinelMonitor(sentinel, sentinelPort)
 	if err != nil {
 		return err
 	}
