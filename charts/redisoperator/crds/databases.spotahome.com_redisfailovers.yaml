@@ -7240,6 +7240,8 @@ spec:
                   cluster
                 properties:
                   port:
+                    description: The port sentinels use for collaboration messages -
+                      announce/presence, leadership election, etc.
                     format: int32
                     type: integer
                   affinity:
