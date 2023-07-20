@@ -216,8 +216,8 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		return err
 	}
 
-	port := getRedisPort(rf.Spec.Redis.Port)
-	sentinelPort := strconv.Itoa(int(rf.Spec.Sentinel.Port))
+	port := rf.Spec.Redis.Port.ToString()
+	sentinelPort := rf.Spec.Sentinel.Port.ToString()
 	for _, sip := range sentinels {
 		err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, master, port)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
@@ -328,7 +328,7 @@ func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFa
 	return nil
 }
 
-func getRedisPort(p int32) string {
+func toString(p int32) string {
 	return strconv.Itoa(int(p))
 }
 

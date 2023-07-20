@@ -53,7 +53,8 @@ sentinel parallel-syncs mymaster 2`
 const redisHAProxyName = "redis-haproxy"
 
 func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
-	name := fmt.Sprintf("%s-%s", redisHAProxyName, rf.Name)
+
+	name := rf.GenerateName(redisHAProxyName)
 
 	namespace := rf.Namespace
 
@@ -108,7 +109,7 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 							Image: rf.Spec.Haproxy.Image,
 							Ports: []corev1.ContainerPort{
 								{
-									ContainerPort: rf.Spec.Redis.Port,
+									ContainerPort: rf.Spec.Redis.Port.ToInt32(),
 								},
 							},
 							VolumeMounts: volumeMounts,
@@ -130,8 +131,8 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 }
 
 func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
-	name := fmt.Sprintf("%s-%s", redisHAProxyName, rf.Name)
-	redisName := fmt.Sprintf("%s-%s", "redis", rf.Name)
+	name := rf.GenerateName(redisHAProxyName)
+	redisName := rf.GenerateName("redis")
 
 	namespace := rf.Namespace
 
@@ -204,7 +205,7 @@ func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[stri
 
 func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 
-	name := fmt.Sprintf("%s-%s", "redis", rf.Name)
+	name := rf.GenerateName("redis")
 	namespace := rf.Namespace
 
 	redisTargetPort := intstr.FromString("redis")
@@ -227,7 +228,7 @@ func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[
 			Ports: []corev1.ServicePort{
 				{
 					Name:       "redis",
-					Port:       rf.Spec.Redis.Port,
+					Port:       rf.Spec.Redis.Port.ToInt32(),
 					TargetPort: redisTargetPort,
 					Protocol:   "TCP",
 				},
@@ -266,7 +267,7 @@ func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string
 			Ports: []corev1.ServicePort{
 				{
 					Name:       "redis-master",
-					Port:       rf.Spec.Redis.Port,
+					Port:       rf.Spec.Redis.Port.ToInt32(),
 					TargetPort: redisTargetPort,
 					Protocol:   "TCP",
 				},
@@ -353,7 +354,7 @@ func generateSentinelService(rf *redisfailoverv1.RedisFailover, labels map[strin
 			Ports: []corev1.ServicePort{
 				{
 					Name:       "sentinel",
-					Port:       rf.Spec.Sentinel.Port,
+					Port:       rf.Spec.Sentinel.Port.ToInt32(),
 					TargetPort: sentinelTargetPort,
 					Protocol:   "TCP",
 				},
@@ -613,7 +614,7 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 							Ports: []corev1.ContainerPort{
 								{
 									Name:          "redis",
-									ContainerPort: rf.Spec.Redis.Port,
+									ContainerPort: rf.Spec.Redis.Port.ToInt32(),
 									Protocol:      corev1.ProtocolTCP,
 								},
 							},
@@ -814,7 +815,7 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 							Ports: []corev1.ContainerPort{
 								{
 									Name:          "sentinel",
-									ContainerPort: rf.Spec.Sentinel.Port,
+									ContainerPort: rf.Spec.Sentinel.Port.ToInt32(),
 									Protocol:      corev1.ProtocolTCP,
 								},
 							},

@@ -52,7 +52,7 @@ func (r *RedisFailover) Validate() error {
 	if r.Spec.Sentinel.Port <= 0 {
 		sentinelPort := "2" + strconv.Itoa(int(r.Spec.Redis.Port))
 		sPort, _ := strconv.ParseInt(sentinelPort, 10, 32)
-		r.Spec.Sentinel.Port = int32(sPort)
+		r.Spec.Sentinel.Port = Port(sPort)
 	}
 
 	if r.Spec.Redis.Exporter.Image == "" {

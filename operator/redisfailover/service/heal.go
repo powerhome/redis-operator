@@ -67,7 +67,7 @@ func (r *RedisFailoverHealer) MakeMaster(ip string, rf *redisfailoverv1.RedisFai
 		return err
 	}
 
-	port := getRedisPort(rf.Spec.Redis.Port)
+	port := rf.Spec.Redis.Port.ToString()
 	err = r.redisClient.MakeMaster(ip, port, password)
 	if err != nil {
 		return err
@@ -105,7 +105,7 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 		return err
 	}
 
-	port := getRedisPort(rf.Spec.Redis.Port)
+	port := rf.Spec.Redis.Port.ToString()
 	newMasterIP := ""
 	for _, pod := range ssp.Items {
 		if newMasterIP == "" {
@@ -154,7 +154,7 @@ func (r *RedisFailoverHealer) SetMasterOnAll(masterIP string, rf *redisfailoverv
 		return err
 	}
 
-	port := getRedisPort(rf.Spec.Redis.Port)
+	port := rf.Spec.Redis.Port.ToString()
 	for _, pod := range ssp.Items {
 		//During this configuration process if there is a new master selected , bailout
 		isMaster, err := r.redisClient.IsMaster(masterIP, port, password)
@@ -212,8 +212,8 @@ func (r *RedisFailoverHealer) NewSentinelMonitor(ip string, monitor string, rf *
 		return err
 	}
 
-	port := getRedisPort(rf.Spec.Redis.Port)
-	sentinelPort := strconv.Itoa(int(rf.Spec.Sentinel.Port))
+	port := rf.Spec.Redis.Port.ToString()
+	sentinelPort := rf.Spec.Sentinel.Port.ToString()
 	return r.redisClient.MonitorRedisWithPort(ip, monitor, port, quorum, password, sentinelPort)
 }
 
@@ -238,7 +238,7 @@ func (r *RedisFailoverHealer) RestoreSentinel(ip string, sentinelPort string) er
 // SetSentinelCustomConfig will call sentinel to set the configuration given in config
 func (r *RedisFailoverHealer) SetSentinelCustomConfig(ip string, rf *redisfailoverv1.RedisFailover) error {
 	r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Setting the custom config on sentinel %s...", ip)
-	sentinelPort := strconv.Itoa(int(rf.Spec.Sentinel.Port))
+	sentinelPort := rf.Spec.Sentinel.Port.ToString()
 	return r.redisClient.SetCustomSentinelConfig(ip, sentinelPort, rf.Spec.Sentinel.CustomConfig)
 }
 
@@ -251,7 +251,7 @@ func (r *RedisFailoverHealer) SetRedisCustomConfig(ip string, rf *redisfailoverv
 		return err
 	}
 
-	port := getRedisPort(rf.Spec.Redis.Port)
+	port := rf.Spec.Redis.Port.ToString()
 	return r.redisClient.SetCustomRedisConfig(ip, port, rf.Spec.Redis.CustomConfig, password)
 }
 
