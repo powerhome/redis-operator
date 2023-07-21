@@ -225,7 +225,7 @@ func (r *RedisFailoverHealer) NewSentinelMonitorWithPort(ip string, monitor stri
 	if err != nil {
 		return err
 	}
-	sentinelPort := strconv.Itoa(int(rf.Spec.Sentinel.Port))
+	sentinelPort := rf.Spec.Sentinel.Port.ToString()
 	return r.redisClient.MonitorRedisWithPort(ip, monitor, monitorPort, quorum, password, sentinelPort)
 }
 

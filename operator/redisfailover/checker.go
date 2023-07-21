@@ -2,7 +2,6 @@ package redisfailover
 
 import (
 	"errors"
-	"strconv"
 	"time"
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
@@ -296,7 +295,7 @@ func (r *RedisFailoverHandler) applyRedisCustomConfig(rf *redisfailoverv1.RedisF
 }
 
 func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFailover, sentinels []string) error {
-	sentinelPort := strconv.Itoa(int(rf.Spec.Sentinel.Port))
+	sentinelPort := rf.Spec.Sentinel.Port.ToString()
 	for _, sip := range sentinels {
 		err := r.rfChecker.CheckSentinelNumberInMemory(sip, rf)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_NUMBER_IN_MEMORY_MISMATCH, sip, err)
@@ -326,10 +325,6 @@ func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFa
 		}
 	}
 	return nil
-}
-
-func toString(p int32) string {
-	return strconv.Itoa(int(p))
 }
 
 func setRedisCheckerMetrics(metricsClient metrics.Recorder, mode /* redis or sentinel? */ string, rfNamespace string, rfName string, property string, IP string, err error) {

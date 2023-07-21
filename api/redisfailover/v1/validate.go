@@ -50,7 +50,7 @@ func (r *RedisFailover) Validate() error {
 	}
 
 	if r.Spec.Sentinel.Port <= 0 {
-		sentinelPort := "2" + strconv.Itoa(int(r.Spec.Redis.Port))
+		sentinelPort := "2" + r.Spec.Redis.Port.ToString()
 		sPort, _ := strconv.ParseInt(sentinelPort, 10, 32)
 		r.Spec.Sentinel.Port = Port(sPort)
 	}
