@@ -19,7 +19,7 @@ type RedisFailover interface {
 	// WatchRedisFailovers watches the redisfailovers on a cluster.
 	WatchRedisFailovers(ctx context.Context, namespace string, opts metav1.ListOptions) (watch.Interface, error)
 
-	WriteStatus(rf *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error)
+	WriteStatus(redisfailover *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error)
 }
 
 // RedisFailoverService is the RedisFailover service implementation using API calls to kubernetes.
@@ -53,7 +53,7 @@ func (r *RedisFailoverService) WatchRedisFailovers(ctx context.Context, namespac
 	return watcher, err
 }
 
-func (r *RedisFailoverService) WriteStatus(rf *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error) {
-	rf, err := r.k8sCli.DatabasesV1().RedisFailovers(rf.Namespace).UpdateStatus(context.TODO(), rf, metav1.UpdateOptions{})
-	return rf, err
+func (r *RedisFailoverService) WriteStatus(redisfailover *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error) {
+	redisfailover, err := r.k8sCli.DatabasesV1().RedisFailovers(redisfailover.Namespace).UpdateStatus(context.TODO(), redisfailover, metav1.UpdateOptions{})
+	return redisfailover, err
 }

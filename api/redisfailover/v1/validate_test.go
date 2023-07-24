@@ -117,6 +117,7 @@ func TestValidate(t *testing.T) {
 							Exporter: Exporter{
 								Image: defaultSentinelExporterImage,
 							},
+							Port: Port(26379),
 						},
 						BootstrapNode: test.expectedBootstrapNode,
 					},
