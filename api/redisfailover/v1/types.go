@@ -1,6 +1,9 @@
 package v1
 
 import (
+	"fmt"
+	"strconv"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -77,12 +80,14 @@ type RedisCommandRename struct {
 	To   string `json:"to,omitempty"`
 }
 
+type Port int32
+
 // RedisSettings defines the specification of the redis cluster
 type RedisSettings struct {
 	Image                         string                            `json:"image,omitempty"`
 	ImagePullPolicy               corev1.PullPolicy                 `json:"imagePullPolicy,omitempty"`
 	Replicas                      int32                             `json:"replicas,omitempty"`
-	Port                          int32                             `json:"port,omitempty"`
+	Port                          Port                              `json:"port,omitempty"`
 	Resources                     corev1.ResourceRequirements       `json:"resources,omitempty"`
 	CustomConfig                  []string                          `json:"customConfig,omitempty"`
 	CustomCommandRenames          []RedisCommandRename              `json:"customCommandRenames,omitempty"`
@@ -119,6 +124,7 @@ type SentinelSettings struct {
 	Image                     string                            `json:"image,omitempty"`
 	ImagePullPolicy           corev1.PullPolicy                 `json:"imagePullPolicy,omitempty"`
 	Replicas                  int32                             `json:"replicas,omitempty"`
+	Port                      Port                              `json:"port,omitempty"`
 	Resources                 corev1.ResourceRequirements       `json:"resources,omitempty"`
 	CustomConfig              []string                          `json:"customConfig,omitempty"`
 	Command                   []string                          `json:"command,omitempty"`
@@ -254,4 +260,16 @@ func (s *RedisFailoverStatus) AddCondition(c ClusterCondition) {
 	if len(s.Conditions) > maxStatusesQuantity {
 		s.Conditions = s.Conditions[len(s.Conditions)-maxStatusesQuantity:]
 	}
+}
+
+func (r *RedisFailover) GenerateName(prefix string) string {
+	return fmt.Sprintf("%s-%s", prefix, r.Name)
+}
+
+func (p Port) ToString() string {
+	return strconv.Itoa(int(p))
+}
+
+func (p Port) ToInt32() int32 {
+	return int32(p)
 }

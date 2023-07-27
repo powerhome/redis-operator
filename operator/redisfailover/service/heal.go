@@ -20,7 +20,7 @@ type RedisFailoverHeal interface {
 	SetExternalMasterOnAll(masterIP string, masterPort string, rFailover *redisfailoverv1.RedisFailover) error
 	NewSentinelMonitor(ip string, monitor string, rFailover *redisfailoverv1.RedisFailover) error
 	NewSentinelMonitorWithPort(ip string, monitor string, port string, rFailover *redisfailoverv1.RedisFailover) error
-	RestoreSentinel(ip string) error
+	RestoreSentinel(ip string, port string) error
 	SetSentinelCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	SetRedisCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	DeletePod(podName string, rFailover *redisfailoverv1.RedisFailover) error
@@ -67,7 +67,7 @@ func (r *RedisFailoverHealer) MakeMaster(ip string, rf *redisfailoverv1.RedisFai
 		return err
 	}
 
-	port := getRedisPort(rf.Spec.Redis.Port)
+	port := rf.Spec.Redis.Port.ToString()
 	err = r.redisClient.MakeMaster(ip, port, password)
 	if err != nil {
 		return err
@@ -105,7 +105,7 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 		return err
 	}
 
-	port := getRedisPort(rf.Spec.Redis.Port)
+	port := rf.Spec.Redis.Port.ToString()
 	newMasterIP := ""
 	for _, pod := range ssp.Items {
 		if newMasterIP == "" {
@@ -154,7 +154,7 @@ func (r *RedisFailoverHealer) SetMasterOnAll(masterIP string, rf *redisfailoverv
 		return err
 	}
 
-	port := getRedisPort(rf.Spec.Redis.Port)
+	port := rf.Spec.Redis.Port.ToString()
 	for _, pod := range ssp.Items {
 		//During this configuration process if there is a new master selected , bailout
 		isMaster, err := r.redisClient.IsMaster(masterIP, port, password)
@@ -212,8 +212,9 @@ func (r *RedisFailoverHealer) NewSentinelMonitor(ip string, monitor string, rf *
 		return err
 	}
 
-	port := getRedisPort(rf.Spec.Redis.Port)
-	return r.redisClient.MonitorRedisWithPort(ip, monitor, port, quorum, password)
+	port := rf.Spec.Redis.Port.ToString()
+	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	return r.redisClient.MonitorRedisWithPort(ip, monitor, port, quorum, password, sentinelPort)
 }
 
 // NewSentinelMonitorWithPort changes the master that Sentinel has to monitor by the provided IP and Port
@@ -224,20 +225,21 @@ func (r *RedisFailoverHealer) NewSentinelMonitorWithPort(ip string, monitor stri
 	if err != nil {
 		return err
 	}
-
-	return r.redisClient.MonitorRedisWithPort(ip, monitor, monitorPort, quorum, password)
+	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	return r.redisClient.MonitorRedisWithPort(ip, monitor, monitorPort, quorum, password, sentinelPort)
 }
 
 // RestoreSentinel clear the number of sentinels on memory
-func (r *RedisFailoverHealer) RestoreSentinel(ip string) error {
-	r.logger.Debugf("Restoring sentinel %s", ip)
-	return r.redisClient.ResetSentinel(ip)
+func (r *RedisFailoverHealer) RestoreSentinel(ip string, sentinelPort string) error {
+	r.logger.Debugf("Restoring sentinel %s on port %s", ip, sentinelPort)
+	return r.redisClient.ResetSentinel(ip, sentinelPort)
 }
 
 // SetSentinelCustomConfig will call sentinel to set the configuration given in config
 func (r *RedisFailoverHealer) SetSentinelCustomConfig(ip string, rf *redisfailoverv1.RedisFailover) error {
 	r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Setting the custom config on sentinel %s...", ip)
-	return r.redisClient.SetCustomSentinelConfig(ip, rf.Spec.Sentinel.CustomConfig)
+	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	return r.redisClient.SetCustomSentinelConfig(ip, sentinelPort, rf.Spec.Sentinel.CustomConfig)
 }
 
 // SetRedisCustomConfig will call redis to set the configuration given in config
@@ -249,7 +251,7 @@ func (r *RedisFailoverHealer) SetRedisCustomConfig(ip string, rf *redisfailoverv
 		return err
 	}
 
-	port := getRedisPort(rf.Spec.Redis.Port)
+	port := rf.Spec.Redis.Port.ToString()
 	return r.redisClient.SetCustomRedisConfig(ip, port, rf.Spec.Redis.CustomConfig, password)
 }
 
