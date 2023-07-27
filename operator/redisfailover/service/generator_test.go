@@ -1638,11 +1638,11 @@ func TestSentinelExtraVolumeMounts(t *testing.T) {
 }
 
 func TestCustomPort(t *testing.T) {
-	default_port := int32(6379)
-	custom_port := int32(12345)
+	default_port := redisfailoverv1.Port(6379)
+	custom_port := redisfailoverv1.Port(12345)
 	tests := []struct {
 		name                  string
-		port                  int32
+		port                  redisfailoverv1.Port
 		expectedContainerPort []corev1.ContainerPort
 	}{
 		{
@@ -1651,7 +1651,7 @@ func TestCustomPort(t *testing.T) {
 			expectedContainerPort: []corev1.ContainerPort{
 				{
 					Name:          "redis",
-					ContainerPort: default_port,
+					ContainerPort: default_port.ToInt32(),
 					Protocol:      corev1.ProtocolTCP,
 				},
 			},
@@ -1662,7 +1662,7 @@ func TestCustomPort(t *testing.T) {
 			expectedContainerPort: []corev1.ContainerPort{
 				{
 					Name:          "redis",
-					ContainerPort: custom_port,
+					ContainerPort: custom_port.ToInt32(),
 					Protocol:      corev1.ProtocolTCP,
 				},
 			},
@@ -1693,7 +1693,7 @@ func TestCustomPort(t *testing.T) {
 }
 
 func TestRedisEnv(t *testing.T) {
-	default_port := int32(6379)
+	default_port := redisfailoverv1.Port(6379)
 	tests := []struct {
 		name             string
 		auth             string

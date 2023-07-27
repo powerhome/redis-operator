@@ -25,7 +25,7 @@ type RedisFailoverCheck interface {
 	CheckSentinelSlavesNumberInMemory(sentinel string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelQuorum(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	CheckIfMasterLocalhost(rFailover *redisfailoverv1.RedisFailover) (bool, error)
-	CheckSentinelMonitor(sentinel string, monitor ...string) error
+	CheckSentinelMonitor(sentinel string, sentinelPort string, monitor ...string) error
 	GetMasterIP(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetNumberMasters(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
@@ -114,7 +114,7 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 		return err
 	}
 
-	rport := getRedisPort(rf.Spec.Redis.Port)
+	rport := rf.Spec.Redis.Port.ToString()
 	for _, rp := range rps.Items {
 		if rp.Status.PodIP == master {
 			err = r.setMasterLabelIfNecessary(rf.Namespace, rp)
@@ -142,7 +142,8 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 
 // CheckSentinelNumberInMemory controls that the provided sentinel has only the living sentinels on its memory.
 func (r *RedisFailoverChecker) CheckSentinelNumberInMemory(sentinel string, rf *redisfailoverv1.RedisFailover) error {
-	nSentinels, err := r.redisClient.GetNumberSentinelsInMemory(sentinel)
+	portString := rf.Spec.Sentinel.Port.ToString()
+	nSentinels, err := r.redisClient.GetNumberSentinelsInMemory(sentinel, portString)
 	if err != nil {
 		return err
 	} else if nSentinels != rf.Spec.Sentinel.Replicas {
@@ -169,7 +170,7 @@ func (r *RedisFailoverChecker) CheckIfMasterLocalhost(rFailover *redisfailoverv1
 		r.logger.Errorf("CheckIfMasterLocalhost -- GetRedisPassword Failed")
 		return false, err
 	}
-	rport := getRedisPort(rFailover.Spec.Redis.Port)
+	rport := rFailover.Spec.Redis.Port.ToString()
 	for _, sip := range redisIps {
 		master, err := r.redisClient.GetSlaveOf(sip, rport, password)
 		if err != nil {
@@ -209,9 +210,11 @@ func (r *RedisFailoverChecker) CheckSentinelQuorum(rFailover *redisfailoverv1.Re
 		return unhealthyCnt, errors.New("insufficnet sentinel to reach Quorum")
 	}
 
+	portString := strconv.Itoa(int(rFailover.Spec.Sentinel.Port))
+
 	unhealthyCnt = 0
 	for _, sip := range sentinels {
-		err = r.redisClient.SentinelCheckQuorum(sip)
+		err = r.redisClient.SentinelCheckQuorum(sip, portString)
 		if err != nil {
 			unhealthyCnt += 1
 		} else {
@@ -228,7 +231,8 @@ func (r *RedisFailoverChecker) CheckSentinelQuorum(rFailover *redisfailoverv1.Re
 
 // CheckSentinelSlavesNumberInMemory controls that the provided sentinel has only the expected slaves number.
 func (r *RedisFailoverChecker) CheckSentinelSlavesNumberInMemory(sentinel string, rf *redisfailoverv1.RedisFailover) error {
-	nSlaves, err := r.redisClient.GetNumberSentinelSlavesInMemory(sentinel)
+	portString := rf.Spec.Sentinel.Port.ToString()
+	nSlaves, err := r.redisClient.GetNumberSentinelSlavesInMemory(sentinel, portString)
 	if err != nil {
 		return err
 	} else {
@@ -247,13 +251,14 @@ func (r *RedisFailoverChecker) CheckSentinelSlavesNumberInMemory(sentinel string
 }
 
 // CheckSentinelMonitor controls if the sentinels are monitoring the expected master
-func (r *RedisFailoverChecker) CheckSentinelMonitor(sentinel string, monitor ...string) error {
+func (r *RedisFailoverChecker) CheckSentinelMonitor(sentinel string, sentinelPort string, monitor ...string) error {
 	monitorIP := monitor[0]
 	monitorPort := ""
 	if len(monitor) > 1 {
 		monitorPort = monitor[1]
 	}
-	actualMonitorIP, actualMonitorPort, err := r.redisClient.GetSentinelMonitor(sentinel)
+
+	actualMonitorIP, actualMonitorPort, err := r.redisClient.GetSentinelMonitor(sentinel, sentinelPort)
 	if err != nil {
 		return err
 	}
@@ -276,7 +281,7 @@ func (r *RedisFailoverChecker) GetMasterIP(rf *redisfailoverv1.RedisFailover) (s
 	}
 
 	masters := []string{}
-	rport := getRedisPort(rf.Spec.Redis.Port)
+	rport := rf.Spec.Redis.Port.ToString()
 	for _, rip := range rips {
 		master, err := r.redisClient.IsMaster(rip, rport, password)
 		if err != nil {
@@ -309,7 +314,7 @@ func (r *RedisFailoverChecker) GetNumberMasters(rf *redisfailoverv1.RedisFailove
 		return nMasters, err
 	}
 
-	rport := getRedisPort(rf.Spec.Redis.Port)
+	rport := rf.Spec.Redis.Port.ToString()
 	for _, rip := range rips {
 		master, err := r.redisClient.IsMaster(rip, rport, password)
 		if err != nil {
@@ -387,7 +392,7 @@ func (r *RedisFailoverChecker) GetRedisesSlavesPods(rf *redisfailoverv1.RedisFai
 		return redises, err
 	}
 
-	rport := getRedisPort(rf.Spec.Redis.Port)
+	rport := rf.Spec.Redis.Port.ToString()
 	for _, rp := range rps.Items {
 		if rp.Status.Phase == corev1.PodRunning && rp.DeletionTimestamp == nil { // Only work with running
 			master, err := r.redisClient.IsMaster(rp.Status.PodIP, rport, password)
@@ -414,7 +419,7 @@ func (r *RedisFailoverChecker) GetRedisesMasterPod(rFailover *redisfailoverv1.Re
 		return "", err
 	}
 
-	rport := getRedisPort(rFailover.Spec.Redis.Port)
+	rport := rFailover.Spec.Redis.Port.ToString()
 	for _, rp := range rps.Items {
 		if rp.Status.Phase == corev1.PodRunning && rp.DeletionTimestamp == nil { // Only work with running
 			master, err := r.redisClient.IsMaster(rp.Status.PodIP, rport, password)
@@ -471,7 +476,7 @@ func (r *RedisFailoverChecker) CheckRedisSlavesReady(ip string, rFailover *redis
 		return false, err
 	}
 
-	port := getRedisPort(rFailover.Spec.Redis.Port)
+	port := rFailover.Spec.Redis.Port.ToString()
 	return r.redisClient.SlaveIsReady(ip, port, password)
 }
 
@@ -492,17 +497,14 @@ func (r *RedisFailoverChecker) IsHAProxyRunning(rFailover *redisfailoverv1.Redis
 	if rFailover.Spec.Haproxy == nil {
 		return true
 	}
-	dp, err := r.k8sService.GetDeploymentPods(rFailover.Namespace, redisHAProxyName)
+	haproxyName := rFailover.GenerateName(redisHAProxyName)
+	dp, err := r.k8sService.GetDeploymentPods(rFailover.Namespace, haproxyName)
 	return err == nil && len(dp.Items) > int(rFailover.Spec.Haproxy.Replicas-1) && AreAllRunning(dp)
 }
 
 // IsClusterRunning returns true if all the pods in the given redisfailover are Running
 func (r *RedisFailoverChecker) IsClusterRunning(rFailover *redisfailoverv1.RedisFailover) bool {
 	return r.IsSentinelRunning(rFailover) && r.IsRedisRunning(rFailover) && r.IsHAProxyRunning(rFailover)
-}
-
-func getRedisPort(p int32) string {
-	return strconv.Itoa(int(p))
 }
 
 func AreAllRunning(pods *corev1.PodList) bool {

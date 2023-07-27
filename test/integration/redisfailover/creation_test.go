@@ -178,6 +178,7 @@ func (c *clients) testCRCreation(t *testing.T) {
 			},
 			Sentinel: redisfailoverv1.SentinelSettings{
 				Replicas: sentinelSize,
+				Port:     redisfailoverv1.Port(26379),
 			},
 			Auth: redisfailoverv1.AuthSettings{
 				SecretPath: authSecretPath,

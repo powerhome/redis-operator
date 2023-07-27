@@ -42,6 +42,7 @@ func generateRF(enableExporter bool, bootstrapping bool) *redisfailoverv1.RedisF
 			},
 			Sentinel: redisfailoverv1.SentinelSettings{
 				Replicas: int32(3),
+				Port:     redisfailoverv1.Port(26379),
 			},
 			BootstrapNode: generateRFBootstrappingNode(bootstrapping),
 		},

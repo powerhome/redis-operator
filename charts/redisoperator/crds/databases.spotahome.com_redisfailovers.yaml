@@ -7239,6 +7239,11 @@ spec:
                 description: SentinelSettings defines the specification of the sentinel
                   cluster
                 properties:
+                  port:
+                    description: The port sentinels use for collaboration messages -
+                      announce/presence, leadership election, etc.
+                    format: int32
+                    type: integer
                   affinity:
                     description: Affinity is a group of affinity scheduling rules.
                     properties:
