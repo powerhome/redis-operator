@@ -54,6 +54,7 @@ type RedisFailoverStatus struct {
 type RedisFailoverSpec struct {
 	Redis               RedisSettings      `json:"redis,omitempty"`
 	Sentinel            SentinelSettings   `json:"sentinel,omitempty"`
+	Haproxy             *HaproxySettings   `json:"haproxy,omitempty"`
 	Auth                AuthSettings       `json:"auth,omitempty"`
 	LabelWhitelist      []string           `json:"labelWhitelist,omitempty"`
 	BootstrapNode       *BootstrapSettings `json:"bootstrapNode,omitempty"`
@@ -61,7 +62,6 @@ type RedisFailoverSpec struct {
 		MatchLabelKey   string `json:"matchLabelKey,omitempty"`
 		MatchLabelValue string `json:"matchLabelValue,omitempty"`
 	} `json:"networkPolicyNsList,omitempty"`
-	Haproxy *HaproxySettings `json:"haproxy,omitempty"`
 }
 
 // HaproxySettings contains settings about a potential bootstrap node
@@ -72,6 +72,11 @@ type HaproxySettings struct {
 	Resources    corev1.ResourceRequirements `json:"resources,omitempty"`
 	CustomConfig string                      `json:"customConfig,omitempty"`
 	Affinity     *corev1.Affinity            `json:"affinity,omitempty"`
+	Service      *ServiceSettings            `json:"service,omitempty"`
+}
+
+type ServiceSettings struct {
+	ClusterIP string `json:"clusterIP,omitempty" protobuf:"bytes,3,opt,name=clusterIP"`
 }
 
 // RedisCommandRename defines the specification of a "rename-command" configuration option
