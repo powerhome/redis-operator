@@ -68,9 +68,6 @@ spec:
                   port:
                     type: string
                 type: object
-              clusterIP:
-                description: A predefined IP address for the service
-                type: string
               networkPolicyNsList:
                 description: NetworkPolicy provides available namespace ingress rules
                 type: array
@@ -979,6 +976,13 @@ spec:
                           value. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
                         type: object
                     type: object
+                  service:
+                    description: Configures the HAProxy's Kubernets Service object
+                    type: object
+                    properties:
+                      clusterIP:
+                        description: A predefined IP address for the service
+                        type: string
               labelWhitelist:
                 items:
                   type: string
