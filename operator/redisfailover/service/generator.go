@@ -142,48 +142,48 @@ func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[stri
 
 	port := rf.Spec.Redis.Port
 	haproxyCfg := fmt.Sprintf(`global
-    daemon
-    maxconn 256
+	daemon
+	maxconn 256
 
-    defaults
-    mode tcp
-    timeout connect 5000ms
-    timeout client 50000ms
-    timeout server 50000ms
-    timeout check 5000ms
+	defaults
+	mode tcp
+	timeout connect 5000ms
+	timeout client 50000ms
+	timeout server 50000ms
+	timeout check 5000ms
 
-    frontend http
-    bind :8080
-    default_backend stats
+	frontend http
+	bind :8080
+	default_backend stats
 
-    backend stats
-    mode http
-    stats enable
-    stats uri /
-    stats refresh 1s
-    stats show-legends
-    stats admin if TRUE
+	backend stats
+	mode http
+	stats enable
+	stats uri /
+	stats refresh 1s
+	stats show-legends
+	stats admin if TRUE
 
-    resolvers k8s
-    parse-resolv-conf
-    hold other 10s
-    hold refused 10s
-    hold nx 10
-    hold timeout 10s
-    hold valid 10s
-    hold obsolete 10s
+	resolvers k8s
+	parse-resolv-conf
+	hold other 10s
+	hold refused 10s
+	hold nx 10
+	hold timeout 10s
+	hold valid 10s
+	hold obsolete 10s
 
-    frontend redis-master
-    bind *:%d
-    default_backend redis-master
+	frontend redis-master
+	bind *:%d
+	default_backend redis-master
 
-    backend redis-master
-    mode tcp
-    balance first
-    option tcp-check
-    tcp-check send info\ replication\r\n
-    tcp-check expect string role:master
-    server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none
+	backend redis-master
+	mode tcp
+	balance first
+	option tcp-check
+	tcp-check send info\ replication\r\n
+	tcp-check expect string role:master
+	server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none
 `, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
 
 	if rf.Spec.Haproxy.CustomConfig != "" {
@@ -239,20 +239,36 @@ func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[
 
 func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 	name := rf.Spec.Haproxy.RedisHost
-
 	if name == "" {
 		name = redisHAProxyName
 	}
-
 	namespace := rf.Namespace
 	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
 	selectorLabels := map[string]string{
 		"app.kubernetes.io/component": "redis",
 	}
-
 	selectorLabels = util.MergeLabels(selectorLabels, generateComponentLabel("haproxy"))
-
 	selectorLabels = util.MergeLabels(labels, selectorLabels)
+
+	spec := corev1.ServiceSpec{
+		Selector: selectorLabels,
+		Type:     "ClusterIP",
+		Ports: []corev1.ServicePort{
+			{
+				Name:       "redis-master",
+				Port:       rf.Spec.Redis.Port.ToInt32(),
+				TargetPort: redisTargetPort,
+				Protocol:   "TCP",
+			},
+		},
+	}
+
+	serviceSettings := rf.Spec.Haproxy.Service
+	if serviceSettings != nil {
+		if serviceSettings.ClusterIP != "" {
+			spec.ClusterIP = serviceSettings.ClusterIP
+		}
+	}
 
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -261,18 +277,7 @@ func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string
 			Labels:          labels,
 			OwnerReferences: ownerRefs,
 		},
-		Spec: corev1.ServiceSpec{
-			Selector: selectorLabels,
-			Type:     "ClusterIP",
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "redis-master",
-					Port:       rf.Spec.Redis.Port.ToInt32(),
-					TargetPort: redisTargetPort,
-					Protocol:   "TCP",
-				},
-			},
-		},
+		Spec: spec,
 	}
 }
 
