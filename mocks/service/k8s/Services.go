@@ -13,13 +13,13 @@ import (
 
 	networkingv1 "k8s.io/api/networking/v1"
 
-	policyv1 "k8s.io/api/policy/v1"
-
 	rbacv1 "k8s.io/api/rbac/v1"
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 
 	v1 "k8s.io/api/core/v1"
+
+	v1beta1 "k8s.io/api/policy/v1beta1"
 
 	watch "k8s.io/apimachinery/pkg/watch"
 )
@@ -553,12 +553,12 @@ func (_m *Services) GetPod(namespace string, name string) (*v1.Pod, error) {
 func (_m *Services) GetPodDisruptionBudget(namespace string, name string) (*v1beta1.PodDisruptionBudget, error) {
 	ret := _m.Called(namespace, name)
 
-	var r0 *policyv1.PodDisruptionBudget
+	var r0 *v1beta1.PodDisruptionBudget
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (*policyv1.PodDisruptionBudget, error)); ok {
+	if rf, ok := ret.Get(0).(func(string, string) (*v1beta1.PodDisruptionBudget, error)); ok {
 		return rf(namespace, name)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) *policyv1.PodDisruptionBudget); ok {
+	if rf, ok := ret.Get(0).(func(string, string) *v1beta1.PodDisruptionBudget); ok {
 		r0 = rf(namespace, name)
 	} else {
 		if ret.Get(0) != nil {
