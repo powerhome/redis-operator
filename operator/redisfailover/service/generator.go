@@ -414,6 +414,26 @@ func generateRedisMasterService(rf *redisfailoverv1.RedisFailover, labels map[st
 	})
 	labels = util.MergeLabels(labels, selectorLabels)
 
+	spec := corev1.ServiceSpec{
+		Type: corev1.ServiceTypeClusterIP,
+		Ports: []corev1.ServicePort{
+			{
+				Name:       "redis",
+				Port:       rf.Spec.Redis.Port.ToInt32(),
+				TargetPort: intstr.FromString("redis"),
+				Protocol:   corev1.ProtocolTCP,
+			},
+		},
+		Selector: selectorLabels,
+	}
+
+	serviceSettings := rf.Spec.Redis.Service
+	if serviceSettings != nil {
+		if serviceSettings.ClusterIP != "" {
+			spec.ClusterIP = serviceSettings.ClusterIP
+		}
+	}
+
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -422,18 +442,7 @@ func generateRedisMasterService(rf *redisfailoverv1.RedisFailover, labels map[st
 			OwnerReferences: ownerRefs,
 			Annotations:     rf.Spec.Redis.ServiceAnnotations,
 		},
-		Spec: corev1.ServiceSpec{
-			Type: corev1.ServiceTypeClusterIP,
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "redis",
-					Port:       rf.Spec.Redis.Port.ToInt32(),
-					TargetPort: intstr.FromString("redis"),
-					Protocol:   corev1.ProtocolTCP,
-				},
-			},
-			Selector: selectorLabels,
-		},
+		Spec: spec,
 	}
 }
 

@@ -1339,7 +1339,7 @@ func TestHaproxyService(t *testing.T) {
 			},
 		},
 		{
-			name:        "with custom ClusterIP",
+			name:        "with a ClusterIP provided",
 			rfRedisPort: defaultRedisPort,
 			haproxy: redisfailoverv1.HaproxySettings{
 				Service: &redisfailoverv1.ServiceSettings{
@@ -1411,12 +1411,13 @@ func TestHaproxyService(t *testing.T) {
 
 func TestRedisMasterService(t *testing.T) {
 	tests := []struct {
-		name            string
-		rfName          string
-		rfNamespace     string
-		rfLabels        map[string]string
-		rfAnnotations   map[string]string
-		expectedService corev1.Service
+		name              string
+		rfName            string
+		rfNamespace       string
+		rfLabels          map[string]string
+		rfAnnotations     map[string]string
+		rfServiceSettings redisfailoverv1.ServiceSettings
+		expectedService   corev1.Service
 	}{
 		{
 			name: "with defaults",
@@ -1615,6 +1616,48 @@ func TestRedisMasterService(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "with a ClusterIP provided",
+			rfServiceSettings: redisfailoverv1.ServiceSettings{
+				ClusterIP: "10.1.0.100",
+			},
+			expectedService: corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      masterName,
+					Namespace: namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+						"redisfailovers-role":         "master",
+					},
+					Annotations: nil,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Type:      corev1.ServiceTypeClusterIP,
+					ClusterIP: "10.1.0.100",
+					Selector: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+						"redisfailovers-role":         "master",
+					},
+					Ports: []corev1.ServicePort{
+						{
+							Name:       "redis",
+							Port:       6379,
+							Protocol:   corev1.ProtocolTCP,
+							TargetPort: intstr.FromString("redis"),
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -1629,6 +1672,7 @@ func TestRedisMasterService(t *testing.T) {
 			if test.rfNamespace != "" {
 				rf.Namespace = test.rfNamespace
 			}
+			rf.Spec.Redis.Service = &test.rfServiceSettings
 			rf.Spec.Redis.Port = 6379
 			rf.Spec.Redis.ServiceAnnotations = test.rfAnnotations
 

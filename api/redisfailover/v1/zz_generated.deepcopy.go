@@ -432,6 +432,11 @@ func (in *RedisSettings) DeepCopyInto(out *RedisSettings) {
 		*out = new(corev1.Probe)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Service != nil {
+		in, out := &in.Service, &out.Service
+		*out = new(ServiceSettings)
+		**out = **in
+	}
 	return
 }
 
