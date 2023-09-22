@@ -505,6 +505,9 @@ func (r *RedisFailoverChecker) IsHAProxyRunning(rFailover *redisfailoverv1.Redis
 
 // IsClusterRunning returns true if all the pods in the given redisfailover are Running
 func (r *RedisFailoverChecker) IsClusterRunning(rFailover *redisfailoverv1.RedisFailover) bool {
+	if rFailover.Bootstrapping() && !rFailover.SentinelsAllowed() {
+		return r.IsRedisRunning(rFailover) && r.IsHAProxyRunning(rFailover)
+	}
 	return r.IsSentinelRunning(rFailover) && r.IsRedisRunning(rFailover) && r.IsHAProxyRunning(rFailover)
 }
 
