@@ -16,8 +16,10 @@ import (
 // +kubebuilder:printcolumn:name="REDIS",type="integer",JSONPath=".spec.redis.replicas"
 // +kubebuilder:printcolumn:name="SENTINELS",type="integer",JSONPath=".spec.sentinel.replicas"
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.conditions[-1:].message"
+// +kubebuilder:printcolumn:name="STATUS",type="string",JSONPath=".status.conditions[-1:].message"
 // +kubebuilder:resource:singular=redisfailover,path=redisfailovers,shortName=rf,scope=Namespaced
+// +kubebuilder:metadata:annotations=krane.shopify.io/instance-rollout-conditions=true
+// +kubebuilder:subresource:status
 type RedisFailover struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -52,16 +54,19 @@ type RedisFailoverStatus struct {
 
 // RedisFailoverSpec represents a Redis failover spec
 type RedisFailoverSpec struct {
-	Redis               RedisSettings      `json:"redis,omitempty"`
-	Sentinel            SentinelSettings   `json:"sentinel,omitempty"`
-	Haproxy             *HaproxySettings   `json:"haproxy,omitempty"`
-	Auth                AuthSettings       `json:"auth,omitempty"`
-	LabelWhitelist      []string           `json:"labelWhitelist,omitempty"`
-	BootstrapNode       *BootstrapSettings `json:"bootstrapNode,omitempty"`
-	NetworkPolicyNsList []struct {
-		MatchLabelKey   string `json:"matchLabelKey,omitempty"`
-		MatchLabelValue string `json:"matchLabelValue,omitempty"`
-	} `json:"networkPolicyNsList,omitempty"`
+	Redis               RedisSettings                 `json:"redis,omitempty"`
+	Sentinel            SentinelSettings              `json:"sentinel,omitempty"`
+	Haproxy             *HaproxySettings              `json:"haproxy,omitempty"`
+	Auth                AuthSettings                  `json:"auth,omitempty"`
+	LabelWhitelist      []string                      `json:"labelWhitelist,omitempty"`
+	BootstrapNode       *BootstrapSettings            `json:"bootstrapNode,omitempty"`
+	NetworkPolicyNsList []NetworkPolicyNamespaceEntry `json:"networkPolicyNsList,omitempty"`
+}
+
+// NetworkPolicyNamespaceEntry represents the the key value of a label
+type NetworkPolicyNamespaceEntry struct {
+	MatchLabelKey   string `json:"matchLabelKey,omitempty"`
+	MatchLabelValue string `json:"matchLabelValue,omitempty"`
 }
 
 // HaproxySettings contains settings about a potential bootstrap node
