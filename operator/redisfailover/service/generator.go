@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -12,6 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+
+	np "k8s.io/api/networking/v1"
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	"github.com/spotahome/redis-operator/operator/redisfailover/util"
@@ -34,6 +37,8 @@ rename-command "{{.From}}" "{{.To}}"
 	sentinelConfigTemplate = `sentinel monitor mymaster 127.0.0.1 {{.Spec.Redis.Port}} 2
 sentinel down-after-milliseconds mymaster 1000
 sentinel failover-timeout mymaster 3000
+sentinel announce-port {{.Spec.Sentinel.Port}}
+port {{.Spec.Sentinel.Port}}
 sentinel parallel-syncs mymaster 2`
 
 	redisShutdownConfigurationVolumeName   = "redis-shutdown-config"
@@ -45,11 +50,299 @@ sentinel parallel-syncs mymaster 2`
 	graceTime = 30
 )
 
+const redisHAProxyName = "redis-haproxy"
+
+func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
+
+	name := rf.GenerateName(redisHAProxyName)
+
+	namespace := rf.Namespace
+
+	labels = util.MergeLabels(labels, map[string]string{
+		"app.kubernetes.io/component": "redis",
+	})
+
+	selectorLabels := util.MergeLabels(labels, generateComponentLabel("haproxy"))
+
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "config",
+			MountPath: "/usr/local/etc/haproxy/haproxy.cfg",
+			SubPath:   "haproxy.cfg",
+			ReadOnly:  true,
+		},
+	}
+
+	volumes := []corev1.Volume{
+		{
+			Name: "config",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: name,
+					},
+				},
+			},
+		},
+	}
+
+	sd := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       namespace,
+			Labels:          labels,
+			OwnerReferences: ownerRefs,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &rf.Spec.Haproxy.Replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: selectorLabels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: selectorLabels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "haproxy",
+							Image: rf.Spec.Haproxy.Image,
+							Ports: []corev1.ContainerPort{
+								{
+									ContainerPort: rf.Spec.Redis.Port.ToInt32(),
+								},
+							},
+							VolumeMounts: volumeMounts,
+							Resources:    rf.Spec.Haproxy.Resources,
+						},
+					},
+					Volumes:       volumes,
+					RestartPolicy: "Always",
+				},
+			},
+		},
+	}
+
+	if rf.Spec.Haproxy.Affinity != nil {
+		sd.Spec.Template.Spec.Affinity = rf.Spec.Haproxy.Affinity
+	}
+
+	return sd
+}
+
+func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
+	name := rf.GenerateName(redisHAProxyName)
+	redisName := rf.GenerateName("redis")
+
+	namespace := rf.Namespace
+
+	labels = util.MergeLabels(labels, map[string]string{
+		"app.kubernetes.io/component": "redis",
+	})
+
+	port := rf.Spec.Redis.Port
+	haproxyCfg := fmt.Sprintf(`global
+	daemon
+	maxconn 256
+
+	defaults
+	mode tcp
+	timeout connect 5000ms
+	timeout client 50000ms
+	timeout server 50000ms
+	timeout check 5000ms
+
+	frontend http
+	bind :8080
+	default_backend stats
+
+	backend stats
+	mode http
+	stats enable
+	stats uri /
+	stats refresh 1s
+	stats show-legends
+	stats admin if TRUE
+
+	resolvers k8s
+	parse-resolv-conf
+	hold other 10s
+	hold refused 10s
+	hold nx 10
+	hold timeout 10s
+	hold valid 10s
+	hold obsolete 10s
+
+	frontend redis-master
+	bind *:%d
+	default_backend redis-master
+
+	backend redis-master
+	mode tcp
+	balance first
+	option tcp-check
+	tcp-check send info\ replication\r\n
+	tcp-check expect string role:master
+	server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none
+`, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
+
+	if rf.Spec.Haproxy.CustomConfig != "" {
+		haproxyCfg = rf.Spec.Haproxy.CustomConfig
+	}
+
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       namespace,
+			Labels:          labels,
+			OwnerReferences: ownerRefs,
+		},
+		Data: map[string]string{
+			"haproxy.cfg": haproxyCfg,
+		},
+	}
+}
+
+func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
+
+	name := rf.GenerateName("redis")
+	namespace := rf.Namespace
+
+	redisTargetPort := intstr.FromString("redis")
+
+	selectorLabels := util.MergeLabels(labels, map[string]string{
+		"app.kubernetes.io/component": "redis",
+	})
+
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       namespace,
+			Labels:          labels,
+			OwnerReferences: ownerRefs,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector:  selectorLabels,
+			Type:      "ClusterIP",
+			ClusterIP: "None",
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "redis",
+					Port:       rf.Spec.Redis.Port.ToInt32(),
+					TargetPort: redisTargetPort,
+					Protocol:   "TCP",
+				},
+			},
+		},
+	}
+}
+
+func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
+	name := rf.Spec.Haproxy.RedisHost
+	if name == "" {
+		name = redisHAProxyName
+	}
+	namespace := rf.Namespace
+	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
+	selectorLabels := map[string]string{
+		"app.kubernetes.io/component": "redis",
+	}
+	selectorLabels = util.MergeLabels(selectorLabels, generateComponentLabel("haproxy"))
+	selectorLabels = util.MergeLabels(labels, selectorLabels)
+
+	spec := corev1.ServiceSpec{
+		Selector: selectorLabels,
+		Type:     "ClusterIP",
+		Ports: []corev1.ServicePort{
+			{
+				Name:       "redis-master",
+				Port:       rf.Spec.Redis.Port.ToInt32(),
+				TargetPort: redisTargetPort,
+				Protocol:   "TCP",
+			},
+		},
+	}
+
+	serviceSettings := rf.Spec.Haproxy.Service
+	if serviceSettings != nil {
+		if serviceSettings.ClusterIP != "" {
+			spec.ClusterIP = serviceSettings.ClusterIP
+		}
+	}
+
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       namespace,
+			Labels:          labels,
+			OwnerReferences: ownerRefs,
+		},
+		Spec: spec,
+	}
+}
+
+func generateNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *np.NetworkPolicy {
+	name := GetNetworkPolicyName(rf)
+	namespace := rf.Namespace
+
+	networkPolicyNsList := rf.Spec.NetworkPolicyNsList
+
+	selectorLabels := generateSelectorLabels(networkPolicyName, rf.Name)
+	labels = util.MergeLabels(labels, selectorLabels)
+
+	sentinelTargetPort := intstr.FromInt(int(rf.Spec.Sentinel.Port))
+	metricsTargetPort := intstr.FromInt(9121)
+	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
+
+	peers := []np.NetworkPolicyPeer{}
+
+	for _, inputPeer := range networkPolicyNsList {
+
+		labelKey := inputPeer.MatchLabelKey
+		labelValue := inputPeer.MatchLabelValue
+
+		peers = append(peers, np.NetworkPolicyPeer{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{labelKey: labelValue},
+			},
+		})
+	}
+
+	ports := make([]np.NetworkPolicyPort, 0)
+	ports = append(ports, np.NetworkPolicyPort{
+		Port: &redisTargetPort,
+	}, np.NetworkPolicyPort{
+		Port: &metricsTargetPort,
+	}, np.NetworkPolicyPort{
+		Port: &sentinelTargetPort,
+	})
+
+	return &np.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       namespace,
+			Labels:          labels,
+			OwnerReferences: ownerRefs,
+		},
+		Spec: np.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchLabels: map[string]string{"redisfailovers.databases.spotahome.com/name": rf.Name},
+			},
+			Ingress: []np.NetworkPolicyIngressRule{
+				np.NetworkPolicyIngressRule{
+					From:  peers,
+					Ports: ports,
+				},
+			},
+		},
+	}
+}
+
 func generateSentinelService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 	name := GetSentinelName(rf)
 	namespace := rf.Namespace
+	sentinelTargetPort := intstr.FromInt(int(rf.Spec.Sentinel.Port))
 
-	sentinelTargetPort := intstr.FromInt(26379)
 	selectorLabels := generateSelectorLabels(sentinelRoleName, rf.Name)
 	labels = util.MergeLabels(labels, selectorLabels)
 
@@ -66,7 +359,7 @@ func generateSentinelService(rf *redisfailoverv1.RedisFailover, labels map[strin
 			Ports: []corev1.ServicePort{
 				{
 					Name:       "sentinel",
-					Port:       26379,
+					Port:       rf.Spec.Sentinel.Port.ToInt32(),
 					TargetPort: sentinelTargetPort,
 					Protocol:   "TCP",
 				},
@@ -134,7 +427,7 @@ func generateRedisMasterService(rf *redisfailoverv1.RedisFailover, labels map[st
 			Ports: []corev1.ServicePort{
 				{
 					Name:       "redis",
-					Port:       rf.Spec.Redis.Port,
+					Port:       rf.Spec.Redis.Port.ToInt32(),
 					TargetPort: intstr.FromString("redis"),
 					Protocol:   corev1.ProtocolTCP,
 				},
@@ -167,7 +460,7 @@ func generateRedisSlaveService(rf *redisfailoverv1.RedisFailover, labels map[str
 			Ports: []corev1.ServicePort{
 				{
 					Name:       "redis",
-					Port:       rf.Spec.Redis.Port,
+					Port:       rf.Spec.Redis.Port.ToInt32(),
 					TargetPort: intstr.FromString("redis"),
 					Protocol:   corev1.ProtocolTCP,
 				},
@@ -342,6 +635,8 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 	labels = util.MergeLabels(labels, selectorLabels)
 	labels = util.MergeLabels(labels, generateRedisDefaultRoleLabel())
 
+	labels = util.MergeLabels(labels, generateComponentLabel("redis"))
+
 	volumeMounts := getRedisVolumeMounts(rf)
 	volumes := getRedisVolumes(rf)
 	terminationGracePeriodSeconds := getTerminationGracePeriodSeconds(rf)
@@ -390,7 +685,7 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 							Ports: []corev1.ContainerPort{
 								{
 									Name:          "redis",
-									ContainerPort: rf.Spec.Redis.Port,
+									ContainerPort: rf.Spec.Redis.Port.ToInt32(),
 									Protocol:      corev1.ProtocolTCP,
 								},
 							},
@@ -516,6 +811,8 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 	selectorLabels := generateSelectorLabels(sentinelRoleName, rf.Name)
 	labels = util.MergeLabels(labels, selectorLabels)
 
+	labels = util.MergeLabels(labels, generateComponentLabel("sentinel"))
+
 	volumeMounts := getSentinelVolumeMounts(rf)
 	volumes := getSentinelVolumes(rf, configMapName)
 
@@ -589,7 +886,7 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 							Ports: []corev1.ContainerPort{
 								{
 									Name:          "sentinel",
-									ContainerPort: 26379,
+									ContainerPort: rf.Spec.Sentinel.Port.ToInt32(),
 									Protocol:      corev1.ProtocolTCP,
 								},
 							},
@@ -607,6 +904,7 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 	if rf.Spec.Sentinel.CustomLivenessProbe != nil {
 		sd.Spec.Template.Spec.Containers[0].LivenessProbe = rf.Spec.Sentinel.CustomLivenessProbe
 	} else {
+		command := "redis-cli -h $(hostname) -p " + strconv.FormatInt(int64(rf.Spec.Sentinel.Port), 10) + " ping"
 		sd.Spec.Template.Spec.Containers[0].LivenessProbe = &corev1.Probe{
 			InitialDelaySeconds: graceTime,
 			TimeoutSeconds:      5,
@@ -615,7 +913,7 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 					Command: []string{
 						"sh",
 						"-c",
-						"redis-cli -h $(hostname) -p 26379 ping",
+						command,
 					},
 				},
 			},
@@ -625,6 +923,7 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 	if rf.Spec.Sentinel.CustomReadinessProbe != nil {
 		sd.Spec.Template.Spec.Containers[0].ReadinessProbe = rf.Spec.Sentinel.CustomReadinessProbe
 	} else {
+		command := "redis-cli -h $(hostname) -p " + strconv.FormatInt(int64(rf.Spec.Sentinel.Port), 10) + " sentinel get-master-addr-by-name mymaster | head -n 1 | grep -vq '127.0.0.1'"
 		sd.Spec.Template.Spec.Containers[0].ReadinessProbe = &corev1.Probe{
 			InitialDelaySeconds: graceTime,
 			TimeoutSeconds:      5,
@@ -633,7 +932,7 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 					Command: []string{
 						"sh",
 						"-c",
-						"redis-cli -h $(hostname) -p 26379 sentinel get-master-addr-by-name mymaster | head -n 1 | grep -vq '127.0.0.1'",
+						command,
 					},
 				},
 			},
@@ -740,6 +1039,9 @@ func createSentinelExporterContainer(rf *redisfailoverv1.RedisFailover) corev1.C
 	if rf.Spec.Sentinel.Exporter.Resources != nil {
 		resources = *rf.Spec.Sentinel.Exporter.Resources
 	}
+
+	command := "redis://127.0.0.1:" + strconv.FormatInt(int64(rf.Spec.Sentinel.Port), 10)
+
 	container := corev1.Container{
 		Name:            sentinelExporterContainerName,
 		Image:           rf.Spec.Sentinel.Exporter.Image,
@@ -758,7 +1060,7 @@ func createSentinelExporterContainer(rf *redisfailoverv1.RedisFailover) corev1.C
 			Value: fmt.Sprintf("0.0.0.0:%[1]v", sentinelExporterPort),
 		}, corev1.EnvVar{
 			Name:  "REDIS_ADDR",
-			Value: "redis://127.0.0.1:26379",
+			Value: command,
 		},
 		),
 		Ports: []corev1.ContainerPort{

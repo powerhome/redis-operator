@@ -389,14 +389,14 @@ func TestCheckAndHeal(t *testing.T) {
 					if test.bootstrapping {
 						mrfc.On("CheckSentinelMonitor", sentinel, bootstrapMaster, bootstrapMasterPort).Once().Return(nil)
 					} else {
-						mrfc.On("CheckSentinelMonitor", sentinel, master, "0").Once().Return(nil)
+						mrfc.On("CheckSentinelMonitor", sentinel, "26379", master, "0").Once().Return(nil)
 					}
 				} else {
 					if test.bootstrapping {
 						mrfc.On("CheckSentinelMonitor", sentinel, bootstrapMaster, bootstrapMasterPort).Once().Return(errors.New(""))
 						mrfh.On("NewSentinelMonitorWithPort", sentinel, bootstrapMaster, bootstrapMasterPort, rf).Once().Return(nil)
 					} else {
-						mrfc.On("CheckSentinelMonitor", sentinel, master, "0").Once().Return(errors.New(""))
+						mrfc.On("CheckSentinelMonitor", sentinel, "26379", master, "0").Once().Return(errors.New(""))
 						mrfh.On("NewSentinelMonitor", sentinel, master, rf).Once().Return(nil)
 					}
 				}
@@ -404,13 +404,13 @@ func TestCheckAndHeal(t *testing.T) {
 					mrfc.On("CheckSentinelNumberInMemory", sentinel, rf).Once().Return(nil)
 				} else {
 					mrfc.On("CheckSentinelNumberInMemory", sentinel, rf).Once().Return(errors.New(""))
-					mrfh.On("RestoreSentinel", sentinel).Once().Return(nil)
+					mrfh.On("RestoreSentinel", sentinel, "26379").Once().Return(nil)
 				}
 				if test.sentinelSlavesNumberInMemoryOK {
 					mrfc.On("CheckSentinelSlavesNumberInMemory", sentinel, rf).Once().Return(nil)
 				} else {
 					mrfc.On("CheckSentinelSlavesNumberInMemory", sentinel, rf).Once().Return(errors.New(""))
-					mrfh.On("RestoreSentinel", sentinel).Once().Return(nil)
+					mrfh.On("RestoreSentinel", sentinel, "26379").Once().Return(nil)
 				}
 				mrfh.On("SetSentinelCustomConfig", sentinel, rf).Once().Return(nil)
 			}

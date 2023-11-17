@@ -34,6 +34,11 @@ func GetSentinelName(rf *redisfailoverv1.RedisFailover) string {
 	return generateName(sentinelName, rf.Name)
 }
 
+// GetSentinelName returns the name for sentinel resources
+func GetNetworkPolicyName(rf *redisfailoverv1.RedisFailover) string {
+	return generateName(networkPolicyName, rf.Name)
+}
+
 func GetRedisMasterName(rf *redisfailoverv1.RedisFailover) string {
 	return generateName(redisMasterName, rf.Name)
 }

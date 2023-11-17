@@ -14,6 +14,11 @@ import (
 // RedisFailoverClient has the minimumm methods that a Redis failover controller needs to satisfy
 // in order to talk with K8s
 type RedisFailoverClient interface {
+	EnsureHAProxyDeployment(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureHAProxyConfigmap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureHAProxyService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureRedisHeadlessService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureNetworkPolicy(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelDeployment(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
@@ -25,6 +30,8 @@ type RedisFailoverClient interface {
 	EnsureRedisReadinessConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureNotPresentRedisService(rFailover *redisfailoverv1.RedisFailover) error
+
+	UpdateStatus(rFailover *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error)
 }
 
 // RedisFailoverKubeClient implements the required methods to talk with kubernetes
@@ -65,6 +72,53 @@ func generateRedisSlaveRoleLabel() map[string]string {
 	return map[string]string{
 		redisRoleLabelKey: redisRoleLabelSlave,
 	}
+}
+
+func generateComponentLabel(componentType string) map[string]string {
+	return map[string]string{
+		"redisfailovers.databases.spotahome.com/component": componentType,
+	}
+}
+
+// EnsureNetworkPolicy makes sure the network policy exists
+func (r *RedisFailoverKubeClient) EnsureNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	svc := generateNetworkPolicy(rf, labels, ownerRefs)
+	err := r.K8SService.CreateOrUpdateNetworkPolicy(rf.Namespace, svc)
+	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "NetworkPolicy", rf.Name, err)
+	return err
+}
+
+// EnsureHAProxyService makes sure the HAProxy service exists
+func (r *RedisFailoverKubeClient) EnsureHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	svc := generateHAProxyService(rf, labels, ownerRefs)
+	err := r.K8SService.CreateOrUpdateService(rf.Namespace, svc)
+	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyService", rf.Name, err)
+	return err
+}
+
+// EnsureRedisHeadlessService makes sure the HAProxy service exists
+func (r *RedisFailoverKubeClient) EnsureRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	svc := generateRedisHeadlessService(rf, labels, ownerRefs)
+	err := r.K8SService.CreateOrUpdateService(rf.Namespace, svc)
+	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureRedisHeadlessSerice", rf.Name, err)
+	return err
+}
+
+// EnsureHAProxyConfigmap makes sure the HAProxy configmap exists
+func (r *RedisFailoverKubeClient) EnsureHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	svc := generateHAProxyConfigmap(rf, labels, ownerRefs)
+	err := r.K8SService.CreateOrUpdateConfigMap(rf.Namespace, svc)
+	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyConfigmap", rf.Name, err)
+	return err
+}
+
+// EnsureHAProxyDeployment makes sure the sentinel deployment exists in the desired state
+func (r *RedisFailoverKubeClient) EnsureHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	d := generateHAProxyDeployment(rf, labels, ownerRefs)
+	err := r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
+
+	r.setEnsureOperationMetrics(d.Namespace, d.Name, "EnsureHAProxyDeployment", rf.Name, err)
+	return err
 }
 
 // EnsureSentinelService makes sure the sentinel service exists
@@ -210,4 +264,9 @@ func (r *RedisFailoverKubeClient) setEnsureOperationMetrics(objectNamespace stri
 		r.metricsClient.RecordEnsureOperation(objectNamespace, objectName, objectKind, ownerName, metrics.FAIL)
 	}
 	r.metricsClient.RecordEnsureOperation(objectNamespace, objectName, objectKind, ownerName, metrics.SUCCESS)
+}
+
+func (r *RedisFailoverKubeClient) UpdateStatus(rf *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error) {
+	rf, err := r.K8SService.WriteStatus(rf)
+	return rf, err
 }

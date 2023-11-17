@@ -2,6 +2,7 @@ package redisfailover
 
 import (
 	"context"
+	"os"
 	"regexp"
 	"time"
 
@@ -35,10 +36,11 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 	rfService := rfservice.NewRedisFailoverKubeClient(k8sService, logger, kooperMetricsRecorder)
 	rfChecker := rfservice.NewRedisFailoverChecker(k8sService, redisClient, logger, kooperMetricsRecorder)
 	rfHealer := rfservice.NewRedisFailoverHealer(k8sService, redisClient, logger)
+	watchNamespace := os.Getenv("WATCH_NAMESPACE")
 
 	// Create the handlers.
 	rfHandler := NewRedisFailoverHandler(cfg, rfService, rfChecker, rfHealer, k8sService, kooperMetricsRecorder, logger)
-	rfRetriever := NewRedisFailoverRetriever(cfg, k8sService)
+	rfRetriever := NewRedisFailoverRetriever(cfg, k8sService, watchNamespace)
 
 	kooperLogger := kooperlogger{Logger: logger.WithField("operator", "redisfailover")}
 	// Leader election service.
@@ -60,7 +62,7 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 	})
 }
 
-func NewRedisFailoverRetriever(cfg Config, cli k8s.Services) controller.Retriever {
+func NewRedisFailoverRetriever(cfg Config, cli k8s.Services, watchNamespace string) controller.Retriever {
 	isNamespaceSupported := func(rf redisfailoverv1.RedisFailover) bool {
 		match, _ := regexp.Match(cfg.SupportedNamespacesRegex, []byte(rf.Namespace))
 		return match
@@ -69,7 +71,7 @@ func NewRedisFailoverRetriever(cfg Config, cli k8s.Services) controller.Retrieve
 
 	return controller.MustRetrieverFromListerWatcher(&cache.ListWatch{
 		ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
-			rfList, err := cli.ListRedisFailovers(context.Background(), "", options)
+			rfList, err := cli.ListRedisFailovers(context.Background(), watchNamespace, options)
 			if err != nil {
 				return rfList, err
 			}
@@ -85,7 +87,7 @@ func NewRedisFailoverRetriever(cfg Config, cli k8s.Services) controller.Retrieve
 			return rfList, err
 		},
 		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-			watcher, err := cli.WatchRedisFailovers(context.Background(), "", options)
+			watcher, err := cli.WatchRedisFailovers(context.Background(), watchNamespace, options)
 			watcher = watch.Filter(watcher, func(event watch.Event) (watch.Event, bool) {
 				rf, ok := event.Object.(*redisfailoverv1.RedisFailover)
 				if !ok {

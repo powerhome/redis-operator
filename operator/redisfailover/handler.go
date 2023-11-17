@@ -59,6 +59,45 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 		return fmt.Errorf("can't handle the received object: not a redisfailover")
 	}
 
+	// initial condition type is `Pending`
+	if len(rf.Status.Conditions) == 0 {
+		clusterCondition := redisfailoverv1.ClusterCondition{
+			Status:  redisfailoverv1.ConditionTrue,
+			Type:    redisfailoverv1.AppStatePending,
+			Message: "Initializing RedisFailover...",
+		}
+
+		rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
+		rf.Status.AddCondition(clusterCondition)
+
+		rf, err := r.rfService.UpdateStatus(rf)
+
+		if err != nil {
+			r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
+			r.mClient.SetClusterError(rf.Namespace, rf.Name)
+			return err
+		}
+	} else {
+		// If the versions do not match, this signifies that the resource has been updated and therefore, the status also requires updating.
+		if rf.GetObjectMeta().GetGeneration() != rf.Status.ObservedGeneration {
+
+			rf.Status.Conditions = []redisfailoverv1.ClusterCondition{}
+			rf.Status.AddCondition(redisfailoverv1.ClusterCondition{
+				Status:  redisfailoverv1.ConditionTrue,
+				Type:    redisfailoverv1.AppStatePending,
+				Message: "RedisFailover reconciling...",
+			})
+			rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
+			_, err := r.rfService.UpdateStatus(rf)
+
+			if err != nil {
+				r.mClient.SetClusterError(rf.Namespace, rf.Name)
+				r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
+				return err
+			}
+		}
+	}
+
 	if err := rf.Validate(); err != nil {
 		r.mClient.SetClusterError(rf.Namespace, rf.Name)
 		return err
@@ -79,6 +118,31 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 	if err := r.CheckAndHeal(rf); err != nil {
 		r.mClient.SetClusterError(rf.Namespace, rf.Name)
 		return err
+	}
+
+	// if last condition `Type` is not `Ready`, add it to the list
+	if rf.Status.Conditions[len(rf.Status.Conditions)-1].Type != redisfailoverv1.AppStateReady {
+
+		// make sure that all required resources are running as expected
+		if r.rfChecker.IsClusterRunning(rf) {
+
+			clusterCondition := redisfailoverv1.ClusterCondition{
+				Status:  redisfailoverv1.ConditionTrue,
+				Type:    redisfailoverv1.AppStateReady,
+				Message: "RedisFailover initialized successfully",
+			}
+
+			rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
+			rf.Status.AddCondition(clusterCondition)
+
+			_, err := r.rfService.UpdateStatus(rf)
+
+			if err != nil {
+				r.mClient.SetClusterError(rf.Namespace, rf.Name)
+				r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
+				return err
+			}
+		}
 	}
 
 	r.mClient.SetClusterOK(rf.Namespace, rf.Name)

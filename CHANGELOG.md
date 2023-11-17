@@ -2,6 +2,10 @@
 
 Check [releases](https://github.com/spotahome/redis-operator/releases) section for Changelog
 
+## Unreleased
+
+- [Fix PodDisruptionBudget deprecation warnings on kube 1.21+](https://github.com/powerhome/redis-operator/pull/19)
+
 ## [v1.1.0-rc.3] - 2022-01-19
 ### Changes
 - Fixed support for kubernetes <1.21
@@ -10,7 +14,7 @@ Check [releases](https://github.com/spotahome/redis-operator/releases) section f
 ### Changes
 - Allow configuration of exporter resource
 - Fix persistent volume claim metadata management
-- Add arm64,arm,amd64 docker images 
+- Add arm64,arm,amd64 docker images
 
 Update notes:
 
@@ -53,7 +57,7 @@ For detailed changelogs see rc relases
 ## [v1.0.0-rc.5] - 2020-02-07
 
 ### Changes
-- Custom annotations for services #216 @alecjacobs5401 
+- Custom annotations for services #216 @alecjacobs5401
 - Update redis-exporter #222 @VerosK
 - Pod security policy to run as non root #228 @logdnalf
 - Custom command renames #234 @logdnalf
@@ -62,7 +66,7 @@ For detailed changelogs see rc relases
 - Add fsGroup to security context #215 @ese
 - Pod disruption budget lower than replicas #229 @tkrop
 - Add password support for readiness probes #235 @teamon
-  
+
 ## [v1.0.0-rc.4] - 2019-12-17
 
 ### Changes
@@ -75,7 +79,7 @@ For detailed changelogs see rc relases
 ### Action required
 
 Since update logic has been moved to operator, `PodManagementPolicy` has been set to `Parallel` in redis statefulSet. This improve bootstrap times.
-This field is immutable so to upgrade from previous rc releases you need to delete statefulSets manually. 
+This field is immutable so to upgrade from previous rc releases you need to delete statefulSets manually.
 *Note:* you can use `--cascade=false` flag to avoid disruption, pods will be adopted by the new statefulSet created by the operator.
 example: `kubectl delete statefulset --cascade=false rfr-redisfailover`
 
@@ -97,14 +101,14 @@ example: `kubectl delete statefulset --cascade=false rfr-redisfailover`
 
 - Add custom annotations for pods in the CRD `podAnnotations` @alecjacobs5401
 - Add redis authentication @hoffoo
-- Configurable imagePullSecret @romanfurst 
-- Configurable imagePullPolicy @mcdiae 
-- Support for node selector `nodeSelector` @sergeunity 
+- Configurable imagePullSecret @romanfurst
+- Configurable imagePullPolicy @mcdiae
+- Support for node selector `nodeSelector` @sergeunity
 
 ### Fix
 
 - Add RBAC policy for the CRD finalizer @mcanevet
-- Examples documentation  @SataQiu @marcemq 
+- Examples documentation  @SataQiu @marcemq
 - Chart service labels @timmyers
 - Memory requests and limits for sentinel @marcemq
 - Execution permissions in shutdown script @glebpom

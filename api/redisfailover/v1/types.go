@@ -1,6 +1,9 @@
 package v1
 
 import (
+	"fmt"
+	"strconv"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -13,20 +16,72 @@ import (
 // +kubebuilder:printcolumn:name="REDIS",type="integer",JSONPath=".spec.redis.replicas"
 // +kubebuilder:printcolumn:name="SENTINELS",type="integer",JSONPath=".spec.sentinel.replicas"
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:printcolumn:name="STATUS",type="string",JSONPath=".status.conditions[-1:].message"
 // +kubebuilder:resource:singular=redisfailover,path=redisfailovers,shortName=rf,scope=Namespaced
+// +kubebuilder:metadata:annotations=krane.shopify.io/instance-rollout-conditions=true
+// +kubebuilder:subresource:status
 type RedisFailover struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              RedisFailoverSpec `json:"spec"`
+	Spec              RedisFailoverSpec   `json:"spec"`
+	Status            RedisFailoverStatus `json:"status,omitempty"`
+}
+
+type AppState string
+
+const (
+	AppStatePending AppState = "Pending"
+	AppStateReady   AppState = "Ready"
+)
+
+type ConditionStatus string
+
+const (
+	ConditionTrue ConditionStatus = "True"
+)
+
+type ClusterCondition struct {
+	Status  ConditionStatus `json:"status,omitempty"`
+	Type    AppState        `json:"type,omitempty"`
+	Message string          `json:"message,omitempty"`
+}
+
+// RedisFailoverStatus defines the observed state
+type RedisFailoverStatus struct {
+	Conditions         []ClusterCondition `json:"conditions,omitempty"`
+	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
 }
 
 // RedisFailoverSpec represents a Redis failover spec
 type RedisFailoverSpec struct {
-	Redis          RedisSettings      `json:"redis,omitempty"`
-	Sentinel       SentinelSettings   `json:"sentinel,omitempty"`
-	Auth           AuthSettings       `json:"auth,omitempty"`
-	LabelWhitelist []string           `json:"labelWhitelist,omitempty"`
-	BootstrapNode  *BootstrapSettings `json:"bootstrapNode,omitempty"`
+	Redis               RedisSettings                 `json:"redis,omitempty"`
+	Sentinel            SentinelSettings              `json:"sentinel,omitempty"`
+	Haproxy             *HaproxySettings              `json:"haproxy,omitempty"`
+	Auth                AuthSettings                  `json:"auth,omitempty"`
+	LabelWhitelist      []string                      `json:"labelWhitelist,omitempty"`
+	BootstrapNode       *BootstrapSettings            `json:"bootstrapNode,omitempty"`
+	NetworkPolicyNsList []NetworkPolicyNamespaceEntry `json:"networkPolicyNsList,omitempty"`
+}
+
+// NetworkPolicyNamespaceEntry represents the the key value of a label
+type NetworkPolicyNamespaceEntry struct {
+	MatchLabelKey   string `json:"matchLabelKey,omitempty"`
+	MatchLabelValue string `json:"matchLabelValue,omitempty"`
+}
+
+// HaproxySettings contains settings about a potential bootstrap node
+type HaproxySettings struct {
+	RedisHost    string                      `json:"redisHost,omitempty"`
+	Image        string                      `json:"image,omitempty"`
+	Replicas     int32                       `json:"replicas,omitempty"`
+	Resources    corev1.ResourceRequirements `json:"resources,omitempty"`
+	CustomConfig string                      `json:"customConfig,omitempty"`
+	Affinity     *corev1.Affinity            `json:"affinity,omitempty"`
+	Service      *ServiceSettings            `json:"service,omitempty"`
+}
+
+type ServiceSettings struct {
+	ClusterIP string `json:"clusterIP,omitempty" protobuf:"bytes,3,opt,name=clusterIP"`
 }
 
 // RedisCommandRename defines the specification of a "rename-command" configuration option
@@ -35,12 +90,14 @@ type RedisCommandRename struct {
 	To   string `json:"to,omitempty"`
 }
 
+type Port int32
+
 // RedisSettings defines the specification of the redis cluster
 type RedisSettings struct {
 	Image                         string                            `json:"image,omitempty"`
 	ImagePullPolicy               corev1.PullPolicy                 `json:"imagePullPolicy,omitempty"`
 	Replicas                      int32                             `json:"replicas,omitempty"`
-	Port                          int32                             `json:"port,omitempty"`
+	Port                          Port                              `json:"port,omitempty"`
 	Resources                     corev1.ResourceRequirements       `json:"resources,omitempty"`
 	CustomConfig                  []string                          `json:"customConfig,omitempty"`
 	CustomCommandRenames          []RedisCommandRename              `json:"customCommandRenames,omitempty"`
@@ -78,6 +135,7 @@ type SentinelSettings struct {
 	Image                      string                            `json:"image,omitempty"`
 	ImagePullPolicy            corev1.PullPolicy                 `json:"imagePullPolicy,omitempty"`
 	Replicas                   int32                             `json:"replicas,omitempty"`
+	Port                       Port                              `json:"port,omitempty"`
 	Resources                  corev1.ResourceRequirements       `json:"resources,omitempty"`
 	CustomConfig               []string                          `json:"customConfig,omitempty"`
 	Command                    []string                          `json:"command,omitempty"`
@@ -197,4 +255,33 @@ type RedisFailoverList struct {
 	metav1.ListMeta `json:"metadata"`
 
 	Items []RedisFailover `json:"items"`
+}
+
+const maxStatusesQuantity = 10
+
+func (s *RedisFailoverStatus) AddCondition(c ClusterCondition) {
+	if len(s.Conditions) == 0 {
+		s.Conditions = append(s.Conditions, c)
+		return
+	}
+
+	if s.Conditions[len(s.Conditions)-1].Type != c.Type {
+		s.Conditions = append(s.Conditions, c)
+	}
+
+	if len(s.Conditions) > maxStatusesQuantity {
+		s.Conditions = s.Conditions[len(s.Conditions)-maxStatusesQuantity:]
+	}
+}
+
+func (r *RedisFailover) GenerateName(prefix string) string {
+	return fmt.Sprintf("%s-%s", prefix, r.Name)
+}
+
+func (p Port) ToString() string {
+	return strconv.Itoa(int(p))
+}
+
+func (p Port) ToInt32() int32 {
+	return int32(p)
 }

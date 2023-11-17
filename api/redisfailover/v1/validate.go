@@ -49,6 +49,12 @@ func (r *RedisFailover) Validate() error {
 		r.Spec.Sentinel.Replicas = defaultSentinelNumber
 	}
 
+	if r.Spec.Sentinel.Port <= 0 {
+		sentinelPort := "2" + r.Spec.Redis.Port.ToString()
+		sPort, _ := strconv.ParseInt(sentinelPort, 10, 32)
+		r.Spec.Sentinel.Port = Port(sPort)
+	}
+
 	if r.Spec.Redis.Exporter.Image == "" {
 		r.Spec.Redis.Exporter.Image = defaultExporterImage
 	}

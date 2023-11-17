@@ -17,8 +17,11 @@ RUN wget http://github.com/kubernetes/code-generator/archive/kubernetes-${CODEGE
     touch /go/src/k8s.io/kubernetes/hack/boilerplate/boilerplate.go.txt
 
 # Mock creator
-ARG MOCKERY_VERSION="2.9.6"
-RUN wget -c https://github.com/vektra/mockery/releases/download/v${MOCKERY_VERSION}/mockery_${MOCKERY_VERSION}_$(uname -o)_$(uname -m).tar.gz -O - | tar -xz -C /go/bin/
+# Alpine labels ARM architectures differently than Mockery: https://wiki.alpinelinux.org/wiki/Architecture
+ARG MOCKERY_VERSION="2.32.0"
+RUN export ARCH="$(uname -m)" \
+    && if [[ "${ARCH}" == "aarch64" ]]; then export ARCH="arm64"; fi \
+    && wget -c https://github.com/vektra/mockery/releases/download/v${MOCKERY_VERSION}/mockery_${MOCKERY_VERSION}_$(uname -o)_${ARCH}.tar.gz -O - | tar -xz -C /go/bin/
 
 # Create user
 ARG uid=1000

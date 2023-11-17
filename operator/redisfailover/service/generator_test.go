@@ -1293,6 +1293,122 @@ func TestRedisService(t *testing.T) {
 	}
 }
 
+func TestHaproxyService(t *testing.T) {
+	haproxyName := "redis-haproxy"
+	portName := "redis-master"
+	defaultRedisPort := redisfailoverv1.Port(6379)
+	customClusterIP := "10.1.1.100"
+	tests := []struct {
+		name            string
+		rfName          string
+		rfNamespace     string
+		rfLabels        map[string]string
+		rfAnnotations   map[string]string
+		rfRedisPort     redisfailoverv1.Port
+		haproxy         redisfailoverv1.HaproxySettings
+		expectedService corev1.Service
+	}{
+		{
+			name:        "with defaults",
+			rfRedisPort: defaultRedisPort,
+			expectedService: corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      haproxyName,
+					Namespace: namespace,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Type: corev1.ServiceTypeClusterIP,
+					Selector: map[string]string{
+						"app.kubernetes.io/component":                      "redis",
+						"redisfailovers.databases.spotahome.com/component": "haproxy",
+					},
+					Ports: []corev1.ServicePort{
+						{
+							Name:       portName,
+							Port:       defaultRedisPort.ToInt32(),
+							TargetPort: intstr.FromInt(int(defaultRedisPort)),
+							Protocol:   corev1.ProtocolTCP,
+						},
+					},
+				},
+			},
+		},
+		{
+			name:        "with custom ClusterIP",
+			rfRedisPort: defaultRedisPort,
+			haproxy: redisfailoverv1.HaproxySettings{
+				Service: &redisfailoverv1.ServiceSettings{
+					ClusterIP: customClusterIP,
+				},
+			},
+			expectedService: corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      haproxyName,
+					Namespace: namespace,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Type:      corev1.ServiceTypeClusterIP,
+					ClusterIP: customClusterIP,
+					Selector: map[string]string{
+						"app.kubernetes.io/component":                      "redis",
+						"redisfailovers.databases.spotahome.com/component": "haproxy",
+					},
+					Ports: []corev1.ServicePort{
+						{
+							Name:       portName,
+							Port:       defaultRedisPort.ToInt32(),
+							TargetPort: intstr.FromInt(int(defaultRedisPort)),
+							Protocol:   corev1.ProtocolTCP,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			// Generate a default RedisFailover and attaching the required annotations
+			rf := generateRF()
+			if test.rfName != "" {
+				rf.Name = test.rfName
+			}
+			if test.rfNamespace != "" {
+				rf.Namespace = test.rfNamespace
+			}
+			rf.Spec.Redis.ServiceAnnotations = test.rfAnnotations
+			rf.Spec.Redis.Port = test.rfRedisPort
+			rf.Spec.Haproxy = &test.haproxy
+
+			generatedService := corev1.Service{}
+
+			ms := &mK8SService.Services{}
+			ms.On("CreateOrUpdateService", rf.Namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+				s := args.Get(1).(*corev1.Service)
+				generatedService = *s
+			}).Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			err := client.EnsureHAProxyService(rf, test.rfLabels, []metav1.OwnerReference{{Name: "testing"}})
+
+			assert.Equal(test.expectedService, generatedService)
+			assert.NoError(err)
+		})
+	}
+}
+
 func TestRedisMasterService(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -2118,11 +2234,11 @@ func TestSentinelExtraVolumeMounts(t *testing.T) {
 }
 
 func TestCustomPort(t *testing.T) {
-	default_port := int32(6379)
-	custom_port := int32(12345)
+	default_port := redisfailoverv1.Port(6379)
+	custom_port := redisfailoverv1.Port(12345)
 	tests := []struct {
 		name                  string
-		port                  int32
+		port                  redisfailoverv1.Port
 		expectedContainerPort []corev1.ContainerPort
 	}{
 		{
@@ -2131,7 +2247,7 @@ func TestCustomPort(t *testing.T) {
 			expectedContainerPort: []corev1.ContainerPort{
 				{
 					Name:          "redis",
-					ContainerPort: default_port,
+					ContainerPort: default_port.ToInt32(),
 					Protocol:      corev1.ProtocolTCP,
 				},
 			},
@@ -2142,7 +2258,7 @@ func TestCustomPort(t *testing.T) {
 			expectedContainerPort: []corev1.ContainerPort{
 				{
 					Name:          "redis",
-					ContainerPort: custom_port,
+					ContainerPort: custom_port.ToInt32(),
 					Protocol:      corev1.ProtocolTCP,
 				},
 			},
@@ -2173,7 +2289,7 @@ func TestCustomPort(t *testing.T) {
 }
 
 func TestRedisEnv(t *testing.T) {
-	default_port := int32(6379)
+	default_port := redisfailoverv1.Port(6379)
 	tests := []struct {
 		name             string
 		auth             string
