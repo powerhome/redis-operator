@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -161,6 +162,8 @@ func TestRedisFailover(t *testing.T) {
 	t.Run("Check Sentinels Checking the Redis Master", clients.testSentinelMonitoring)
 }
 
+const sentinelPort = 26379
+
 func (c *clients) testCRCreation(t *testing.T) {
 	assert := assert.New(t)
 	toCreate := &redisfailoverv1.RedisFailover{
@@ -178,7 +181,7 @@ func (c *clients) testCRCreation(t *testing.T) {
 			},
 			Sentinel: redisfailoverv1.SentinelSettings{
 				Replicas: sentinelSize,
-				Port:     redisfailoverv1.Port(26379),
+				Port:     redisfailoverv1.Port(sentinelPort),
 			},
 			Auth: redisfailoverv1.AuthSettings{
 				SecretPath: authSecretPath,
@@ -247,7 +250,9 @@ func (c *clients) testSentinelMonitoring(t *testing.T) {
 
 	for _, pod := range sentinelPodList.Items {
 		ip := pod.Status.PodIP
-		master, _, _ := c.redisClient.GetSentinelMonitor(ip)
+		port := strconv.FormatInt(int64(sentinelPort), 10)
+
+		master, _, _ := c.redisClient.GetSentinelMonitor(ip, port)
 		masters = append(masters, master)
 	}
 
