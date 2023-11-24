@@ -15,4 +15,4 @@ metadata:
 spec:
   owner: forever-people
   domain: technology-foundations-and-tools
-  lifecycle: experimental
+  lifecycle: production
