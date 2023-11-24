@@ -1,0 +1,18 @@
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: redis-operator
+  title: Redis Operator
+  description: "Redis Operator creates/configures/manages high availability redis with sentinel automatic failover atop Kubernetes."
+  links:
+    - url: https://Github.com/powerhome/redis-operator
+      title: Github
+      icon: public
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: powerhome/redis-operator
+spec:
+  owner: forever-people
+  domain: technology-foundations-and-tools
+  lifecycle: experimental
