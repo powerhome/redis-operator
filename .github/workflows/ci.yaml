@@ -22,6 +22,22 @@ jobs:
           version: v1.53
           args: --timeout=15m
 
+  codegen-up-to-date:
+    name: Code generation up-to-date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Kubebuilder client and CRD up-to-date
+        run: |
+          make update-codegen generate-crd
+      - name: Check for changes in generated files
+        run: |
+          git diff --exit-code
+      - name: Fail if changes detected
+        if: steps.codegen-up-to-date.outputs.exit_code != 0
+        run: |
+          exit 1
+
   unit-test:
     name: Unit test
     runs-on: ubuntu-latest
@@ -35,7 +51,7 @@ jobs:
   integration-test:
     name: Integration test
     runs-on: ubuntu-latest
-    needs: [check, unit-test]
+    needs: [check, codegen-up-to-date, unit-test]
     strategy:
       matrix:
         kubernetes:
