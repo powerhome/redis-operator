@@ -1,0 +1,6 @@
+site_name: redis-opeartor
+site_description: Redis Operator creates/configures/manages high availability redis with sentinel automatic failover atop Kubernetes.
+nav:
+  - 'Home': 'README.md'
+plugins:
+  - techdocs-core
