@@ -31,11 +31,11 @@ BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 
 TAG := $(GITTAG)
 ifneq ($(COMMIT), $(GITTAG_COMMIT))
-    TAG := $(COMMIT)
+	TAG := $(COMMIT)
 endif
 
 ifneq ($(shell git status --porcelain),)
-    TAG := $(TAG)-dirty
+	TAG := $(TAG)-dirty
 endif
 
 
@@ -184,7 +184,7 @@ endif
 .PHONY: update-codegen
 update-codegen:
 	@echo ">> Generating code for Kubernetes CRD types..."
-	docker run --rm -it \
+	docker run --rm \
 	-v $(PWD):/go/src/$(PROJECT_PACKAGE) \
 	-e PROJECT_PACKAGE=$(PROJECT_PACKAGE) \
 	-e CLIENT_GENERATOR_OUT=$(PROJECT_PACKAGE)/client/k8s \
@@ -194,7 +194,7 @@ update-codegen:
 	$(CODEGEN_IMAGE)
 
 generate-crd:
-	docker run -it --rm \
+	docker run --rm \
 	-v $(PWD):/go/src/$(PROJECT_PACKAGE) \
 	-e GO_PROJECT_ROOT=/go/src/$(PROJECT_PACKAGE) \
 	-e CRD_TYPES_PATH=/go/src/$(PROJECT_PACKAGE)/api \
