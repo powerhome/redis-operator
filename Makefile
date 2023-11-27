@@ -184,6 +184,10 @@ endif
 .PHONY: update-codegen
 update-codegen:
 	@echo ">> Generating code for Kubernetes CRD types..."
+
+	id $(whoami)
+	id -nG $(whoami)
+
 	docker run --rm \
 	-v $(PWD):/go/src/$(PROJECT_PACKAGE) \
 	-e PROJECT_PACKAGE=$(PROJECT_PACKAGE) \
@@ -191,7 +195,7 @@ update-codegen:
 	-e APIS_ROOT=$(PROJECT_PACKAGE)/api \
 	-e GROUPS_VERSION="redisfailover:v1" \
 	-e GENERATION_TARGETS="deepcopy,client" \
-	$(CODEGEN_IMAGE)
+	$(CODEGEN_IMAGE) bash -lc "id $(whoami) && id -nG $(whoami)"
 
 generate-crd:
 	docker run --rm \
