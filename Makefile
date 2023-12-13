@@ -1,4 +1,4 @@
-VERSION := v1.3.0-rc0
+VERSION := v1.7.1-rc1
 
 # Name of this service/application
 SERVICE_NAME := redis-operator
@@ -31,11 +31,11 @@ BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 
 TAG := $(GITTAG)
 ifneq ($(COMMIT), $(GITTAG_COMMIT))
-    TAG := $(COMMIT)
+	TAG := $(COMMIT)
 endif
 
 ifneq ($(shell git status --porcelain),)
-    TAG := $(TAG)-dirty
+	TAG := $(TAG)-dirty
 endif
 
 

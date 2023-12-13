@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -1404,6 +1405,206 @@ func TestHaproxyService(t *testing.T) {
 			err := client.EnsureHAProxyService(rf, test.rfLabels, []metav1.OwnerReference{{Name: "testing"}})
 
 			assert.Equal(test.expectedService, generatedService)
+			assert.NoError(err)
+		})
+	}
+}
+
+func TestRedisNetworkPolicy(t *testing.T) {
+	tests := []struct {
+		name          string
+		rfName        string
+		rfNamespace   string
+		rfLabels      map[string]string
+		rfAnnotations map[string]string
+		expected      networkingv1.NetworkPolicy
+	}{
+		{
+			name: "with defaults",
+			expected: networkingv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rfr-np-" + name,
+					Namespace: namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					Annotations: nil,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: networkingv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"redisfailovers.databases.spotahome.com/component": "redis",
+							"redisfailovers.databases.spotahome.com/name":      name,
+						},
+					},
+					Ingress: []networkingv1.NetworkPolicyIngressRule{
+						networkingv1.NetworkPolicyIngressRule{
+							From: []networkingv1.NetworkPolicyPeer{
+								networkingv1.NetworkPolicyPeer{
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"app.kubernetes.io/instance": namespace,
+										},
+									},
+								},
+							},
+							Ports: []networkingv1.NetworkPolicyPort{
+								networkingv1.NetworkPolicyPort{
+									Port: &intstr.IntOrString{
+										IntVal: 6379,
+										Type:   intstr.Int,
+									},
+								},
+								networkingv1.NetworkPolicyPort{
+									Port: &intstr.IntOrString{
+										IntVal: 9121,
+										Type:   intstr.Int,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			// Generate a default RedisFailover and attaching the required annotations
+			rf := generateRF()
+			if test.rfName != "" {
+				rf.Name = test.rfName
+			}
+			if test.rfNamespace != "" {
+				rf.Namespace = test.rfNamespace
+			}
+			rf.Spec.Redis.Port = 6379
+			rf.Spec.NetworkPolicyNsList = []redisfailoverv1.NetworkPolicyNamespaceEntry{
+				redisfailoverv1.NetworkPolicyNamespaceEntry{
+					MatchLabelKey:   "app.kubernetes.io/instance",
+					MatchLabelValue: namespace,
+				},
+			}
+
+			generated := networkingv1.NetworkPolicy{}
+
+			ms := &mK8SService.Services{}
+			ms.On("CreateOrUpdateNetworkPolicy", rf.Namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+				s := args.Get(1).(*networkingv1.NetworkPolicy)
+				generated = *s
+			}).Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			err := client.EnsureRedisNetworkPolicy(rf, test.rfLabels, []metav1.OwnerReference{{Name: "testing"}})
+
+			assert.Equal(test.expected, generated)
+			assert.NoError(err)
+		})
+	}
+}
+
+func TestSentinelNetworkPolicy(t *testing.T) {
+	tests := []struct {
+		name          string
+		rfName        string
+		rfNamespace   string
+		rfLabels      map[string]string
+		rfAnnotations map[string]string
+		expected      networkingv1.NetworkPolicy
+	}{
+		{
+			name: "with defaults",
+			expected: networkingv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rfs-np-" + name,
+					Namespace: namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "sentinel",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					Annotations: nil,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: networkingv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"redisfailovers.databases.spotahome.com/component": "sentinel",
+							"redisfailovers.databases.spotahome.com/name":      name,
+						},
+					},
+					Ingress: []networkingv1.NetworkPolicyIngressRule{
+						networkingv1.NetworkPolicyIngressRule{
+							From: []networkingv1.NetworkPolicyPeer{
+								networkingv1.NetworkPolicyPeer{
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"app.kubernetes.io/instance": namespace,
+										},
+									},
+								},
+							},
+							Ports: []networkingv1.NetworkPolicyPort{
+								networkingv1.NetworkPolicyPort{
+									Port: &intstr.IntOrString{
+										IntVal: 26379,
+										Type:   intstr.Int,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			// Generate a default RedisFailover and attaching the required annotations
+			rf := generateRF()
+			if test.rfName != "" {
+				rf.Name = test.rfName
+			}
+			if test.rfNamespace != "" {
+				rf.Namespace = test.rfNamespace
+			}
+			rf.Spec.Sentinel.Port = 26379
+			rf.Spec.NetworkPolicyNsList = []redisfailoverv1.NetworkPolicyNamespaceEntry{
+				redisfailoverv1.NetworkPolicyNamespaceEntry{
+					MatchLabelKey:   "app.kubernetes.io/instance",
+					MatchLabelValue: namespace,
+				},
+			}
+
+			generated := networkingv1.NetworkPolicy{}
+
+			ms := &mK8SService.Services{}
+			ms.On("CreateOrUpdateNetworkPolicy", rf.Namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+				s := args.Get(1).(*networkingv1.NetworkPolicy)
+				generated = *s
+			}).Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			err := client.EnsureSentinelNetworkPolicy(rf, test.rfLabels, []metav1.OwnerReference{{Name: "testing"}})
+
+			assert.Equal(test.expected, generated)
 			assert.NoError(err)
 		})
 	}
