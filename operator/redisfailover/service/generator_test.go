@@ -1412,15 +1412,22 @@ func TestHaproxyService(t *testing.T) {
 
 func TestRedisNetworkPolicy(t *testing.T) {
 	tests := []struct {
-		name          string
-		rfName        string
-		rfNamespace   string
-		rfLabels      map[string]string
-		rfAnnotations map[string]string
-		expected      networkingv1.NetworkPolicy
+		name                            string
+		rfName                          string
+		rfNamespace                     string
+		rfRedisPort                     int
+		rfNetworkPolicyNamespaceEntries []redisfailoverv1.NetworkPolicyNamespaceEntry
+		rfLabels                        map[string]string
+		expected                        networkingv1.NetworkPolicy
 	}{
 		{
 			name: "with defaults",
+			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
+				redisfailoverv1.NetworkPolicyNamespaceEntry{
+					MatchLabelKey:   "app.kubernetes.io/instance",
+					MatchLabelValue: namespace,
+				},
+			},
 			expected: networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rfr-np-" + name,
@@ -1474,6 +1481,140 @@ func TestRedisNetworkPolicy(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:        "with custom redis Port",
+			rfRedisPort: 6698,
+			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
+				redisfailoverv1.NetworkPolicyNamespaceEntry{
+					MatchLabelKey:   "app.kubernetes.io/instance",
+					MatchLabelValue: namespace,
+				},
+			},
+			expected: networkingv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rfr-np-" + name,
+					Namespace: namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					Annotations: nil,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: networkingv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"redisfailovers.databases.spotahome.com/component": "redis",
+							"redisfailovers.databases.spotahome.com/name":      name,
+						},
+					},
+					Ingress: []networkingv1.NetworkPolicyIngressRule{
+						networkingv1.NetworkPolicyIngressRule{
+							From: []networkingv1.NetworkPolicyPeer{
+								networkingv1.NetworkPolicyPeer{
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"app.kubernetes.io/instance": namespace,
+										},
+									},
+								},
+							},
+							Ports: []networkingv1.NetworkPolicyPort{
+								networkingv1.NetworkPolicyPort{
+									Port: &intstr.IntOrString{
+										IntVal: 6698,
+										Type:   intstr.Int,
+									},
+								},
+								networkingv1.NetworkPolicyPort{
+									Port: &intstr.IntOrString{
+										IntVal: 9121,
+										Type:   intstr.Int,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "with custom NetorkPolicyNamespaceEntries",
+			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
+				redisfailoverv1.NetworkPolicyNamespaceEntry{
+					MatchLabelKey:   "app.kubernetes.io/instance",
+					MatchLabelValue: namespace,
+				},
+				redisfailoverv1.NetworkPolicyNamespaceEntry{
+					MatchLabelKey:   "app.kubernetes.io/instance",
+					MatchLabelValue: "extra-namespace",
+				},
+			},
+			expected: networkingv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rfr-np-" + name,
+					Namespace: namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					Annotations: nil,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: networkingv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"redisfailovers.databases.spotahome.com/component": "redis",
+							"redisfailovers.databases.spotahome.com/name":      name,
+						},
+					},
+					Ingress: []networkingv1.NetworkPolicyIngressRule{
+						networkingv1.NetworkPolicyIngressRule{
+							From: []networkingv1.NetworkPolicyPeer{
+								networkingv1.NetworkPolicyPeer{
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"app.kubernetes.io/instance": namespace,
+										},
+									},
+								},
+								networkingv1.NetworkPolicyPeer{
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"app.kubernetes.io/instance": "extra-namespace",
+										},
+									},
+								},
+							},
+							Ports: []networkingv1.NetworkPolicyPort{
+								networkingv1.NetworkPolicyPort{
+									Port: &intstr.IntOrString{
+										IntVal: 6379,
+										Type:   intstr.Int,
+									},
+								},
+								networkingv1.NetworkPolicyPort{
+									Port: &intstr.IntOrString{
+										IntVal: 9121,
+										Type:   intstr.Int,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -1488,12 +1629,14 @@ func TestRedisNetworkPolicy(t *testing.T) {
 			if test.rfNamespace != "" {
 				rf.Namespace = test.rfNamespace
 			}
-			rf.Spec.Redis.Port = 6379
-			rf.Spec.NetworkPolicyNsList = []redisfailoverv1.NetworkPolicyNamespaceEntry{
-				redisfailoverv1.NetworkPolicyNamespaceEntry{
-					MatchLabelKey:   "app.kubernetes.io/instance",
-					MatchLabelValue: namespace,
-				},
+			if test.rfRedisPort <= 0 {
+				rf.Spec.Redis.Port = 6379
+
+			} else {
+				rf.Spec.Redis.Port = redisfailoverv1.Port(test.rfRedisPort)
+			}
+			if test.rfNetworkPolicyNamespaceEntries != nil {
+				rf.Spec.NetworkPolicyNsList = test.rfNetworkPolicyNamespaceEntries
 			}
 
 			generated := networkingv1.NetworkPolicy{}
@@ -1515,15 +1658,22 @@ func TestRedisNetworkPolicy(t *testing.T) {
 
 func TestSentinelNetworkPolicy(t *testing.T) {
 	tests := []struct {
-		name          string
-		rfName        string
-		rfNamespace   string
-		rfLabels      map[string]string
-		rfAnnotations map[string]string
-		expected      networkingv1.NetworkPolicy
+		name                            string
+		rfName                          string
+		rfNamespace                     string
+		rfSentinelPort                  int
+		rfNetworkPolicyNamespaceEntries []redisfailoverv1.NetworkPolicyNamespaceEntry
+		rfLabels                        map[string]string
+		expected                        networkingv1.NetworkPolicy
 	}{
 		{
 			name: "with defaults",
+			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
+				redisfailoverv1.NetworkPolicyNamespaceEntry{
+					MatchLabelKey:   "app.kubernetes.io/instance",
+					MatchLabelValue: namespace,
+				},
+			},
 			expected: networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rfs-np-" + name,
@@ -1571,6 +1721,128 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:           "with custom sentinel Port",
+			rfSentinelPort: 17781,
+			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
+				redisfailoverv1.NetworkPolicyNamespaceEntry{
+					MatchLabelKey:   "app.kubernetes.io/instance",
+					MatchLabelValue: namespace,
+				},
+			},
+			expected: networkingv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rfs-np-" + name,
+					Namespace: namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "sentinel",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					Annotations: nil,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: networkingv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"redisfailovers.databases.spotahome.com/component": "sentinel",
+							"redisfailovers.databases.spotahome.com/name":      name,
+						},
+					},
+					Ingress: []networkingv1.NetworkPolicyIngressRule{
+						networkingv1.NetworkPolicyIngressRule{
+							From: []networkingv1.NetworkPolicyPeer{
+								networkingv1.NetworkPolicyPeer{
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"app.kubernetes.io/instance": namespace,
+										},
+									},
+								},
+							},
+							Ports: []networkingv1.NetworkPolicyPort{
+								networkingv1.NetworkPolicyPort{
+									Port: &intstr.IntOrString{
+										IntVal: 17781,
+										Type:   intstr.Int,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "with custom NetorkPolicyNamespaceEntries",
+			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
+				redisfailoverv1.NetworkPolicyNamespaceEntry{
+					MatchLabelKey:   "app.kubernetes.io/instance",
+					MatchLabelValue: namespace,
+				},
+				redisfailoverv1.NetworkPolicyNamespaceEntry{
+					MatchLabelKey:   "app.kubernetes.io/instance",
+					MatchLabelValue: "extra-namespace",
+				},
+			},
+			expected: networkingv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rfs-np-" + name,
+					Namespace: namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "sentinel",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					Annotations: nil,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: networkingv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"redisfailovers.databases.spotahome.com/component": "sentinel",
+							"redisfailovers.databases.spotahome.com/name":      name,
+						},
+					},
+					Ingress: []networkingv1.NetworkPolicyIngressRule{
+						networkingv1.NetworkPolicyIngressRule{
+							From: []networkingv1.NetworkPolicyPeer{
+								networkingv1.NetworkPolicyPeer{
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"app.kubernetes.io/instance": namespace,
+										},
+									},
+								},
+								networkingv1.NetworkPolicyPeer{
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"app.kubernetes.io/instance": "extra-namespace",
+										},
+									},
+								},
+							},
+							Ports: []networkingv1.NetworkPolicyPort{
+								networkingv1.NetworkPolicyPort{
+									Port: &intstr.IntOrString{
+										IntVal: 26379,
+										Type:   intstr.Int,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -1585,12 +1857,11 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 			if test.rfNamespace != "" {
 				rf.Namespace = test.rfNamespace
 			}
-			rf.Spec.Sentinel.Port = 26379
-			rf.Spec.NetworkPolicyNsList = []redisfailoverv1.NetworkPolicyNamespaceEntry{
-				redisfailoverv1.NetworkPolicyNamespaceEntry{
-					MatchLabelKey:   "app.kubernetes.io/instance",
-					MatchLabelValue: namespace,
-				},
+			if test.rfSentinelPort != 0 {
+				rf.Spec.Sentinel.Port = redisfailoverv1.Port(test.rfSentinelPort)
+			}
+			if test.rfNetworkPolicyNamespaceEntries != nil {
+				rf.Spec.NetworkPolicyNsList = test.rfNetworkPolicyNamespaceEntries
 			}
 
 			generated := networkingv1.NetworkPolicy{}
