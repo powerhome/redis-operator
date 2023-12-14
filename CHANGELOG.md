@@ -1,9 +1,12 @@
 # Changelog
 
-Check [releases](https://github.com/spotahome/redis-operator/releases) section for Changelog
+Check [releases](https://github.com/powerhome/redis-operator/releases) section for Changelog
 
 ## Unreleased
 
+## [v1.7.1] - 2023-12-14
+
+- [Use finer grained NetworkPolicies](https://github.com/powerhome/redis-operator/pull/25)
 - [Fix PodDisruptionBudget deprecation warnings on kube 1.21+](https://github.com/powerhome/redis-operator/pull/19)
 
 ## [v1.1.0-rc.3] - 2022-01-19
