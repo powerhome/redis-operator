@@ -18,7 +18,8 @@ type RedisFailoverClient interface {
 	EnsureHAProxyConfigmap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureHAProxyService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisHeadlessService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
-	EnsureNetworkPolicy(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureRedisNetworkPolicy(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureSentinelNetworkPolicy(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelDeployment(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
@@ -80,11 +81,19 @@ func generateComponentLabel(componentType string) map[string]string {
 	}
 }
 
-// EnsureNetworkPolicy makes sure the network policy exists
-func (r *RedisFailoverKubeClient) EnsureNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	svc := generateNetworkPolicy(rf, labels, ownerRefs)
+// EnsureRedisNetworkPolicy makes sure the redis network policy exists
+func (r *RedisFailoverKubeClient) EnsureRedisNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	svc := generateRedisNetworkPolicy(rf, labels, ownerRefs)
 	err := r.K8SService.CreateOrUpdateNetworkPolicy(rf.Namespace, svc)
-	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "NetworkPolicy", rf.Name, err)
+	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureRedisNetworkPolicy", rf.Name, err)
+	return err
+}
+
+// EnsureSentinelNetworkPolicy makes sure the redis network policy exists
+func (r *RedisFailoverKubeClient) EnsureSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	svc := generateSentinelNetworkPolicy(rf, labels, ownerRefs)
+	err := r.K8SService.CreateOrUpdateNetworkPolicy(rf.Namespace, svc)
+	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureSentinelNetworkPolicy", rf.Name, err)
 	return err
 }
 
