@@ -1,13 +1,13 @@
-VERSION := v1.7.1
+VERSION := v1.8.0-rc1
 
 # Name of this service/application
 SERVICE_NAME := redis-operator
 
 # Docker image name for this project
-IMAGE_NAME := spotahome/$(SERVICE_NAME)
+IMAGE_NAME := powerhome/$(SERVICE_NAME)
 
 # Repository url for this project
-REPOSITORY := quay.io/$(IMAGE_NAME)
+REPOSITORY := $(IMAGE_NAME)
 
 # Shell to use for running scripts
 SHELL := $(shell which bash)
