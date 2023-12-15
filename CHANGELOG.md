@@ -4,6 +4,10 @@ Check [releases](https://github.com/powerhome/redis-operator/releases) section f
 
 ## Unreleased
 
+## [v1.8.0-rc1] - 2023-12-15
+
+- [Add public image repository](https://github.com/powerhome/redis-operator/pull/28)
+
 ## [v1.7.1] - 2023-12-14
 
 - [Use finer grained NetworkPolicies](https://github.com/powerhome/redis-operator/pull/25)
