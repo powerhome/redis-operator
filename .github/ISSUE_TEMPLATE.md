@@ -1,22 +1,44 @@
-### Expected behaviour
+<!--- Provide a general summary of the issue in the Title above -->
+_Provide a general summary of the issue in the Title above_
 
-What do you want to achieve?
+## Expected Behavior
+<!--- If you're describing a bug, tell us what should happen -->
+<!--- If you're suggesting a change/improvement, tell us how it should work -->
+_If you're describing a bug, tell us what should happen._
+_If you're suggesting a change/improvement, tell us how it should work._
 
-### Actual behaviour
+## Current Behavior
+<!--- If describing a bug, tell us what happens instead of the expected behavior -->
+<!--- If suggesting a change/improvement, explain the difference from current behavior -->
+_If describing a bug, tell us what happens instead of the expected behavior._
+_If suggesting a change/improvement, explain the difference from current behavior._
 
-What is happening? Are all the pieces created? Can you access to the service?
 
-### Steps to reproduce the behaviour
+## Possible Solution
+<!--- Not obligatory, but suggest a fix/reason for the bug, -->
+<!--- or ideas how to implement the addition or change -->
+_Please suggest a fix/reason for the bug, or ideas how to implement the addition or change._
 
-Describe step by step what you've have done to get to this point
 
-### Environment
+## Steps to Reproduce (for bugs)
+<!--- Provide a link to a live example, or an unambiguous set of steps to -->
+<!--- reproduce this bug. Include code to reproduce, if relevant -->
+_Provide a link to a live example, or an unambiguous set of steps to reproduce this bug. Include code to reproduce, if relevant._
 
-How are the pieces configured?
-* Redis Operator version
-* Kubernetes version
-* Kubernetes configuration used (eg: Is RBAC active?)
+1.
+2.
+3.
 
-### Logs
+## Context
+<!--- How has this issue affected you? What are you trying to accomplish? -->
+<!--- Providing context helps us come up with a solution that is most useful in the real world -->
+<!--- Please provide any relevant log information --->
+_How has this issue affected you? What are you trying to accomplish?_
 
-Please, add the debugging logs. In order to be able to gather them, add `-debug` flag when running the operator.
+## Your Environment
+<!--- Include as many relevant details about the environment you experienced the bug in -->
+_Include as many relevant detail as possible about the environment you experienced the bug in._
+* Version used:
+* Environment name and version (e.g. Chrome 39, node.js 5.4):
+* Operating System and version (desktop or mobile):
+* Link to your project:
