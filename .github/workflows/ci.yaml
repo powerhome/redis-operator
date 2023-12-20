@@ -106,9 +106,7 @@ jobs:
         with:
           images: powerhome/redis-operator
           tags: |
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{raw}}
             type=sha,prefix=,suffix=,format=long
       - name: Login to DockerHub
         uses: docker/login-action@v3
