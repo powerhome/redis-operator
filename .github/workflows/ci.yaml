@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version-file: go.mod
-      - run: make ci-unit-test
+      - run: make test-unit-ci
 
   integration-test:
     name: Integration test
@@ -68,7 +68,7 @@ jobs:
           driver: none
       - name: Add redisfailover CRD
         run: kubectl create -f manifests/databases.spotahome.com_redisfailovers.yaml
-      - run: make ci-integration-test
+      - run: make test-integration-ci
 
   chart-test:
     name: Chart testing
@@ -84,7 +84,7 @@ jobs:
           version: v3.7.2
 
       - name: Helm test
-        run: make helm-test
+        run: make test-helm-ci
 
   dockerhub-image:
     needs:

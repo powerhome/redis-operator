@@ -26,23 +26,25 @@
 
 You can do the following commands with make:
 
-- Build the development container.
-  `make docker-build`
+- Generate kubernetes client
+  `make generate-client`
+- Generate kubernetes Custom Resource Definitions
+  `make generate-crd`
+- Generate go code.
+  `make generate-mocks`
 - Generate mocks.
-  `make go-generate`
-- Generate client
-  `make update-codegen`
-- Run tests.
-  `make test`
-- Build the executable file.
-  `make build`
-- Run the app.
-  `make run`
-- Access the docker instance with a shell.
+  `make generate-mocks`
+- Run all code generators
+  `make generate`
+- Build the development environment docker image.
+  `make image-dev-tools`
+- Build the operator image for local, end-to-end testing purposes
+  `make image-local`
+- Connect to a BASH shell the development environment docker image
   `make shell`
-- Install dependencies
-  `make get-deps`
-- Update dependencies
-  `make update-deps`
-- Build the app image.
-  `make image`
+- Run unit tests in the development docker container
+  `make test-unit`
+- Run helm tests in the development docker container
+  `make test-heml`
+- Run all development tests
+  `make test`
