@@ -98,35 +98,9 @@ image: deps-development
 	-f $(APP_DIR)/Dockerfile \
 	.
 
-.PHONY: image-release
-image-release:
-	docker buildx build \
-	--platform linux/amd64,linux/arm64,linux/arm/v7 \
-	--push \
-	--build-arg VERSION=$(TAG) \
-	-t $(REPOSITORY):latest \
-	-t $(REPOSITORY):$(COMMIT) \
-	-t $(REPOSITORY):$(TAG) \
-	-f $(APP_DIR)/Dockerfile \
-	.
-
-.PHONY: testing
-testing: image
-	docker push $(REPOSITORY):$(BRANCH)
-
 .PHONY: tag
 tag:
 	git tag $(VERSION)
-
-.PHONY: publish
-publish:
-	@COMMIT_VERSION="$$(git rev-list -n 1 $(VERSION))"; \
-	docker tag $(REPOSITORY):"$$COMMIT_VERSION" $(REPOSITORY):$(VERSION)
-	docker push $(REPOSITORY):$(VERSION)
-	docker push $(REPOSITORY):latest
-
-.PHONY: release
-release: tag image-release
 
 # Test stuff in dev
 .PHONY: unit-test
