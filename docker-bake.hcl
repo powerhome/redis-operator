@@ -23,6 +23,17 @@ target "build" {
     "linux/arm/v6",
     "linux/arm/v7",
     "linux/arm64",
-    "linux/386"
+    "linux/386",
   ]
+}
+
+variable UID { default = 1000 }
+variable GID { default = 1000 }
+target "dev" {
+  dockerfile = "docker/development/Dockerfile"
+  output = ["type=docker"]
+  args = {
+    uid: "${UID}",
+    gid: "${GID}",
+  }
 }

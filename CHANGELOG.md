@@ -1,16 +1,34 @@
 # Changelog
 
-Check [releases](https://github.com/powerhome/redis-operator/releases) section for Changelog
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+Also check this project's [releases](https://github.com/powerhome/redis-operator/releases) for official release notes.
 
 ## Unreleased
 
+### Changed
+- [Use the new docker bake tooling to build the developer tools image and remove vestigial development targets from the Makefile](https://github.com/powerhome/redis-operator/pull/31).
+
+## [v1.8.0-rc2] - 2023-12-20
+
+### Changed
+- [Automate image publishing to the public image repository](https://github.com/powerhome/redis-operator/pull/30)
+- [Run CI on the master branch](https://github.com/powerhome/redis-operator/pull/29)
+
 ## [v1.8.0-rc1] - 2023-12-15
 
+### Added
 - [Add public image repository](https://github.com/powerhome/redis-operator/pull/28)
 
 ## [v1.7.1] - 2023-12-14
 
+### Changed
 - [Use finer grained NetworkPolicies](https://github.com/powerhome/redis-operator/pull/25)
+
+### Fixed
 - [Fix PodDisruptionBudget deprecation warnings on kube 1.21+](https://github.com/powerhome/redis-operator/pull/19)
 
 ## [v1.1.0-rc.3] - 2022-01-19
