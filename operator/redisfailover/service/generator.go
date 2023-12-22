@@ -50,11 +50,8 @@ sentinel parallel-syncs mymaster 2`
 	graceTime = 30
 )
 
-const redisHAProxyName = "redis-haproxy"
-
 func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
-
-	name := rf.GenerateName(redisHAProxyName)
+	name := GetHAProxyName(rf)
 
 	namespace := rf.Namespace
 
@@ -131,8 +128,8 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 }
 
 func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
-	name := rf.GenerateName(redisHAProxyName)
-	redisName := rf.GenerateName("redis")
+	name := GetHAProxyName(rf)
+	redisHeadlessServiceName := GetRedisHeadlessName(rf)
 
 	namespace := rf.Namespace
 
@@ -184,7 +181,7 @@ func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[stri
 	tcp-check send info\ replication\r\n
 	tcp-check expect string role:master
 	server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none
-`, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
+`, port, rf.Spec.Redis.Replicas, redisHeadlessServiceName, namespace, port)
 
 	if rf.Spec.Haproxy.CustomConfig != "" {
 		haproxyCfg = rf.Spec.Haproxy.CustomConfig
@@ -205,7 +202,7 @@ func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[stri
 
 func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 
-	name := rf.GenerateName("redis")
+	name := GetRedisHeadlessName(rf)
 	namespace := rf.Namespace
 
 	redisTargetPort := intstr.FromString("redis")
@@ -240,7 +237,7 @@ func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[
 func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 	name := rf.Spec.Haproxy.RedisHost
 	if name == "" {
-		name = redisHAProxyName
+		name = GetHAProxyName(rf)
 	}
 	namespace := rf.Namespace
 	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))

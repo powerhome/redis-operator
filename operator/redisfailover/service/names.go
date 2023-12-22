@@ -52,6 +52,14 @@ func GetRedisSlaveName(rf *redisfailoverv1.RedisFailover) string {
 	return generateName(redisSlaveName, rf.Name)
 }
 
+func GetHAProxyName(rf *redisfailoverv1.RedisFailover) string {
+	return generateName(haproxyName, rf.Name)
+}
+
+func GetRedisHeadlessName(rf *redisfailoverv1.RedisFailover) string {
+	return generateName(redisHeadlessName, rf.Name)
+}
+
 func generateName(typeName, metaName string) string {
 	return fmt.Sprintf("%s%s-%s", baseName, typeName, metaName)
 }

@@ -26,9 +26,11 @@ const (
 	redisSlaveName            = "rs"
 	redisShutdownName         = "r-s"
 	redisReadinessName        = "r-readiness"
+	redisHeadlessName         = "rh"
 	redisRoleName             = "redis"
 	appLabel                  = "redis-failover"
 	hostnameTopologyKey       = "kubernetes.io/hostname"
+	haproxyName               = "rp"
 )
 
 const (

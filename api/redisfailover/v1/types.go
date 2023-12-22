@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"fmt"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
@@ -272,10 +271,6 @@ func (s *RedisFailoverStatus) AddCondition(c ClusterCondition) {
 	if len(s.Conditions) > maxStatusesQuantity {
 		s.Conditions = s.Conditions[len(s.Conditions)-maxStatusesQuantity:]
 	}
-}
-
-func (r *RedisFailover) GenerateName(prefix string) string {
-	return fmt.Sprintf("%s-%s", prefix, r.Name)
 }
 
 func (p Port) ToString() string {

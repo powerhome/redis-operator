@@ -498,7 +498,7 @@ func (r *RedisFailoverChecker) IsHAProxyRunning(rFailover *redisfailoverv1.Redis
 	if rFailover.Spec.Haproxy == nil {
 		return true
 	}
-	haproxyName := rFailover.GenerateName(redisHAProxyName)
+	haproxyName := GetHAProxyName(rFailover)
 	dp, err := r.k8sService.GetDeploymentPods(rFailover.Namespace, haproxyName)
 	return err == nil && len(dp.Items) > int(rFailover.Spec.Haproxy.Replicas-1) && AreAllRunning(dp, int(rFailover.Spec.Haproxy.Replicas))
 }
