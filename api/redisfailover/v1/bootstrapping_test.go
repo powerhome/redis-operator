@@ -33,8 +33,9 @@ func TestBootstrapping(t *testing.T) {
 			name:        "with BootstrapSettings",
 			expectation: true,
 			bootstrapSettings: &BootstrapSettings{
-				Host: "127.0.0.1",
-				Port: "6379",
+				Host:    "127.0.0.1",
+				Port:    "6379",
+				Enabled: true,
 			},
 		},
 	}
@@ -61,8 +62,9 @@ func TestSentinelsAllowed(t *testing.T) {
 			name:        "with BootstrapSettings",
 			expectation: false,
 			bootstrapSettings: &BootstrapSettings{
-				Host: "127.0.0.1",
-				Port: "6379",
+				Host:    "127.0.0.1",
+				Port:    "6379",
+				Enabled: true,
 			},
 		},
 		{
@@ -72,6 +74,7 @@ func TestSentinelsAllowed(t *testing.T) {
 				Host:           "127.0.0.1",
 				Port:           "6379",
 				AllowSentinels: true,
+				Enabled:        true,
 			},
 		},
 	}

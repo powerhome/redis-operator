@@ -175,6 +175,7 @@ type BootstrapSettings struct {
 	Host           string `json:"host,omitempty"`
 	Port           string `json:"port,omitempty"`
 	AllowSentinels bool   `json:"allowSentinels,omitempty"`
+	Enabled        bool   `json:"enabled,omitempty"`
 }
 
 // Exporter defines the specification for the redis/sentinel exporter

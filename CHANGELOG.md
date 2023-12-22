@@ -10,6 +10,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 ## Unreleased
 
 ### Changed
+- [Utilize the 'Enabled' parameter to toggle the bootstrap mode on or off for Redis nodes.](https://github.com/powerhome/redis-operator/pull/31).
 - [Use the new docker bake tooling to build the developer tools image and remove vestigial development targets from the Makefile](https://github.com/powerhome/redis-operator/pull/31).
 
 ## [v1.8.0-rc2] - 2023-12-20

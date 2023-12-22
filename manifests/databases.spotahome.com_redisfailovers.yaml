@@ -65,6 +65,8 @@ spec:
                 properties:
                   allowSentinels:
                     type: boolean
+                  enabled:
+                    type: boolean
                   host:
                     type: string
                   port:
