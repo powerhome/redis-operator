@@ -1319,11 +1319,19 @@ func TestHaproxyService(t *testing.T) {
 							Name: "testing",
 						},
 					},
+					Labels: map[string]string{
+						"app.kubernetes.io/component":                      "haproxy",
+						"app.kubernetes.io/name":                           name,
+						"app.kubernetes.io/part-of":                        "redis-failover",
+						"redisfailovers.databases.spotahome.com/component": "haproxy",
+					},
 				},
 				Spec: corev1.ServiceSpec{
 					Type: corev1.ServiceTypeClusterIP,
 					Selector: map[string]string{
-						"app.kubernetes.io/component":                      "redis",
+						"app.kubernetes.io/component":                      "haproxy",
+						"app.kubernetes.io/name":                           name,
+						"app.kubernetes.io/part-of":                        "redis-failover",
 						"redisfailovers.databases.spotahome.com/component": "haproxy",
 					},
 					Ports: []corev1.ServicePort{
@@ -1361,12 +1369,20 @@ func TestHaproxyService(t *testing.T) {
 							Name: "testing",
 						},
 					},
+					Labels: map[string]string{
+						"app.kubernetes.io/component":                      "haproxy",
+						"app.kubernetes.io/name":                           name,
+						"app.kubernetes.io/part-of":                        "redis-failover",
+						"redisfailovers.databases.spotahome.com/component": "haproxy",
+					},
 				},
 				Spec: corev1.ServiceSpec{
 					Type:      corev1.ServiceTypeClusterIP,
 					ClusterIP: "10.1.1.100",
 					Selector: map[string]string{
-						"app.kubernetes.io/component":                      "redis",
+						"app.kubernetes.io/component":                      "haproxy",
+						"app.kubernetes.io/name":                           name,
+						"app.kubernetes.io/part-of":                        "redis-failover",
 						"redisfailovers.databases.spotahome.com/component": "haproxy",
 					},
 					Ports: []corev1.ServicePort{

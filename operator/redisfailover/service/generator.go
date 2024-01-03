@@ -58,8 +58,9 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 
 	namespace := rf.Namespace
 
+	selectorLabels := generateSelectorLabels(haproxyRoleName, rf.Name)
+	labels = util.MergeLabels(labels, selectorLabels)
 	labels = util.MergeLabels(labels, generateComponentLabel(haproxyRoleName))
-	selectorLabels := util.MergeLabels(labels)
 
 	volumeMounts := []corev1.VolumeMount{
 		{
@@ -97,7 +98,7 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: selectorLabels,
+					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -250,11 +251,9 @@ func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string
 	}
 	namespace := rf.Namespace
 	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
-	selectorLabels := map[string]string{
-		"app.kubernetes.io/component": "redis",
-	}
-	selectorLabels = util.MergeLabels(selectorLabels, generateComponentLabel("haproxy"))
-	selectorLabels = util.MergeLabels(labels, selectorLabels)
+	selectorLabels := generateSelectorLabels(haproxyRoleName, rf.Name)
+	selectorLabels = util.MergeLabels(selectorLabels, generateComponentLabel(haproxyRoleName))
+	labels = util.MergeLabels(labels, selectorLabels)
 
 	spec := corev1.ServiceSpec{
 		Selector: selectorLabels,

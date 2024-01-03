@@ -9,8 +9,16 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Added
+
+- Expose harproxy prometheus exporter metrics on port
+
 ### Changed
 - [Use the new docker bake tooling to build the developer tools image and remove vestigial development targets from the Makefile](https://github.com/powerhome/redis-operator/pull/31).
+
+### Fixed
+
+- Fix haproxy pod labels so they aren't included in the redis headless service
 
 ## [v1.8.0-rc2] - 2023-12-20
 
