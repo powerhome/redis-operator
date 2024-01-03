@@ -81,6 +81,10 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 		if err := w.rfService.EnsureSentinelDeployment(rf, labels, or); err != nil {
 			return err
 		}
+	} else {
+		if err := w.rfService.DestroySentinelDeployment(rf); err != nil {
+			return err
+		}
 	}
 
 	return nil

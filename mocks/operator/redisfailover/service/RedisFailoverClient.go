@@ -224,6 +224,20 @@ func (_m *RedisFailoverClient) EnsureSentinelDeployment(rFailover *v1.RedisFailo
 	return r0
 }
 
+// DestroySentinelDeployment provides a mock function with given fields: rFailover, labels, ownerRefs
+func (_m *RedisFailoverClient) DestroySentinelDeployment(rFailover *v1.RedisFailover) error {
+	ret := _m.Called(rFailover)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) error); ok {
+		r0 = rf(rFailover)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // EnsureSentinelNetworkPolicy provides a mock function with given fields: rFailover, labels, ownerRefs
 func (_m *RedisFailoverClient) EnsureSentinelNetworkPolicy(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	ret := _m.Called(rFailover, labels, ownerRefs)

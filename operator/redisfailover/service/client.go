@@ -1,6 +1,7 @@
 package service
 
 import (
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -32,6 +33,7 @@ type RedisFailoverClient interface {
 	EnsureRedisConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureNotPresentRedisService(rFailover *redisfailoverv1.RedisFailover) error
 
+	DestroySentinelDeployment(rFailover *redisfailoverv1.RedisFailover) error
 	UpdateStatus(rFailover *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error)
 }
 
@@ -157,6 +159,28 @@ func (r *RedisFailoverKubeClient) EnsureSentinelDeployment(rf *redisfailoverv1.R
 	err := r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
 
 	r.setEnsureOperationMetrics(d.Namespace, d.Name, "Deployment", rf.Name, err)
+	return err
+}
+
+// DestroySentinelDeployment eliminates sentinel pods, unnecessary for a bootstrap mode
+func (r *RedisFailoverKubeClient) DestroySentinelDeployment(rf *redisfailoverv1.RedisFailover) error {
+
+	name := GetSentinelName(rf)
+
+	if _, err := r.K8SService.GetDeployment(rf.Namespace, name); err != nil {
+		// If no resource, do nothing
+		if errors.IsNotFound(err) {
+			return nil
+		}
+	}
+
+	if !rf.Spec.Sentinel.DisablePodDisruptionBudget {
+		if err := r.K8SService.DeletePodDisruptionBudget(rf.Namespace, name); err != nil {
+			return err
+		}
+	}
+
+	err := r.K8SService.DeleteDeployment(rf.Namespace, name)
 	return err
 }
 
