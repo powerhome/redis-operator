@@ -16,6 +16,7 @@ const (
 
 const (
 	baseName                  = "rf"
+	haproxyRoleName           = "haproxy"
 	sentinelName              = "s"
 	sentinelRoleName          = "sentinel"
 	sentinelConfigFileName    = "sentinel.conf"

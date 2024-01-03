@@ -58,11 +58,8 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 
 	namespace := rf.Namespace
 
-	labels = util.MergeLabels(labels, map[string]string{
-		"app.kubernetes.io/component": "redis",
-	})
-
-	selectorLabels := util.MergeLabels(labels, generateComponentLabel("haproxy"))
+	labels = util.MergeLabels(labels, generateComponentLabel(haproxyRoleName))
+	selectorLabels := util.MergeLabels(labels)
 
 	volumeMounts := []corev1.VolumeMount{
 		{
