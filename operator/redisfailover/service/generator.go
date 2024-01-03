@@ -111,6 +111,10 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 								{
 									ContainerPort: rf.Spec.Redis.Port.ToInt32(),
 								},
+								{
+									Name:          exporterPortName,
+									ContainerPort: haproxyExporterPort,
+								},
 							},
 							VolumeMounts: volumeMounts,
 							Resources:    rf.Spec.Haproxy.Resources,
@@ -156,6 +160,11 @@ func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[stri
 	bind :8080
 	default_backend stats
 
+	frontend prometheus
+	mode http
+	bind :%d
+	http-request use-service prometheus-exporter
+
 	backend stats
 	mode http
 	stats enable
@@ -184,7 +193,7 @@ func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[stri
 	tcp-check send info\ replication\r\n
 	tcp-check expect string role:master
 	server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none
-`, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
+`, haproxyExporterPort, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
 
 	if rf.Spec.Haproxy.CustomConfig != "" {
 		haproxyCfg = rf.Spec.Haproxy.CustomConfig
@@ -258,6 +267,12 @@ func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string
 				Name:       "redis-master",
 				Port:       rf.Spec.Redis.Port.ToInt32(),
 				TargetPort: redisTargetPort,
+				Protocol:   "TCP",
+			},
+			{
+				Name:       exporterPortName,
+				Port:       haproxyExporterPort,
+				TargetPort: intstr.FromInt(haproxyExporterPort),
 				Protocol:   "TCP",
 			},
 		},

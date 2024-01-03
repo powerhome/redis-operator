@@ -4,6 +4,7 @@ package service
 const (
 	exporterPort                  = 9121
 	sentinelExporterPort          = 9355
+	haproxyExporterPort           = 9405
 	exporterPortName              = "http-metrics"
 	exporterContainerName         = "redis-exporter"
 	sentinelExporterContainerName = "sentinel-exporter"

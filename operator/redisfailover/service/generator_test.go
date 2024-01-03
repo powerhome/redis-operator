@@ -1295,26 +1295,24 @@ func TestRedisService(t *testing.T) {
 }
 
 func TestHaproxyService(t *testing.T) {
-	haproxyName := "redis-haproxy"
-	portName := "redis-master"
-	defaultRedisPort := redisfailoverv1.Port(6379)
-	customClusterIP := "10.1.1.100"
 	tests := []struct {
-		name            string
-		rfName          string
-		rfNamespace     string
-		rfLabels        map[string]string
-		rfAnnotations   map[string]string
-		rfRedisPort     redisfailoverv1.Port
-		haproxy         redisfailoverv1.HaproxySettings
-		expectedService corev1.Service
+		name               string
+		rfName             string
+		rfNamespace        string
+		rfLabels           map[string]string
+		rfAnnotations      map[string]string
+		rfRedisPort        redisfailoverv1.Port
+		rfHaproxyName      string
+		rfHaproxyClusterIP string
+		haproxy            redisfailoverv1.HaproxySettings
+		expectedService    corev1.Service
 	}{
 		{
 			name:        "with defaults",
-			rfRedisPort: defaultRedisPort,
+			rfRedisPort: 6379,
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      haproxyName,
+					Name:      "redis-haproxy",
 					Namespace: namespace,
 					OwnerReferences: []metav1.OwnerReference{
 						{
@@ -1330,9 +1328,15 @@ func TestHaproxyService(t *testing.T) {
 					},
 					Ports: []corev1.ServicePort{
 						{
-							Name:       portName,
-							Port:       defaultRedisPort.ToInt32(),
-							TargetPort: intstr.FromInt(int(defaultRedisPort)),
+							Name:       "redis-master",
+							Port:       6379,
+							TargetPort: intstr.FromInt(6379),
+							Protocol:   corev1.ProtocolTCP,
+						},
+						{
+							Name:       "http-metrics",
+							Port:       9405,
+							TargetPort: intstr.FromInt(9405),
 							Protocol:   corev1.ProtocolTCP,
 						},
 					},
@@ -1340,16 +1344,17 @@ func TestHaproxyService(t *testing.T) {
 			},
 		},
 		{
-			name:        "with custom ClusterIP",
-			rfRedisPort: defaultRedisPort,
+			name:               "with custom ClusterIP",
+			rfHaproxyName:      "redis-haproxy",
+			rfHaproxyClusterIP: "10.1.1.100",
 			haproxy: redisfailoverv1.HaproxySettings{
 				Service: &redisfailoverv1.ServiceSettings{
-					ClusterIP: customClusterIP,
+					ClusterIP: "10.1.1.100",
 				},
 			},
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      haproxyName,
+					Name:      "redis-haproxy",
 					Namespace: namespace,
 					OwnerReferences: []metav1.OwnerReference{
 						{
@@ -1359,16 +1364,22 @@ func TestHaproxyService(t *testing.T) {
 				},
 				Spec: corev1.ServiceSpec{
 					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: customClusterIP,
+					ClusterIP: "10.1.1.100",
 					Selector: map[string]string{
 						"app.kubernetes.io/component":                      "redis",
 						"redisfailovers.databases.spotahome.com/component": "haproxy",
 					},
 					Ports: []corev1.ServicePort{
 						{
-							Name:       portName,
-							Port:       defaultRedisPort.ToInt32(),
-							TargetPort: intstr.FromInt(int(defaultRedisPort)),
+							Name:       "redis-master",
+							Port:       6379,
+							TargetPort: intstr.FromInt(6379),
+							Protocol:   corev1.ProtocolTCP,
+						},
+						{
+							Name:       "http-metrics",
+							Port:       9405,
+							TargetPort: intstr.FromInt(9405),
 							Protocol:   corev1.ProtocolTCP,
 						},
 					},
@@ -1383,15 +1394,21 @@ func TestHaproxyService(t *testing.T) {
 
 			// Generate a default RedisFailover and attaching the required annotations
 			rf := generateRF()
+			rf.Spec.Haproxy = &test.haproxy
 			if test.rfName != "" {
 				rf.Name = test.rfName
 			}
 			if test.rfNamespace != "" {
 				rf.Namespace = test.rfNamespace
 			}
+			if test.rfRedisPort == 0 {
+				test.rfRedisPort = 6379
+			}
+			rf.Spec.Redis.Port = redisfailoverv1.Port(6379)
+			if test.rfHaproxyName == "" {
+				rf.Spec.Haproxy.RedisHost = "redis-haproxy"
+			}
 			rf.Spec.Redis.ServiceAnnotations = test.rfAnnotations
-			rf.Spec.Redis.Port = test.rfRedisPort
-			rf.Spec.Haproxy = &test.haproxy
 
 			generatedService := corev1.Service{}
 
