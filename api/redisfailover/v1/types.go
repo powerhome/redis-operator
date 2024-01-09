@@ -175,6 +175,8 @@ type BootstrapSettings struct {
 	Host           string `json:"host,omitempty"`
 	Port           string `json:"port,omitempty"`
 	AllowSentinels bool   `json:"allowSentinels,omitempty"`
+	// +kubebuilder:default=true
+	Enabled        bool   `json:"enabled,omitempty"`
 }
 
 // Exporter defines the specification for the redis/sentinel exporter

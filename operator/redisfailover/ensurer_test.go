@@ -50,13 +50,12 @@ func generateRF(enableExporter bool, bootstrapping bool) *redisfailoverv1.RedisF
 }
 
 func generateRFBootstrappingNode(bootstrapping bool) *redisfailoverv1.BootstrapSettings {
-	if bootstrapping {
-		return &redisfailoverv1.BootstrapSettings{
-			Host: "127.0.0.1",
-			Port: "6379",
-		}
+
+	return &redisfailoverv1.BootstrapSettings{
+		Host:    "127.0.0.1",
+		Port:    "6379",
+		Enabled: bootstrapping,
 	}
-	return nil
 }
 
 func TestEnsure(t *testing.T) {
@@ -116,6 +115,8 @@ func TestEnsure(t *testing.T) {
 				mrfs.On("EnsureSentinelService", rf, mock.Anything, mock.Anything).Once().Return(nil)
 				mrfs.On("EnsureSentinelConfigMap", rf, mock.Anything, mock.Anything).Once().Return(nil)
 				mrfs.On("EnsureSentinelDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
+			} else {
+				mrfs.On("DestroySentinelResources", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			}
 
 			mrfs.On("EnsureRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)

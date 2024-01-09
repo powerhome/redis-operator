@@ -34,7 +34,7 @@ func TestValidate(t *testing.T) {
 		{
 			name:            "BootstrapNode provided without a host",
 			rfName:          "test",
-			rfBootstrapNode: &BootstrapSettings{},
+			rfBootstrapNode: &BootstrapSettings{Enabled: true},
 			expectedError:   "BootstrapNode must include a host when provided",
 		},
 		{
@@ -44,14 +44,14 @@ func TestValidate(t *testing.T) {
 		{
 			name:                  "Populates default bootstrap port when valid",
 			rfName:                "test",
-			rfBootstrapNode:       &BootstrapSettings{Host: "127.0.0.1"},
-			expectedBootstrapNode: &BootstrapSettings{Host: "127.0.0.1", Port: "6379"},
+			rfBootstrapNode:       &BootstrapSettings{Host: "127.0.0.1", Enabled: true},
+			expectedBootstrapNode: &BootstrapSettings{Host: "127.0.0.1", Port: "6379", Enabled: true},
 		},
 		{
 			name:                  "Allows for specifying boostrap port",
 			rfName:                "test",
-			rfBootstrapNode:       &BootstrapSettings{Host: "127.0.0.1", Port: "6380"},
-			expectedBootstrapNode: &BootstrapSettings{Host: "127.0.0.1", Port: "6380"},
+			rfBootstrapNode:       &BootstrapSettings{Host: "127.0.0.1", Port: "6380", Enabled: true},
+			expectedBootstrapNode: &BootstrapSettings{Host: "127.0.0.1", Port: "6380", Enabled: true},
 		},
 		{
 			name:                "Appends applied custom config to default initial values",
@@ -62,8 +62,8 @@ func TestValidate(t *testing.T) {
 			name:                  "Appends applied custom config to default initial values when bootstrapping",
 			rfName:                "test",
 			rfRedisCustomConfig:   []string{"tcp-keepalive 60"},
-			rfBootstrapNode:       &BootstrapSettings{Host: "127.0.0.1"},
-			expectedBootstrapNode: &BootstrapSettings{Host: "127.0.0.1", Port: "6379"},
+			rfBootstrapNode:       &BootstrapSettings{Host: "127.0.0.1", Enabled: true},
+			expectedBootstrapNode: &BootstrapSettings{Host: "127.0.0.1", Port: "6379", Enabled: true},
 		},
 	}
 
@@ -83,7 +83,7 @@ func TestValidate(t *testing.T) {
 					"replica-priority 100",
 				}
 
-				if test.rfBootstrapNode != nil {
+				if test.rfBootstrapNode != nil && test.rfBootstrapNode.Enabled {
 					expectedRedisCustomConfig = []string{
 						"replica-priority 0",
 					}

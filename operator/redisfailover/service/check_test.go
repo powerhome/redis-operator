@@ -1034,6 +1034,7 @@ func TestClusterRunningWithBootstrap(t *testing.T) {
 	rf.Spec.BootstrapNode = &redisfailoverv1.BootstrapSettings{
 		Host:           "fake-host",
 		AllowSentinels: false,
+		Enabled:        true,
 	}
 	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(notAllRunning, nil)
@@ -1124,6 +1125,7 @@ func TestClusterRunningWithBootstrapSentinels(t *testing.T) {
 	rf.Spec.BootstrapNode = &redisfailoverv1.BootstrapSettings{
 		Host:           "fake-host",
 		AllowSentinels: true,
+		Enabled:        true,
 	}
 	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(allRunning, nil)
