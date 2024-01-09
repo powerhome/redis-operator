@@ -12,9 +12,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 ### Fixed
 - [Cleanup Sentinels when bootstrapping and sentinels are not allowed](https://github.com/powerhome/redis-operator/pull/33).
 
-### Changed
-- [Disable Sentinel Resources In Replica Mode](https://github.com/powerhome/redis-operator/pull/33).
-- [Utilize the 'Enabled' parameter to toggle the bootstrap mode on or off for Redis nodes.](https://github.com/powerhome/redis-operator/pull/32).
+### Added
+- [Bootstrap settings - Add an `enabled` parameter to toggle the bootstrap mode on or off for a RedisFailover. (Defaults to `true`)](https://github.com/powerhome/redis-operator/pull/32).
 - [Use the new docker bake tooling to build the developer tools image and remove vestigial development targets from the Makefile](https://github.com/powerhome/redis-operator/pull/31).
 
 ## [v1.8.0-rc2] - 2023-12-20
