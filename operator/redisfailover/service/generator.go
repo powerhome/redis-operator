@@ -186,6 +186,26 @@ func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[stri
 	server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none
 `, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
 
+	if rf.Spec.BootstrapNode != nil && rf.Spec.BootstrapNode.Port != rf.Spec.Redis.Port.ToString() {
+
+		portInt, _ := strconv.Atoi(rf.Spec.BootstrapNode.Port)
+		haproxyCfg += fmt.Sprintf(`
+	frontend redis-slave
+	bind *:%d
+	default_backend redis-slave
+
+	backend redis-slave
+	mode tcp
+	balance first
+	option tcp-check
+	tcp-check send info\ replication\r\n
+	tcp-check expect string role:slave
+	server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none
+`,
+			portInt, rf.Spec.Redis.Replicas, redisName, namespace, port)
+
+	}
+
 	if rf.Spec.Haproxy.CustomConfig != "" {
 		haproxyCfg = rf.Spec.Haproxy.CustomConfig
 	}
@@ -261,6 +281,18 @@ func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string
 				Protocol:   "TCP",
 			},
 		},
+	}
+
+	if rf.Spec.BootstrapNode != nil && rf.Spec.BootstrapNode.Port != rf.Spec.Redis.Port.ToString() {
+
+		portInt, _ := strconv.Atoi(rf.Spec.BootstrapNode.Port)
+		additionalPort := corev1.ServicePort{
+			Name:       "redis-slave",
+			Port:       int32(portInt),
+			TargetPort: intstr.FromInt(int(portInt)),
+			Protocol:   "TCP",
+		}
+		spec.Ports = append(spec.Ports, additionalPort)
 	}
 
 	serviceSettings := rf.Spec.Haproxy.Service

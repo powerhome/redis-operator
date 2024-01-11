@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1297,12 +1298,15 @@ func TestRedisService(t *testing.T) {
 func TestHaproxyService(t *testing.T) {
 	haproxyName := "redis-haproxy"
 	portName := "redis-master"
-	defaultRedisPort := redisfailoverv1.Port(6379)
+	slaveRedisPortName := "redis-slave"
+	redisPort := 6379
+	redisSlavePort := 6389
+	defaultRedisPort := redisfailoverv1.Port(redisPort)
+	defaultRedisSlavePort := redisfailoverv1.Port(redisSlavePort)
 	customClusterIP := "10.1.1.100"
 	tests := []struct {
 		name            string
-		rfName          string
-		rfNamespace     string
+		rfBootstrap     redisfailoverv1.BootstrapSettings
 		rfLabels        map[string]string
 		rfAnnotations   map[string]string
 		rfRedisPort     redisfailoverv1.Port
@@ -1374,6 +1378,79 @@ func TestHaproxyService(t *testing.T) {
 					},
 				},
 			},
+		}, {
+			name:        "with bootstrapSettings without Port",
+			rfRedisPort: defaultRedisPort,
+			rfBootstrap: redisfailoverv1.BootstrapSettings{
+				Host: "redis",
+				Port: strconv.Itoa(redisPort),
+			},
+			expectedService: corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      haproxyName,
+					Namespace: namespace,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Type: corev1.ServiceTypeClusterIP,
+					Selector: map[string]string{
+						"app.kubernetes.io/component":                      "redis",
+						"redisfailovers.databases.spotahome.com/component": "haproxy",
+					},
+					Ports: []corev1.ServicePort{
+						{
+							Name:       portName,
+							Port:       defaultRedisPort.ToInt32(),
+							TargetPort: intstr.FromInt(int(defaultRedisPort)),
+							Protocol:   corev1.ProtocolTCP,
+						},
+					},
+				},
+			},
+		},
+		{
+			name:        "with bootstrapSettings and with different Port",
+			rfRedisPort: defaultRedisPort,
+			rfBootstrap: redisfailoverv1.BootstrapSettings{
+				Host: "redis",
+				Port: defaultRedisSlavePort.ToString(),
+			},
+			expectedService: corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      haproxyName,
+					Namespace: namespace,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Type: corev1.ServiceTypeClusterIP,
+					Selector: map[string]string{
+						"app.kubernetes.io/component":                      "redis",
+						"redisfailovers.databases.spotahome.com/component": "haproxy",
+					},
+					Ports: []corev1.ServicePort{
+						{
+							Name:       portName,
+							Port:       defaultRedisPort.ToInt32(),
+							TargetPort: intstr.FromInt(int(defaultRedisPort)),
+							Protocol:   corev1.ProtocolTCP,
+						},
+						{
+							Name:       slaveRedisPortName,
+							Port:       defaultRedisSlavePort.ToInt32(),
+							TargetPort: intstr.FromInt(int(defaultRedisSlavePort)),
+							Protocol:   corev1.ProtocolTCP,
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -1383,15 +1460,14 @@ func TestHaproxyService(t *testing.T) {
 
 			// Generate a default RedisFailover and attaching the required annotations
 			rf := generateRF()
-			if test.rfName != "" {
-				rf.Name = test.rfName
-			}
-			if test.rfNamespace != "" {
-				rf.Namespace = test.rfNamespace
-			}
+
 			rf.Spec.Redis.ServiceAnnotations = test.rfAnnotations
 			rf.Spec.Redis.Port = test.rfRedisPort
 			rf.Spec.Haproxy = &test.haproxy
+
+			if test.rfBootstrap.Host != "" {
+				rf.Spec.BootstrapNode = &test.rfBootstrap
+			}
 
 			generatedService := corev1.Service{}
 
