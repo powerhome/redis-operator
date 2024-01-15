@@ -126,6 +126,10 @@ func TestEnsure(t *testing.T) {
 			mrfs.On("EnsureRedisReadinessConfigMap", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			mrfs.On("EnsureRedisStatefulset", rf, mock.Anything, mock.Anything).Once().Return(nil)
 
+			mrfs.On("EnsureHAProxyService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+			mrfs.On("EnsureHAProxyConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
+			mrfs.On("EnsureHAProxyDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
+
 			// Create the Kops client and call the valid logic.
 			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
 			err := handler.Ensure(rf, map[string]string{}, []metav1.OwnerReference{}, metrics.Dummy)
