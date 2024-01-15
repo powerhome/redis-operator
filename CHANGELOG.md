@@ -11,6 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Fixed
 - [Cleanup Sentinels when bootstrapping and sentinels are not allowed](https://github.com/powerhome/redis-operator/pull/33).
+- [Prevent connection throttling for more than 256 concurrent client connections](https://github.com/powerhome/redis-operator/pull/36)
 
 ### Added
 - [Bootstrap settings - Add an `enabled` parameter to toggle the bootstrap mode on or off for a RedisFailover. (Defaults to `true`)](https://github.com/powerhome/redis-operator/pull/32).
