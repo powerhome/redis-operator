@@ -5,6 +5,9 @@ import (
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	"github.com/spotahome/redis-operator/metrics"
+	"github.com/spotahome/redis-operator/operator/redisfailover/util"
+
+	rfservice "github.com/spotahome/redis-operator/operator/redisfailover/service"
 )
 
 // Ensure is called to ensure all of the resources associated with a RedisFailover are created
@@ -29,6 +32,8 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 	}
 
 	if rf.Spec.Haproxy != nil {
+		labels = util.MergeLabels(labels, rfservice.GetHAProxyRedisLabels())
+
 		if err := w.rfService.EnsureHAProxyService(rf, labels, or); err != nil {
 			return err
 		}
@@ -82,6 +87,22 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 		}
 	} else {
 		if err := w.rfService.DestroySentinelResources(rf); err != nil {
+			return err
+		}
+	}
+
+	if rf.Spec.BootstrapNode != nil {
+		labels = util.MergeLabels(labels, rfservice.GetHAProxyRedisSlaveLabels())
+
+		if err := w.rfService.EnsureHAProxyService(rf, labels, or); err != nil {
+			return err
+		}
+
+		if err := w.rfService.EnsureHAProxyConfigmap(rf, labels, or); err != nil {
+			return err
+		}
+
+		if err := w.rfService.EnsureHAProxyDeployment(rf, labels, or); err != nil {
 			return err
 		}
 	}

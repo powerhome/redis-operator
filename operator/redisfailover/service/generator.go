@@ -50,11 +50,32 @@ sentinel parallel-syncs mymaster 2`
 	graceTime = 30
 )
 
-const redisHAProxyName = "redis-haproxy"
+const (
+	rfLabelInstance       = "app.kubernetes.io/instance"
+	redisHAProxyName      = "redis-haproxy"
+	redisSlaveHAProxyName = "redis-s-haproxy"
+)
+
+var (
+	haproxyRedisSlaveLabels = map[string]string{
+		rfLabelInstance: redisSlaveHAProxyName,
+	}
+	haproxyRedisLabels = map[string]string{
+		rfLabelInstance: redisHAProxyName,
+	}
+)
+
+func GetHAProxyRedisLabels() map[string]string {
+	return haproxyRedisLabels
+}
+
+func GetHAProxyRedisSlaveLabels() map[string]string {
+	return haproxyRedisSlaveLabels
+}
 
 func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
 
-	name := rf.GenerateName(redisHAProxyName)
+	name := rf.GenerateName(labels[rfLabelInstance])
 
 	namespace := rf.Namespace
 
@@ -131,7 +152,7 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 }
 
 func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
-	name := rf.GenerateName(redisHAProxyName)
+	name := rf.GenerateName(labels[rfLabelInstance])
 	redisName := rf.GenerateName("redis")
 
 	namespace := rf.Namespace
@@ -139,6 +160,11 @@ func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[stri
 	labels = util.MergeLabels(labels, map[string]string{
 		"app.kubernetes.io/component": "redis",
 	})
+
+	redisRole := "role:master"
+	if labels[rfLabelInstance] == redisSlaveHAProxyName {
+		redisRole = "role:slave"
+	}
 
 	port := rf.Spec.Redis.Port
 	haproxyCfg := fmt.Sprintf(`global
@@ -173,20 +199,20 @@ func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[stri
 	hold valid 10s
 	hold obsolete 10s
 
-	frontend redis-master
+	frontend redis-instance
 	bind *:%d
-	default_backend redis-master
+	default_backend redis-instance
 
-	backend redis-master
+	backend redis-instance
 	mode tcp
 	balance first
 	option tcp-check
 	tcp-check send info\ replication\r\n
-	tcp-check expect string role:master
+	tcp-check expect string %s
 	server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none
-`, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
+`, port, redisRole, rf.Spec.Redis.Replicas, redisName, namespace, port)
 
-	if rf.Spec.Haproxy.CustomConfig != "" {
+	if rf.Spec.Haproxy.CustomConfig != "" && labels[rfLabelInstance] != redisSlaveHAProxyName {
 		haproxyCfg = rf.Spec.Haproxy.CustomConfig
 	}
 
@@ -239,9 +265,10 @@ func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[
 
 func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 	name := rf.Spec.Haproxy.RedisHost
-	if name == "" {
-		name = redisHAProxyName
+	if name == "" || labels[rfLabelInstance] == redisSlaveHAProxyName {
+		name = rf.GenerateName(labels[rfLabelInstance])
 	}
+
 	namespace := rf.Namespace
 	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
 	selectorLabels := map[string]string{
@@ -255,7 +282,7 @@ func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string
 		Type:     "ClusterIP",
 		Ports: []corev1.ServicePort{
 			{
-				Name:       "redis-master",
+				Name:       "redis-instance",
 				Port:       rf.Spec.Redis.Port.ToInt32(),
 				TargetPort: redisTargetPort,
 				Protocol:   "TCP",
