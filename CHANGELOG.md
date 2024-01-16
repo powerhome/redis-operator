@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v1.8.0] - 2024-01-16
+
 ### Fixed
 - [Cleanup Sentinels when bootstrapping and sentinels are not allowed](https://github.com/powerhome/redis-operator/pull/33).
 - [Prevent connection throttling for more than 256 concurrent client connections](https://github.com/powerhome/redis-operator/pull/36)
