@@ -16,6 +16,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 - [Prevent connection throttling for more than 256 concurrent client connections](https://github.com/powerhome/redis-operator/pull/36)
 
 ### Added
+- [Create new HAProxy service in Bootstrap mode configured to direct traffic to Redis nodes designated as slaves][https://github.com/powerhome/redis-operator/pull/40]
 - [Bootstrap settings - Add an `enabled` parameter to toggle the bootstrap mode on or off for a RedisFailover. (Defaults to `true`)](https://github.com/powerhome/redis-operator/pull/32).
 - [Use the new docker bake tooling to build the developer tools image and remove vestigial development targets from the Makefile](https://github.com/powerhome/redis-operator/pull/31).
 
