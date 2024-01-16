@@ -44,6 +44,20 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 		if err := w.rfService.EnsureHAProxyDeployment(rf, labels, or); err != nil {
 			return err
 		}
+
+		if rf.Spec.BootstrapNode != nil {
+			if err := w.rfService.EnsureHAProxyRedisSlaveService(rf, labels, or); err != nil {
+				return err
+			}
+
+			if err := w.rfService.EnsureHAProxyRedisSlaveConfigmap(rf, labels, or); err != nil {
+				return err
+			}
+
+			if err := w.rfService.EnsureHAProxyRedisSlaveDeployment(rf, labels, or); err != nil {
+				return err
+			}
+		}
 	}
 
 	if err := w.rfService.EnsureRedisMasterService(rf, labels, or); err != nil {

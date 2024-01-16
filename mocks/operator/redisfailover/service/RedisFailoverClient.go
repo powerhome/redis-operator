@@ -56,6 +56,48 @@ func (_m *RedisFailoverClient) EnsureHAProxyDeployment(rFailover *v1.RedisFailov
 	return r0
 }
 
+// EnsureHAProxyRedisSlaveConfigmap provides a mock function with given fields: rFailover, labels, ownerRefs
+func (_m *RedisFailoverClient) EnsureHAProxyRedisSlaveConfigmap(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	ret := _m.Called(rFailover, labels, ownerRefs)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover, map[string]string, []metav1.OwnerReference) error); ok {
+		r0 = rf(rFailover, labels, ownerRefs)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// EnsureHAProxyRedisSlaveDeployment provides a mock function with given fields: rFailover, labels, ownerRefs
+func (_m *RedisFailoverClient) EnsureHAProxyRedisSlaveDeployment(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	ret := _m.Called(rFailover, labels, ownerRefs)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover, map[string]string, []metav1.OwnerReference) error); ok {
+		r0 = rf(rFailover, labels, ownerRefs)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// EnsureHAProxyRedisSlaveService provides a mock function with given fields: rFailover, labels, ownerRefs
+func (_m *RedisFailoverClient) EnsureHAProxyRedisSlaveService(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	ret := _m.Called(rFailover, labels, ownerRefs)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover, map[string]string, []metav1.OwnerReference) error); ok {
+		r0 = rf(rFailover, labels, ownerRefs)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // EnsureHAProxyService provides a mock function with given fields: rFailover, labels, ownerRefs
 func (_m *RedisFailoverClient) EnsureHAProxyService(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	ret := _m.Called(rFailover, labels, ownerRefs)
