@@ -28,8 +28,8 @@ func (_m *RedisFailoverClient) DestroySentinelResources(rFailover *v1.RedisFailo
 	return r0
 }
 
-// EnsureHAProxyConfigmap provides a mock function with given fields: rFailover, labels, ownerRefs
-func (_m *RedisFailoverClient) EnsureHAProxyConfigmap(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+// EnsureHAProxyRedisMasterConfigmap provides a mock function with given fields: rFailover, labels, ownerRefs
+func (_m *RedisFailoverClient) EnsureHAProxyRedisMasterConfigmap(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	ret := _m.Called(rFailover, labels, ownerRefs)
 
 	var r0 error
@@ -42,8 +42,22 @@ func (_m *RedisFailoverClient) EnsureHAProxyConfigmap(rFailover *v1.RedisFailove
 	return r0
 }
 
-// EnsureHAProxyDeployment provides a mock function with given fields: rFailover, labels, ownerRefs
-func (_m *RedisFailoverClient) EnsureHAProxyDeployment(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+// EnsureHAProxyRedisMasterDeployment provides a mock function with given fields: rFailover, labels, ownerRefs
+func (_m *RedisFailoverClient) EnsureHAProxyRedisMasterDeployment(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	ret := _m.Called(rFailover, labels, ownerRefs)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover, map[string]string, []metav1.OwnerReference) error); ok {
+		r0 = rf(rFailover, labels, ownerRefs)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// EnsureHAProxyRedisMasterService provides a mock function with given fields: rFailover, labels, ownerRefs
+func (_m *RedisFailoverClient) EnsureHAProxyRedisMasterService(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	ret := _m.Called(rFailover, labels, ownerRefs)
 
 	var r0 error
@@ -86,20 +100,6 @@ func (_m *RedisFailoverClient) EnsureHAProxyRedisSlaveDeployment(rFailover *v1.R
 
 // EnsureHAProxyRedisSlaveService provides a mock function with given fields: rFailover, labels, ownerRefs
 func (_m *RedisFailoverClient) EnsureHAProxyRedisSlaveService(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	ret := _m.Called(rFailover, labels, ownerRefs)
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(*v1.RedisFailover, map[string]string, []metav1.OwnerReference) error); ok {
-		r0 = rf(rFailover, labels, ownerRefs)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// EnsureHAProxyService provides a mock function with given fields: rFailover, labels, ownerRefs
-func (_m *RedisFailoverClient) EnsureHAProxyService(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	ret := _m.Called(rFailover, labels, ownerRefs)
 
 	var r0 error

@@ -15,9 +15,9 @@ import (
 // RedisFailoverClient has the minimumm methods that a Redis failover controller needs to satisfy
 // in order to talk with K8s
 type RedisFailoverClient interface {
-	EnsureHAProxyDeployment(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
-	EnsureHAProxyConfigmap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
-	EnsureHAProxyService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureHAProxyRedisMasterDeployment(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureHAProxyRedisMasterConfigmap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureHAProxyRedisMasterService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisHeadlessService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisNetworkPolicy(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelNetworkPolicy(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
@@ -103,11 +103,11 @@ func (r *RedisFailoverKubeClient) EnsureSentinelNetworkPolicy(rf *redisfailoverv
 	return err
 }
 
-// EnsureHAProxyService makes sure the HAProxy service exists
-func (r *RedisFailoverKubeClient) EnsureHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	svc := generateHAProxyService(rf, labels, ownerRefs)
+// EnsureHAProxyRedisMasterService makes sure the HAProxy service exists
+func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	svc := generateHAProxyRedisMasterService(rf, labels, ownerRefs)
 	err := r.K8SService.CreateOrUpdateService(rf.Namespace, svc)
-	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyService", rf.Name, err)
+	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyRedisMasterService", rf.Name, err)
 	return err
 }
 
@@ -119,20 +119,20 @@ func (r *RedisFailoverKubeClient) EnsureRedisHeadlessService(rf *redisfailoverv1
 	return err
 }
 
-// EnsureHAProxyConfigmap makes sure the HAProxy configmap exists
-func (r *RedisFailoverKubeClient) EnsureHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	svc := generateHAProxyConfigmap(rf, labels, ownerRefs)
+// EnsureHAProxyRedisMasterConfigmap makes sure the HAProxy configmap exists
+func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	svc := generateHAProxyRedisMasterConfigmap(rf, labels, ownerRefs)
 	err := r.K8SService.CreateOrUpdateConfigMap(rf.Namespace, svc)
-	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyConfigmap", rf.Name, err)
+	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyRedisMasterConfigmap", rf.Name, err)
 	return err
 }
 
-// EnsureHAProxyDeployment makes sure the sentinel deployment exists in the desired state
-func (r *RedisFailoverKubeClient) EnsureHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	d := generateHAProxyDeployment(rf, labels, ownerRefs)
+// EnsureHAProxyRedisMasterDeployment makes sure the sentinel deployment exists in the desired state
+func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	d := generateHAProxyRedisMasterDeployment(rf, labels, ownerRefs)
 	err := r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
 
-	r.setEnsureOperationMetrics(d.Namespace, d.Name, "EnsureHAProxyDeployment", rf.Name, err)
+	r.setEnsureOperationMetrics(d.Namespace, d.Name, "EnsureHAProxyRedisMasterDeployment", rf.Name, err)
 	return err
 }
 
@@ -140,7 +140,7 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyDeployment(rf *redisfailoverv1.Re
 func (r *RedisFailoverKubeClient) EnsureHAProxyRedisSlaveService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	svc := generateHAProxyRedisSlaveService(rf, labels, ownerRefs)
 	err := r.K8SService.CreateOrUpdateService(rf.Namespace, svc)
-	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyService", rf.Name, err)
+	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyRedisMasterService", rf.Name, err)
 	return err
 }
 
@@ -148,7 +148,7 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisSlaveService(rf *redisfailov
 func (r *RedisFailoverKubeClient) EnsureHAProxyRedisSlaveConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	svc := generateRedisSlaveConfigmap(rf, labels, ownerRefs)
 	err := r.K8SService.CreateOrUpdateConfigMap(rf.Namespace, svc)
-	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyConfigmap", rf.Name, err)
+	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyRedisMasterConfigmap", rf.Name, err)
 	return err
 }
 
@@ -157,7 +157,7 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisSlaveDeployment(rf *redisfai
 	d := generateHAProxyRedisSlaveDeployment(rf, labels, ownerRefs)
 	err := r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
 
-	r.setEnsureOperationMetrics(d.Namespace, d.Name, "EnsureHAProxyDeployment", rf.Name, err)
+	r.setEnsureOperationMetrics(d.Namespace, d.Name, "EnsureHAProxyRedisMasterDeployment", rf.Name, err)
 	return err
 }
 

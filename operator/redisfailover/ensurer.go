@@ -29,7 +29,7 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 	}
 
 	if rf.Spec.Haproxy != nil {
-		if err := w.rfService.EnsureHAProxyService(rf, labels, or); err != nil {
+		if err := w.rfService.EnsureHAProxyRedisMasterService(rf, labels, or); err != nil {
 			return err
 		}
 
@@ -37,27 +37,26 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 			return err
 		}
 
-		if err := w.rfService.EnsureHAProxyConfigmap(rf, labels, or); err != nil {
+		if err := w.rfService.EnsureHAProxyRedisMasterConfigmap(rf, labels, or); err != nil {
 			return err
 		}
 
-		if err := w.rfService.EnsureHAProxyDeployment(rf, labels, or); err != nil {
+		if err := w.rfService.EnsureHAProxyRedisMasterDeployment(rf, labels, or); err != nil {
 			return err
 		}
 
-		if rf.Spec.BootstrapNode != nil {
-			if err := w.rfService.EnsureHAProxyRedisSlaveService(rf, labels, or); err != nil {
-				return err
-			}
-
-			if err := w.rfService.EnsureHAProxyRedisSlaveConfigmap(rf, labels, or); err != nil {
-				return err
-			}
-
-			if err := w.rfService.EnsureHAProxyRedisSlaveDeployment(rf, labels, or); err != nil {
-				return err
-			}
+		if err := w.rfService.EnsureHAProxyRedisSlaveService(rf, labels, or); err != nil {
+			return err
 		}
+
+		if err := w.rfService.EnsureHAProxyRedisSlaveConfigmap(rf, labels, or); err != nil {
+			return err
+		}
+
+		if err := w.rfService.EnsureHAProxyRedisSlaveDeployment(rf, labels, or); err != nil {
+			return err
+		}
+
 	}
 
 	if err := w.rfService.EnsureRedisMasterService(rf, labels, or); err != nil {

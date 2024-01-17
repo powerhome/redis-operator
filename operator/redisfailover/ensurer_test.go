@@ -141,16 +141,14 @@ func TestEnsure(t *testing.T) {
 			}
 
 			if test.haproxy {
-				mrfs.On("EnsureHAProxyService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureHAProxyRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)
 				mrfs.On("EnsureRedisHeadlessService", rf, mock.Anything, mock.Anything).Once().Return(nil)
-				mrfs.On("EnsureHAProxyConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
-				mrfs.On("EnsureHAProxyDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureHAProxyRedisMasterConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureHAProxyRedisMasterDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
 
-				if test.bootstrapping {
-					mrfs.On("EnsureHAProxyRedisSlaveService", rf, mock.Anything, mock.Anything).Once().Return(nil)
-					mrfs.On("EnsureHAProxyRedisSlaveConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
-					mrfs.On("EnsureHAProxyRedisSlaveDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
-				}
+				mrfs.On("EnsureHAProxyRedisSlaveService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureHAProxyRedisSlaveConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureHAProxyRedisSlaveDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			}
 
 			mrfs.On("EnsureRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)

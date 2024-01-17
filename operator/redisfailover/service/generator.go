@@ -52,7 +52,7 @@ sentinel parallel-syncs mymaster 2`
 
 const redisHAProxyName = "redis-haproxy"
 
-func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
+func generateHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
 
 	name := rf.GenerateName(redisHAProxyName)
 
@@ -130,7 +130,7 @@ func generateHAProxyDeployment(rf *redisfailoverv1.RedisFailover, labels map[str
 	return sd
 }
 
-func generateHAProxyConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
+func generateHAProxyRedisMasterConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
 	name := rf.GenerateName(redisHAProxyName)
 	redisName := rf.GenerateName("redis")
 
@@ -237,7 +237,7 @@ func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[
 	}
 }
 
-func generateHAProxyService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
+func generateHAProxyRedisMasterService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 	name := rf.Spec.Haproxy.RedisHost
 	if name == "" {
 		name = redisHAProxyName

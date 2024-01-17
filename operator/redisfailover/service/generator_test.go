@@ -1402,7 +1402,7 @@ func TestHaproxyService(t *testing.T) {
 			}).Return(nil)
 
 			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-			err := client.EnsureHAProxyService(rf, test.rfLabels, []metav1.OwnerReference{{Name: "testing"}})
+			err := client.EnsureHAProxyRedisMasterService(rf, test.rfLabels, []metav1.OwnerReference{{Name: "testing"}})
 
 			assert.Equal(test.expectedService, generatedService)
 			assert.NoError(err)
