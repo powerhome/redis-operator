@@ -1327,6 +1327,7 @@ func TestHaproxyService(t *testing.T) {
 					Selector: map[string]string{
 						"app.kubernetes.io/component":                      "redis",
 						"redisfailovers.databases.spotahome.com/component": "haproxy",
+						"redishaproxy-role":                                "master",
 					},
 					Ports: []corev1.ServicePort{
 						{
@@ -1363,6 +1364,7 @@ func TestHaproxyService(t *testing.T) {
 					Selector: map[string]string{
 						"app.kubernetes.io/component":                      "redis",
 						"redisfailovers.databases.spotahome.com/component": "haproxy",
+						"redishaproxy-role":                                "master",
 					},
 					Ports: []corev1.ServicePort{
 						{

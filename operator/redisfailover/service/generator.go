@@ -58,6 +58,7 @@ func generateHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, lab
 
 	labels = util.MergeLabels(labels, map[string]string{
 		"app.kubernetes.io/component": "redis",
+		redisHARoleLabelKey:           redisRoleLabelMaster,
 	})
 
 	selectorLabels := util.MergeLabels(labels, generateComponentLabel("haproxy"))
@@ -136,6 +137,7 @@ func generateHAProxyRedisMasterConfigmap(rf *redisfailoverv1.RedisFailover, labe
 
 	labels = util.MergeLabels(labels, map[string]string{
 		"app.kubernetes.io/component": "redis",
+		redisHARoleLabelKey:           redisRoleLabelMaster,
 	})
 
 	port := rf.Spec.Redis.Port
@@ -244,6 +246,7 @@ func generateHAProxyRedisMasterService(rf *redisfailoverv1.RedisFailover, labels
 	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
 	selectorLabels := map[string]string{
 		"app.kubernetes.io/component": "redis",
+		redisHARoleLabelKey:           redisRoleLabelMaster,
 	}
 	selectorLabels = util.MergeLabels(selectorLabels, generateComponentLabel("haproxy"))
 	selectorLabels = util.MergeLabels(labels, selectorLabels)
