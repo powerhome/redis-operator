@@ -1295,7 +1295,7 @@ func TestRedisService(t *testing.T) {
 }
 
 func TestHaproxyService(t *testing.T) {
-	haproxyName := "redis-haproxy"
+	haproxyName := "rfrm-haproxy-test"
 	portName := "redis-master"
 	defaultRedisPort := redisfailoverv1.Port(6379)
 	customClusterIP := "10.1.1.100"

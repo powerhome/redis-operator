@@ -54,7 +54,7 @@ const redisHAProxyName = "redis-haproxy"
 
 func generateHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
 
-	name := rf.GenerateName(redisHAProxyName)
+	name := GetHaproxyMasterName(rf)
 
 	namespace := rf.Namespace
 
@@ -131,7 +131,7 @@ func generateHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, lab
 }
 
 func generateHAProxyRedisMasterConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
-	name := rf.GenerateName(redisHAProxyName)
+	name := GetHaproxyMasterName(rf)
 	redisName := rf.GenerateName("redis")
 
 	namespace := rf.Namespace
@@ -240,7 +240,7 @@ func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[
 func generateHAProxyRedisMasterService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 	name := rf.Spec.Haproxy.RedisHost
 	if name == "" {
-		name = redisHAProxyName
+		name = GetHaproxyMasterName(rf)
 	}
 	namespace := rf.Namespace
 	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
@@ -283,7 +283,7 @@ func generateHAProxyRedisMasterService(rf *redisfailoverv1.RedisFailover, labels
 
 func generateHAProxyRedisSlaveDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
 
-	name := rf.GenerateName(redisHAProxySlaveRedisName)
+	name := GetHaproxySlaveName(rf)
 
 	namespace := rf.Namespace
 
@@ -364,7 +364,7 @@ func generateHAProxyRedisSlaveDeployment(rf *redisfailoverv1.RedisFailover, labe
 }
 
 func generateRedisSlaveConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
-	name := rf.GenerateName(redisHAProxySlaveRedisName)
+	name := GetHaproxySlaveName(rf)
 	redisName := rf.GenerateName("redis")
 
 	namespace := rf.Namespace
@@ -434,7 +434,7 @@ func generateRedisSlaveConfigmap(rf *redisfailoverv1.RedisFailover, labels map[s
 }
 
 func generateHAProxyRedisSlaveService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
-	name := rf.GenerateName(redisHAProxySlaveRedisName)
+	name := GetHaproxySlaveName(rf)
 
 	namespace := rf.Namespace
 	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
