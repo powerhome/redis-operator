@@ -361,7 +361,7 @@ func generateHAProxyRedisSlaveDeployment(rf *redisfailoverv1.RedisFailover, labe
 	return sd
 }
 
-func generateRedisSlaveConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
+func generateHAProxyRedisSlaveConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
 	name := GetHaproxySlaveName(rf)
 	redisName := rf.GenerateName("redis")
 

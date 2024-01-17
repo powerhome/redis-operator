@@ -146,7 +146,7 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisSlaveService(rf *redisfailov
 
 // EnsureHAProxyRedisSlaveConfigmap makes sure the HAProxy configmap exists
 func (r *RedisFailoverKubeClient) EnsureHAProxyRedisSlaveConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	svc := generateRedisSlaveConfigmap(rf, labels, ownerRefs)
+	svc := generateHAProxyRedisSlaveConfigmap(rf, labels, ownerRefs)
 	err := r.K8SService.CreateOrUpdateConfigMap(rf.Namespace, svc)
 	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyRedisMasterConfigmap", rf.Name, err)
 	return err
