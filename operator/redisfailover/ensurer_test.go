@@ -97,13 +97,6 @@ func TestEnsure(t *testing.T) {
 			bootstrappingAllowSentinels: false,
 			haproxy:                     true,
 		},
-		{
-			name:                        "with haproxy enabled in bootsrapping mode",
-			exporter:                    false,
-			bootstrapping:               true,
-			bootstrappingAllowSentinels: false,
-			haproxy:                     true,
-		},
 	}
 
 	for _, test := range tests {
