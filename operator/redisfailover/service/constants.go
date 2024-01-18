@@ -37,5 +37,4 @@ const (
 	redisRoleLabelKey    = "redisfailovers-role"
 	redisRoleLabelMaster = "master"
 	redisRoleLabelSlave  = "slave"
-	redisHARoleLabelKey  = "redishaproxy-role"
 )
