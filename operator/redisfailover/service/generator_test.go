@@ -1295,7 +1295,7 @@ func TestRedisService(t *testing.T) {
 }
 
 func TestHaproxyService(t *testing.T) {
-	haproxyName := "redis-haproxy"
+	haproxyName := "rfrm-haproxy-test"
 	portName := "redis-master"
 	defaultRedisPort := redisfailoverv1.Port(6379)
 	customClusterIP := "10.1.1.100"
@@ -1325,8 +1325,11 @@ func TestHaproxyService(t *testing.T) {
 				Spec: corev1.ServiceSpec{
 					Type: corev1.ServiceTypeClusterIP,
 					Selector: map[string]string{
-						"app.kubernetes.io/component":                      "redis",
+						"app.kubernetes.io/component":                      "haproxy",
+						"app.kubernetes.io/name":                           "test",
+						"app.kubernetes.io/part-of":                        "redis-failover",
 						"redisfailovers.databases.spotahome.com/component": "haproxy",
+						"redisfailovers-role":                              "master",
 					},
 					Ports: []corev1.ServicePort{
 						{
@@ -1361,8 +1364,11 @@ func TestHaproxyService(t *testing.T) {
 					Type:      corev1.ServiceTypeClusterIP,
 					ClusterIP: customClusterIP,
 					Selector: map[string]string{
-						"app.kubernetes.io/component":                      "redis",
+						"app.kubernetes.io/component":                      "haproxy",
+						"app.kubernetes.io/name":                           "test",
+						"app.kubernetes.io/part-of":                        "redis-failover",
 						"redisfailovers.databases.spotahome.com/component": "haproxy",
+						"redisfailovers-role":                              "master",
 					},
 					Ports: []corev1.ServicePort{
 						{
@@ -1402,7 +1408,7 @@ func TestHaproxyService(t *testing.T) {
 			}).Return(nil)
 
 			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-			err := client.EnsureHAProxyService(rf, test.rfLabels, []metav1.OwnerReference{{Name: "testing"}})
+			err := client.EnsureHAProxyRedisMasterService(rf, test.rfLabels, []metav1.OwnerReference{{Name: "testing"}})
 
 			assert.Equal(test.expectedService, generatedService)
 			assert.NoError(err)

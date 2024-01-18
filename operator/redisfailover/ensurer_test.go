@@ -64,6 +64,7 @@ func TestEnsure(t *testing.T) {
 		exporter                    bool
 		bootstrapping               bool
 		bootstrappingAllowSentinels bool
+		haproxy                     bool
 	}{
 		{
 			name:                        "Call everything, use exporter",
@@ -89,6 +90,13 @@ func TestEnsure(t *testing.T) {
 			bootstrapping:               true,
 			bootstrappingAllowSentinels: true,
 		},
+		{
+			name:                        "with haproxy enabled",
+			exporter:                    false,
+			bootstrapping:               false,
+			bootstrappingAllowSentinels: false,
+			haproxy:                     true,
+		},
 	}
 
 	for _, test := range tests {
@@ -98,6 +106,12 @@ func TestEnsure(t *testing.T) {
 			rf := generateRF(test.exporter, test.bootstrapping)
 			if test.bootstrapping {
 				rf.Spec.BootstrapNode.AllowSentinels = test.bootstrappingAllowSentinels
+			} else {
+				rf.Spec.BootstrapNode = nil
+			}
+
+			if test.haproxy {
+				rf.Spec.Haproxy = &redisfailoverv1.HaproxySettings{}
 			}
 
 			config := generateConfig()
@@ -117,6 +131,17 @@ func TestEnsure(t *testing.T) {
 				mrfs.On("EnsureSentinelDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			} else {
 				mrfs.On("DestroySentinelResources", rf, mock.Anything, mock.Anything).Once().Return(nil)
+			}
+
+			if test.haproxy {
+				mrfs.On("EnsureHAProxyRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureRedisHeadlessService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureHAProxyRedisMasterConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureHAProxyRedisMasterDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
+
+				mrfs.On("EnsureHAProxyRedisSlaveService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureHAProxyRedisSlaveConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureHAProxyRedisSlaveDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			}
 
 			mrfs.On("EnsureRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)

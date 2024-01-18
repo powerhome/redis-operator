@@ -9,6 +9,9 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Added
+- [Set up a new HAProxy service for routing traffic specifically to Redis nodes set as slaves][https://github.com/powerhome/redis-operator/pull/40]
+
 ## [v1.8.0] - 2024-01-16
 
 ### Fixed
