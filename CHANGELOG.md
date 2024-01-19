@@ -9,8 +9,15 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v2.0.0] - 2024-01-18
+
 ### Added
 - [Set up a new HAProxy service for routing traffic specifically to Redis nodes set as slaves][https://github.com/powerhome/redis-operator/pull/40]
+
+Update notes:
+
+This release will change the labels of the HAProxy deployment resource. 
+It's important to note that in API version apps/v1, a Deployment's label selector [cannot be changed once it's created](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#label-selector-updates). Therefore, any existing HAProxy deployment placed by an <v2.0.0 version of the redis-operator MUST be deleted so the new deployment with the correct labels and selectors can be recreated by redis-operator v2.0.0+
 
 ## [v1.8.0] - 2024-01-16
 
