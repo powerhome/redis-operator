@@ -17,7 +17,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 Update notes:
 
 This release will change the labels of the HAProxy deployment resource. 
-It's important to note that in API version apps/v1, a Deployment's label selector [cannot be changed once it's created](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#label-selector-updates). Therefore, it's critical to make sure that the HAProxy deployment resource is removed from the cluster before moving forward with the `v1.9.0` version of the operator.
+It's important to note that in API version apps/v1, a Deployment's label selector [cannot be changed once it's created](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#label-selector-updates). Therefore, it's critical to make sure that the HAProxy deployment resource is removed from the cluster before moving forward with the `v2.0.0` version of the operator.
 
 ## [v1.8.0] - 2024-01-16
 
