@@ -563,6 +563,19 @@ func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map
 					Ports: ports,
 				},
 			},
+			Egress: []np.NetworkPolicyEgressRule{
+				np.NetworkPolicyEgressRule{
+					To: []np.NetworkPolicyPeer{
+						np.NetworkPolicyPeer{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"app.kubernetes.io/instance": namespace,
+								},
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 }

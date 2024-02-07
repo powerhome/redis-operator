@@ -1478,6 +1478,19 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 							},
 						},
 					},
+					Egress: []networkingv1.NetworkPolicyEgressRule{
+						networkingv1.NetworkPolicyEgressRule{
+							To: []networkingv1.NetworkPolicyPeer{
+								networkingv1.NetworkPolicyPeer{
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"app.kubernetes.io/instance": namespace,
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -1529,6 +1542,19 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 									Port: &intstr.IntOrString{
 										IntVal: 17781,
 										Type:   intstr.Int,
+									},
+								},
+							},
+						},
+					},
+					Egress: []networkingv1.NetworkPolicyEgressRule{
+						networkingv1.NetworkPolicyEgressRule{
+							To: []networkingv1.NetworkPolicyPeer{
+								networkingv1.NetworkPolicyPeer{
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"app.kubernetes.io/instance": namespace,
+										},
 									},
 								},
 							},
@@ -1595,6 +1621,19 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 									Port: &intstr.IntOrString{
 										IntVal: 26379,
 										Type:   intstr.Int,
+									},
+								},
+							},
+						},
+					},
+					Egress: []networkingv1.NetworkPolicyEgressRule{
+						networkingv1.NetworkPolicyEgressRule{
+							To: []networkingv1.NetworkPolicyPeer{
+								networkingv1.NetworkPolicyPeer{
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"app.kubernetes.io/instance": namespace,
+										},
 									},
 								},
 							},
