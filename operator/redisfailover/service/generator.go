@@ -512,13 +512,6 @@ func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map
 				np.NetworkPolicyEgressRule{
 					To: []np.NetworkPolicyPeer{
 						np.NetworkPolicyPeer{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"app.kubernetes.io/instance": namespace,
-								},
-							},
-						},
-						np.NetworkPolicyPeer{
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: redisfailoverLabels,
 							},

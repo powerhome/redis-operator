@@ -1482,13 +1482,6 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 						networkingv1.NetworkPolicyEgressRule{
 							To: []networkingv1.NetworkPolicyPeer{
 								networkingv1.NetworkPolicyPeer{
-									NamespaceSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{
-											"app.kubernetes.io/instance": namespace,
-										},
-									},
-								},
-								networkingv1.NetworkPolicyPeer{
 									PodSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"redisfailovers.databases.spotahome.com/name": name,
@@ -1557,13 +1550,6 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 					Egress: []networkingv1.NetworkPolicyEgressRule{
 						networkingv1.NetworkPolicyEgressRule{
 							To: []networkingv1.NetworkPolicyPeer{
-								networkingv1.NetworkPolicyPeer{
-									NamespaceSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{
-											"app.kubernetes.io/instance": namespace,
-										},
-									},
-								},
 								networkingv1.NetworkPolicyPeer{
 									PodSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
@@ -1643,13 +1629,6 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 					Egress: []networkingv1.NetworkPolicyEgressRule{
 						networkingv1.NetworkPolicyEgressRule{
 							To: []networkingv1.NetworkPolicyPeer{
-								networkingv1.NetworkPolicyPeer{
-									NamespaceSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{
-											"app.kubernetes.io/instance": namespace,
-										},
-									},
-								},
 								networkingv1.NetworkPolicyPeer{
 									PodSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
