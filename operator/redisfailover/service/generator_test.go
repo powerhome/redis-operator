@@ -1488,6 +1488,13 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 										},
 									},
 								},
+								networkingv1.NetworkPolicyPeer{
+									PodSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"redisfailovers.databases.spotahome.com/name": name,
+										},
+									},
+								},
 							},
 						},
 					},
@@ -1554,6 +1561,13 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 									NamespaceSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"app.kubernetes.io/instance": namespace,
+										},
+									},
+								},
+								networkingv1.NetworkPolicyPeer{
+									PodSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"redisfailovers.databases.spotahome.com/name": name,
 										},
 									},
 								},
@@ -1633,6 +1647,13 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 									NamespaceSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"app.kubernetes.io/instance": namespace,
+										},
+									},
+								},
+								networkingv1.NetworkPolicyPeer{
+									PodSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											"redisfailovers.databases.spotahome.com/name": name,
 										},
 									},
 								},

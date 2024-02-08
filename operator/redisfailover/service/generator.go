@@ -486,6 +486,8 @@ func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map
 		Port: &sentinelTargetPort,
 	})
 
+	redisfailoverLabels := map[string]string{"redisfailovers.databases.spotahome.com/name": rf.Name}
+
 	return &np.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -496,7 +498,7 @@ func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map
 		Spec: np.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
 				MatchLabels: util.MergeLabels(
-					map[string]string{"redisfailovers.databases.spotahome.com/name": rf.Name},
+					redisfailoverLabels,
 					generateComponentLabel("sentinel"),
 				),
 			},
@@ -514,6 +516,11 @@ func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map
 								MatchLabels: map[string]string{
 									"app.kubernetes.io/instance": namespace,
 								},
+							},
+						},
+						np.NetworkPolicyPeer{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: redisfailoverLabels,
 							},
 						},
 					},
