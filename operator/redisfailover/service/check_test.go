@@ -436,6 +436,50 @@ func TestCheckSentinelMonitorWithPortIPMismatch(t *testing.T) {
 	assert.Error(err)
 }
 
+func TestCheckNumberRedisConnectedSlavesGeConnectedSlavesNumberError(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+
+	ms := &mK8SService.Services{}
+	mr := &mRedisService.Client{}
+	mr.On("GetNumberRedisConnectedSlaves", "1.1.1.1", "0").Once().Return(int32(0), errors.New("expected error"))
+
+	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+
+	err := checker.CheckNumberRedisConnectedSlaves("1.1.1.1", rf)
+	assert.Error(err)
+}
+
+func TestCheckNumberRedisConnectedSlavesGeConnectedSlavesNumberMismatch(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+
+	ms := &mK8SService.Services{}
+	mr := &mRedisService.Client{}
+	mr.On("GetNumberRedisConnectedSlaves", "1.1.1.1", "0").Once().Return(int32(rf.Spec.Redis.Replicas+1), nil)
+
+	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+
+	err := checker.CheckNumberRedisConnectedSlaves("1.1.1.1", rf)
+	assert.Error(err)
+}
+
+func TestCheckNumberRedisConnectedSlaves(t *testing.T) {
+	assert := assert.New(t)
+	rf := generateRF()
+
+	ms := &mK8SService.Services{}
+	mr := &mRedisService.Client{}
+	mr.On("GetNumberRedisConnectedSlaves", "1.1.1.1", "0").Once().Return(rf.Spec.Redis.Replicas-1, nil)
+
+	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+
+	err := checker.CheckNumberRedisConnectedSlaves("1.1.1.1", rf)
+	assert.NoError(err)
+}
+
 func TestGetMasterIPGetStatefulSetPodsError(t *testing.T) {
 	assert := assert.New(t)
 

@@ -18,12 +18,14 @@ import (
 type Client interface {
 	GetNumberSentinelsInMemory(ip string, port string) (int32, error)
 	GetNumberSentinelSlavesInMemory(ip string, port string) (int32, error)
+	GetNumberRedisConnectedSlaves(ip string, port string) (int32, error)
 	ResetSentinel(ip string, port string) error
 	GetSlaveOf(ip, port, password string) (string, error)
 	IsMaster(ip, port, password string) (bool, error)
 	MonitorRedis(ip, monitor, quorum, password string, port string) error
 	MonitorRedisWithPort(ip, monitor, port, quorum, password string, sentinelPort string) error
 	MakeMaster(ip, port, password string) error
+	ResetReplicaConnections(ip, port, password string) error
 	MakeSlaveOf(ip, masterIP, password string) error
 	MakeSlaveOfWithPort(ip, masterIP, masterPort, password string) error
 	GetSentinelMonitor(ip string, port string) (string, string, error)
@@ -45,23 +47,26 @@ func New(metricsRecorder metrics.Recorder) Client {
 }
 
 const (
-	sentinelsNumberREString = "sentinels=([0-9]+)"
-	slaveNumberREString     = "slaves=([0-9]+)"
-	sentinelStatusREString  = "status=([a-z]+)"
-	redisMasterHostREString = "master_host:([0-9.]+)"
-	redisRoleMaster         = "role:master"
-	redisSyncing            = "master_sync_in_progress:1"
-	redisMasterSillPending  = "master_host:127.0.0.1"
-	redisLinkUp             = "master_link_status:up"
-	redisPort               = "6379"
-	masterName              = "mymaster"
+	sentinelsNumberREString      = "sentinels=([0-9]+)"
+	slaveNumberREString          = "slaves=([0-9]+)"
+	sentinelStatusREString       = "status=([a-z]+)"
+	redisMasterHostREString      = "master_host:([0-9.]+)"
+	redisConnectedSlavesREString = "connected_slaves:([0-9]+)"
+	redisRoleMaster              = "role:master"
+	redisSyncing                 = "master_sync_in_progress:1"
+	redisMasterSillPending       = "master_host:127.0.0.1"
+	redisLinkUp                  = "master_link_status:up"
+
+	redisPort  = "6379"
+	masterName = "mymaster"
 )
 
 var (
-	sentinelNumberRE  = regexp.MustCompile(sentinelsNumberREString)
-	sentinelStatusRE  = regexp.MustCompile(sentinelStatusREString)
-	slaveNumberRE     = regexp.MustCompile(slaveNumberREString)
-	redisMasterHostRE = regexp.MustCompile(redisMasterHostREString)
+	sentinelNumberRE       = regexp.MustCompile(sentinelsNumberREString)
+	sentinelStatusRE       = regexp.MustCompile(sentinelStatusREString)
+	slaveNumberRE          = regexp.MustCompile(slaveNumberREString)
+	redisMasterHostRE      = regexp.MustCompile(redisMasterHostREString)
+	redisConnectedSlavesRE = regexp.MustCompile(redisConnectedSlavesREString)
 )
 
 // GetNumberSentinelsInMemory return the number of sentinels that the requested sentinel has
@@ -125,6 +130,35 @@ func (c *client) GetNumberSentinelSlavesInMemory(ip string, sentinelPort string)
 		return 0, err
 	}
 	c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.SUCCESS, metrics.NOT_APPLICABLE)
+	return int32(nSlaves), nil
+}
+
+// GetNumberRedisConnectedSlaves return the number of slaves that the requested redis has
+func (c *client) GetNumberRedisConnectedSlaves(ip string, sentinelPort string) (int32, error) {
+	options := &rediscli.Options{
+		Addr:     net.JoinHostPort(ip, sentinelPort),
+		Password: "",
+		DB:       0,
+	}
+	rClient := rediscli.NewClient(options)
+	defer rClient.Close()
+	info, err := rClient.Info(context.TODO(), "replication").Result()
+	if err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, getRedisError(err))
+		return 0, err
+	}
+
+	match := redisConnectedSlavesRE.FindStringSubmatch(info)
+	if len(match) == 0 {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, metrics.REGEX_NOT_FOUND)
+		return 0, errors.New("slaves regex not found")
+	}
+	nSlaves, err := strconv.Atoi(match[1])
+	if err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, metrics.MISC)
+		return 0, err
+	}
+	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.SUCCESS, metrics.NOT_APPLICABLE)
 	return int32(nSlaves), nil
 }
 
@@ -259,6 +293,22 @@ func (c *client) MakeMaster(ip string, port string, password string) error {
 		return res.Err()
 	}
 	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MAKE_MASTER, metrics.SUCCESS, metrics.NOT_APPLICABLE)
+	return nil
+}
+
+func (c client) ResetReplicaConnections(ip string, port string, password string) error {
+	options := &rediscli.Options{
+		Addr:     net.JoinHostPort(ip, port),
+		Password: password,
+		DB:       0,
+	}
+	rClient := rediscli.NewClient(options)
+	defer rClient.Close()
+	if res := rClient.ClientKillByFilter(context.TODO(), "TYPE", "REPLICA"); res.Err() != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.RESET_REPLICA_CONNECTIONS, metrics.FAIL, getRedisError(res.Err()))
+		return res.Err()
+	}
+	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.RESET_REPLICA_CONNECTIONS, metrics.SUCCESS, metrics.NOT_APPLICABLE)
 	return nil
 }
 

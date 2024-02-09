@@ -23,6 +23,7 @@ type RedisFailoverCheck interface {
 	CheckSentinelNumber(rFailover *redisfailoverv1.RedisFailover) error
 	CheckAllSlavesFromMaster(master string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelNumberInMemory(sentinel string, rFailover *redisfailoverv1.RedisFailover) error
+	CheckNumberRedisConnectedSlaves(masterIP string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelSlavesNumberInMemory(sentinel string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelQuorum(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	CheckIfMasterLocalhost(rFailover *redisfailoverv1.RedisFailover) (bool, error)
@@ -248,7 +249,19 @@ func (r *RedisFailoverChecker) CheckSentinelSlavesNumberInMemory(sentinel string
 		}
 	}
 	return nil
+}
 
+func (r *RedisFailoverChecker) CheckNumberRedisConnectedSlaves(masterIP string, rf *redisfailoverv1.RedisFailover) error {
+	portString := rf.Spec.Redis.Port.ToString()
+	nSlaves, err := r.redisClient.GetNumberRedisConnectedSlaves(masterIP, portString)
+	if err != nil {
+		return err
+	} else {
+		if nSlaves != rf.Spec.Redis.Replicas-1 {
+			return errors.New("redis number of slaves mismatch")
+		}
+	}
+	return nil
 }
 
 // CheckSentinelMonitor controls if the sentinels are monitoring the expected master

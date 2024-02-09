@@ -17,6 +17,34 @@ import (
 	rfservice "github.com/spotahome/redis-operator/operator/redisfailover/service"
 )
 
+func TestResetReplicaConnectionsError(t *testing.T) {
+	assert := assert.New(t)
+	rf := generateRF()
+
+	ms := &mK8SService.Services{}
+	mr := &mRedisService.Client{}
+	mr.On("ResetReplicaConnections", "0.0.0.0", "0", "").Once().Return(errors.New(""))
+
+	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
+
+	err := healer.ResetReplicaConnections("0.0.0.0", rf)
+	assert.Error(err)
+}
+
+func TestResetReplicaConnections(t *testing.T) {
+	assert := assert.New(t)
+	rf := generateRF()
+
+	ms := &mK8SService.Services{}
+	mr := &mRedisService.Client{}
+	mr.On("ResetReplicaConnections", "0.0.0.0", "0", "").Once().Return(nil)
+
+	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
+
+	err := healer.ResetReplicaConnections("0.0.0.0", rf)
+	assert.NoError(err)
+}
+
 func TestSetOldestAsMasterNewMasterError(t *testing.T) {
 	assert := assert.New(t)
 

@@ -199,6 +199,15 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		}
 	}
 
+	err = r.rfChecker.CheckNumberRedisConnectedSlaves(master, rf)
+	setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.SLAVE_WRONG_MASTER, metrics.NOT_APPLICABLE, err)
+	if err != nil {
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Master has wrong number of slaves: %s", err.Error())
+		if err = r.rfHealer.ResetReplicaConnections(master, rf); err != nil {
+			return err
+		}
+	}
+
 	err = r.applyRedisCustomConfig(rf)
 	setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.APPLY_REDIS_CONFIG, metrics.NOT_APPLICABLE, err)
 	if err != nil {
