@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v2.0.1] - 2024-02-09
+
 ### Fixed
 - [Sentinels shoud only be allowed to talk to pods belonging to their RedisFailover Custom Resource](https://github.com/powerhome/redis-operator/pull/42).
 
