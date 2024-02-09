@@ -10,7 +10,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 ## Unreleased
 
 ### Fixed
-- [Update Redis Sentinel NetworkPolicy Rules](https://github.com/powerhome/redis-operator/pull/42).
+- [Sentinels shoud only be allowed to talk to pods belonging to their RedisFailover Custom Resource](https://github.com/powerhome/redis-operator/pull/42).
 
 ## [v2.0.0] - 2024-01-18
 
