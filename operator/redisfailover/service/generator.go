@@ -456,63 +456,6 @@ func generateHAProxyRedisSlaveService(rf *redisfailoverv1.RedisFailover, labels 
 	}
 }
 
-func generateRedisNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *np.NetworkPolicy {
-	name := GetRedisNetworkPolicyName(rf)
-	namespace := rf.Namespace
-
-	networkPolicyNsList := rf.Spec.NetworkPolicyNsList
-
-	selectorLabels := generateSelectorLabels(redisRoleName, rf.Name)
-	labels = util.MergeLabels(labels, selectorLabels)
-
-	metricsTargetPort := intstr.FromInt(9121)
-	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
-
-	peers := []np.NetworkPolicyPeer{}
-
-	for _, inputPeer := range networkPolicyNsList {
-
-		labelKey := inputPeer.MatchLabelKey
-		labelValue := inputPeer.MatchLabelValue
-
-		peers = append(peers, np.NetworkPolicyPeer{
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{labelKey: labelValue},
-			},
-		})
-	}
-
-	ports := make([]np.NetworkPolicyPort, 0)
-	ports = append(ports, np.NetworkPolicyPort{
-		Port: &redisTargetPort,
-	}, np.NetworkPolicyPort{
-		Port: &metricsTargetPort,
-	})
-
-	return &np.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            name,
-			Namespace:       namespace,
-			Labels:          labels,
-			OwnerReferences: ownerRefs,
-		},
-		Spec: np.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchLabels: util.MergeLabels(
-					map[string]string{"redisfailovers.databases.spotahome.com/name": rf.Name},
-					generateComponentLabel("redis"),
-				),
-			},
-			Ingress: []np.NetworkPolicyIngressRule{
-				np.NetworkPolicyIngressRule{
-					From:  peers,
-					Ports: ports,
-				},
-			},
-		},
-	}
-}
-
 func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *np.NetworkPolicy {
 	name := GetSentinelNetworkPolicyName(rf)
 	namespace := rf.Namespace
@@ -543,6 +486,8 @@ func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map
 		Port: &sentinelTargetPort,
 	})
 
+	redisfailoverLabels := map[string]string{"redisfailovers.databases.spotahome.com/name": rf.Name}
+
 	return &np.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -553,7 +498,7 @@ func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map
 		Spec: np.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
 				MatchLabels: util.MergeLabels(
-					map[string]string{"redisfailovers.databases.spotahome.com/name": rf.Name},
+					redisfailoverLabels,
 					generateComponentLabel("sentinel"),
 				),
 			},
@@ -561,6 +506,17 @@ func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map
 				np.NetworkPolicyIngressRule{
 					From:  peers,
 					Ports: ports,
+				},
+			},
+			Egress: []np.NetworkPolicyEgressRule{
+				np.NetworkPolicyEgressRule{
+					To: []np.NetworkPolicyPeer{
+						np.NetworkPolicyPeer{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: redisfailoverLabels,
+							},
+						},
+					},
 				},
 			},
 		},

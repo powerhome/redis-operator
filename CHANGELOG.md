@@ -9,6 +9,15 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v2.0.1] - 2024-02-09
+
+### Fixed
+- [Sentinels shoud only be allowed to talk to pods belonging to their RedisFailover Custom Resource](https://github.com/powerhome/redis-operator/pull/42).
+
+Update notes:
+
+This update modifies how the operator generates network policies. In version v2.0.0, there were two separate network policies: one for Redis and another for Redis Sentinels. From version v2.0.1 onwards, the operator will only generate a network policy for Sentinels. It is crucial to be aware that following the upgrade to this version, the existing network policy for Redis instances will persist and must be deleted manually.
+
 ## [v2.0.0] - 2024-01-18
 
 ### Added
