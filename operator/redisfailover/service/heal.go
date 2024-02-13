@@ -15,6 +15,7 @@ import (
 // RedisFailoverHeal defines the interface able to fix the problems on the redis failovers
 type RedisFailoverHeal interface {
 	MakeMaster(ip string, rFailover *redisfailoverv1.RedisFailover) error
+	ResetReplicaConnections(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	SetOldestAsMaster(rFailover *redisfailoverv1.RedisFailover) error
 	SetMasterOnAll(masterIP string, rFailover *redisfailoverv1.RedisFailover) error
 	SetExternalMasterOnAll(masterIP string, masterPort string, rFailover *redisfailoverv1.RedisFailover) error
@@ -82,6 +83,21 @@ func (r *RedisFailoverHealer) MakeMaster(ip string, rf *redisfailoverv1.RedisFai
 			return r.setMasterLabelIfNecessary(rf.Namespace, rp)
 		}
 	}
+	return nil
+}
+
+func (r *RedisFailoverHealer) ResetReplicaConnections(ip string, rf *redisfailoverv1.RedisFailover) error {
+	password, err := k8s.GetRedisPassword(r.k8sService, rf)
+	if err != nil {
+		return err
+	}
+
+	port := rf.Spec.Redis.Port.ToString()
+	err = r.redisClient.ResetReplicaConnections(ip, port, password)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

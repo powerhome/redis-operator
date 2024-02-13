@@ -364,8 +364,11 @@ func TestCheckAndHeal(t *testing.T) {
 					mrfc.On("GetMasterIP", rf).Twice().Return(master, nil)
 					if test.slavesOK {
 						mrfc.On("CheckAllSlavesFromMaster", master, rf).Once().Return(nil)
+						mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)
 					} else {
 						mrfc.On("CheckAllSlavesFromMaster", master, rf).Once().Return(errors.New(""))
+						mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(errors.New(""))
+						mrfh.On("ResetReplicaConnections", master, rf).Once().Return(nil)
 						if test.redisSetMasterOnAllOK {
 							mrfh.On("SetMasterOnAll", master, rf).Once().Return(nil)
 						} else {

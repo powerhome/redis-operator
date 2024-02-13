@@ -9,6 +9,30 @@ type Client struct {
 	mock.Mock
 }
 
+// GetNumberRedisConnectedSlaves provides a mock function with given fields: ip, port
+func (_m *Client) GetNumberRedisConnectedSlaves(ip string, port string) (int32, error) {
+	ret := _m.Called(ip, port)
+
+	var r0 int32
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) (int32, error)); ok {
+		return rf(ip, port)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) int32); ok {
+		r0 = rf(ip, port)
+	} else {
+		r0 = ret.Get(0).(int32)
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(ip, port)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetNumberSentinelSlavesInMemory provides a mock function with given fields: ip, port
 func (_m *Client) GetNumberSentinelSlavesInMemory(ip string, port string) (int32, error) {
 	ret := _m.Called(ip, port)
@@ -199,6 +223,20 @@ func (_m *Client) MonitorRedisWithPort(ip string, monitor string, port string, q
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string, string, string, string, string) error); ok {
 		r0 = rf(ip, monitor, port, quorum, password, sentinelPort)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// ResetReplicaConnections provides a mock function with given fields: ip, port, password
+func (_m *Client) ResetReplicaConnections(ip string, port string, password string) error {
+	ret := _m.Called(ip, port, password)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string, string) error); ok {
+		r0 = rf(ip, port, password)
 	} else {
 		r0 = ret.Error(0)
 	}

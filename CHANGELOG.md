@@ -9,6 +9,10 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Fixed
+
+- Operator detects and attempts to heal excessive replication connections on the master node. This prevents excessive sentinel resets from the operator when extra-RedisFailvoer replication connnections are present on the "slave" nodes. #43
+
 ## [v2.0.1] - 2024-02-09
 
 ### Fixed
@@ -25,7 +29,7 @@ This update modifies how the operator generates network policies. In version v2.
 
 Update notes:
 
-This release will change the labels of the HAProxy deployment resource. 
+This release will change the labels of the HAProxy deployment resource.
 It's important to note that in API version apps/v1, a Deployment's label selector [cannot be changed once it's created](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#label-selector-updates). Therefore, any existing HAProxy deployment placed by an <v2.0.0 version of the redis-operator MUST be deleted so the new deployment with the correct labels and selectors can be recreated by redis-operator v2.0.0+
 
 ## [v1.8.0] - 2024-01-16

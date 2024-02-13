@@ -53,6 +53,20 @@ func (_m *RedisFailoverCheck) CheckIfMasterLocalhost(rFailover *v1.RedisFailover
 	return r0, r1
 }
 
+// CheckNumberRedisConnectedSlaves provides a mock function with given fields: masterIP, rFailover
+func (_m *RedisFailoverCheck) CheckNumberRedisConnectedSlaves(masterIP string, rFailover *v1.RedisFailover) error {
+	ret := _m.Called(masterIP, rFailover)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, *v1.RedisFailover) error); ok {
+		r0 = rf(masterIP, rFailover)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // CheckRedisNumber provides a mock function with given fields: rFailover
 func (_m *RedisFailoverCheck) CheckRedisNumber(rFailover *v1.RedisFailover) error {
 	ret := _m.Called(rFailover)
