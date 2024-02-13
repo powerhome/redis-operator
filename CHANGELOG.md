@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v2.0.2] - 2024-02-13
+
 ### Fixed
 
 - Operator detects and attempts to heal excessive replication connections on the master node. This prevents excessive sentinel resets from the operator when extra-RedisFailvoer replication connnections are present on the "slave" nodes. #43
