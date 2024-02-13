@@ -3,8 +3,8 @@ package v1
 const (
 	defaultRedisNumber           = 3
 	defaultSentinelNumber        = 3
-	defaultSentinelExporterImage = "quay.io/oliver006/redis_exporter:v1.43.0"
-	defaultExporterImage         = "quay.io/oliver006/redis_exporter:v1.43.0"
+	defaultSentinelExporterImage = "leominov/redis_sentinel_exporter:1.7.1"
+	defaultExporterImage         = "quay.io/oliver006/redis_exporter:v1.57.0"
 	defaultImage                 = "redis:6.2.6-alpine"
 	defaultRedisPort             = 6379
 )

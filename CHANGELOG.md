@@ -9,6 +9,10 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Changed
+
+- Update metrics exporter images  #45
+
 ## [v2.0.2] - 2024-02-13
 
 ### Fixed
