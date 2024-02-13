@@ -9,6 +9,10 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Changed
+
+- Update the default redis version to 7.2.4 #46
+
 ## [v2.0.2] - 2024-02-13
 
 ### Fixed
