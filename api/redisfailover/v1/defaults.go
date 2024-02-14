@@ -6,6 +6,7 @@ const (
 	defaultSentinelExporterImage = "quay.io/oliver006/redis_exporter:v1.43.0"
 	defaultExporterImage         = "quay.io/oliver006/redis_exporter:v1.43.0"
 	defaultImage                 = "redis:6.2.6-alpine"
+	defaultHAProxyImage          = "haproxy:2.4"
 	defaultRedisPort             = 6379
 )
 

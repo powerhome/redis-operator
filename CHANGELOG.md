@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+- Add default haproxy image #47
+
 ## [v2.0.2] - 2024-02-13
 
 ### Fixed
