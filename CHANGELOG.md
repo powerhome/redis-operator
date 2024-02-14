@@ -11,6 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Changed
 
+- Add default haproxy image #47
 - Update metrics exporter images  #45
 
 ## [v2.0.2] - 2024-02-13

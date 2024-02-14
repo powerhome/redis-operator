@@ -67,6 +67,12 @@ func (r *RedisFailover) Validate() error {
 		r.Spec.Sentinel.CustomConfig = defaultSentinelCustomConfig
 	}
 
+	if r.Spec.Haproxy != nil {
+		if r.Spec.Haproxy.Image == "" {
+			r.Spec.Haproxy.Image = defaultHAProxyImage
+		}
+	}
+
 	return nil
 }
 

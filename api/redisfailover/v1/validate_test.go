@@ -16,6 +16,8 @@ func TestValidate(t *testing.T) {
 		rfSentinelCustomConfig []string
 		expectedError          string
 		expectedBootstrapNode  *BootstrapSettings
+		rfHAProxyConfig        *HaproxySettings
+		expectedHAProxyConfig  *HaproxySettings
 	}{
 		{
 			name:   "populates default values",
@@ -65,6 +67,18 @@ func TestValidate(t *testing.T) {
 			rfBootstrapNode:       &BootstrapSettings{Host: "127.0.0.1", Enabled: true},
 			expectedBootstrapNode: &BootstrapSettings{Host: "127.0.0.1", Port: "6379", Enabled: true},
 		},
+		{
+			name:                  "HAProxy config no image provided",
+			rfName:                "test",
+			rfHAProxyConfig:       &HaproxySettings{},
+			expectedHAProxyConfig: &HaproxySettings{Image: defaultHAProxyImage},
+		},
+		{
+			name:                  "HAProxy config custom image",
+			rfName:                "test",
+			rfHAProxyConfig:       &HaproxySettings{Image: "haproxy:0.0.1"},
+			expectedHAProxyConfig: &HaproxySettings{Image: "haproxy:0.0.1"},
+		},
 	}
 
 	for _, test := range tests {
@@ -73,7 +87,7 @@ func TestValidate(t *testing.T) {
 			rf := generateRedisFailover(test.rfName, test.rfBootstrapNode)
 			rf.Spec.Redis.CustomConfig = test.rfRedisCustomConfig
 			rf.Spec.Sentinel.CustomConfig = test.rfSentinelCustomConfig
-
+			rf.Spec.Haproxy = test.rfHAProxyConfig
 			err := rf.Validate()
 
 			if test.expectedError == "" {
@@ -119,9 +133,11 @@ func TestValidate(t *testing.T) {
 							},
 							Port: Port(26379),
 						},
+						Haproxy:       test.expectedHAProxyConfig,
 						BootstrapNode: test.expectedBootstrapNode,
 					},
 				}
+
 				assert.Equal(expectedRF, rf)
 			} else {
 				if assert.Error(err) {
