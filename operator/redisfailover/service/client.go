@@ -219,7 +219,6 @@ func (r *RedisFailoverKubeClient) DestroyRemainedRedisNetworkPolicy(rf *redisfai
 	name := GetRedisNetworkPolicyName(rf)
 
 	if _, err := r.K8SService.GetNetworkPolicy(rf.Namespace, name); err != nil {
-		// If no resource, do nothing
 		if errors.IsNotFound(err) {
 			return nil
 		}
