@@ -25,6 +25,10 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 		}
 	}
 
+	if err := w.rfService.DestroyRemainedRedisNetworkPolicy(rf); err != nil {
+		return err
+	}
+
 	if rf.Spec.Haproxy != nil {
 		if err := w.rfService.EnsureHAProxyRedisMasterService(rf, labels, or); err != nil {
 			return err
