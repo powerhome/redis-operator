@@ -214,7 +214,7 @@ func (r *RedisFailoverKubeClient) DestroySentinelResources(rf *redisfailoverv1.R
 	return err
 }
 
-func (r *RedisFailoverKubeClient) DestroyRemainedRedisNetworkPolicy(rf *redisfailoverv1.RedisFailover) error {
+func (r *RedisFailoverKubeClient) DestroydOrphanedRedisNetworkPolicy(rf *redisfailoverv1.RedisFailover) error {
 
 	name := GetRedisNetworkPolicyName(rf)
 
