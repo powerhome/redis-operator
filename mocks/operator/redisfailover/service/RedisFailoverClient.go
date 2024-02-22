@@ -28,6 +28,20 @@ func (_m *RedisFailoverClient) DestroySentinelResources(rFailover *v1.RedisFailo
 	return r0
 }
 
+// DestroydOrphanedRedisNetworkPolicy provides a mock function with given fields: rFailover
+func (_m *RedisFailoverClient) DestroydOrphanedRedisNetworkPolicy(rFailover *v1.RedisFailover) error {
+	ret := _m.Called(rFailover)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) error); ok {
+		r0 = rf(rFailover)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // EnsureHAProxyRedisMasterConfigmap provides a mock function with given fields: rFailover, labels, ownerRefs
 func (_m *RedisFailoverClient) EnsureHAProxyRedisMasterConfigmap(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	ret := _m.Called(rFailover, labels, ownerRefs)
