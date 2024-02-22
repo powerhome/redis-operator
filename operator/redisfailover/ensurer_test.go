@@ -151,7 +151,7 @@ func TestEnsure(t *testing.T) {
 			mrfs.On("EnsureRedisReadinessConfigMap", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			mrfs.On("EnsureRedisStatefulset", rf, mock.Anything, mock.Anything).Once().Return(nil)
 
-			mrfs.On("DestroyRemainedRedisNetworkPolicy", rf, mock.Anything, mock.Anything).Once().Return(nil)
+			mrfs.On("DestroydOrphanedRedisNetworkPolicy", rf, mock.Anything, mock.Anything).Once().Return(nil)
 
 			// Create the Kops client and call the valid logic.
 			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)

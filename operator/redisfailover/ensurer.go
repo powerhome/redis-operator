@@ -25,7 +25,7 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 		}
 	}
 
-	if err := w.rfService.DestroyRemainedRedisNetworkPolicy(rf); err != nil {
+	if err := w.rfService.DestroydOrphanedRedisNetworkPolicy(rf); err != nil {
 		return err
 	}
 

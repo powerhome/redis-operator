@@ -14,8 +14,8 @@ type RedisFailoverClient struct {
 	mock.Mock
 }
 
-// DestroyRemainedRedisNetworkPolicy provides a mock function with given fields: rFailover
-func (_m *RedisFailoverClient) DestroyRemainedRedisNetworkPolicy(rFailover *v1.RedisFailover) error {
+// DestroySentinelResources provides a mock function with given fields: rFailover
+func (_m *RedisFailoverClient) DestroySentinelResources(rFailover *v1.RedisFailover) error {
 	ret := _m.Called(rFailover)
 
 	var r0 error
@@ -28,8 +28,8 @@ func (_m *RedisFailoverClient) DestroyRemainedRedisNetworkPolicy(rFailover *v1.R
 	return r0
 }
 
-// DestroySentinelResources provides a mock function with given fields: rFailover
-func (_m *RedisFailoverClient) DestroySentinelResources(rFailover *v1.RedisFailover) error {
+// DestroydOrphanedRedisNetworkPolicy provides a mock function with given fields: rFailover
+func (_m *RedisFailoverClient) DestroydOrphanedRedisNetworkPolicy(rFailover *v1.RedisFailover) error {
 	ret := _m.Called(rFailover)
 
 	var r0 error

@@ -39,7 +39,7 @@ type RedisFailoverClient interface {
 	DestroySentinelResources(rFailover *redisfailoverv1.RedisFailover) error
 	UpdateStatus(rFailover *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error)
 
-	DestroyRemainedRedisNetworkPolicy(rFailover *redisfailoverv1.RedisFailover) error
+	DestroydOrphanedRedisNetworkPolicy(rFailover *redisfailoverv1.RedisFailover) error
 }
 
 // RedisFailoverKubeClient implements the required methods to talk with kubernetes
