@@ -32,14 +32,11 @@ type RedisFailoverClient interface {
 	EnsureRedisConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureNotPresentRedisService(rFailover *redisfailoverv1.RedisFailover) error
 
-	EnsureHAProxyRedisSlaveService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
-	EnsureHAProxyRedisSlaveConfigmap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
-	EnsureHAProxyRedisSlaveDeployment(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
-
 	DestroySentinelResources(rFailover *redisfailoverv1.RedisFailover) error
 	UpdateStatus(rFailover *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error)
 
 	DestroydOrphanedRedisNetworkPolicy(rFailover *redisfailoverv1.RedisFailover) error
+	DestroyOrphanedRedisSlaveHaProxy(rFailover *redisfailoverv1.RedisFailover) error
 }
 
 // RedisFailoverKubeClient implements the required methods to talk with kubernetes
@@ -129,31 +126,6 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterDeployment(rf *redisfa
 	return err
 }
 
-// EnsureHAProxyRedisSlaveService makes sure the HAProxy service exists
-func (r *RedisFailoverKubeClient) EnsureHAProxyRedisSlaveService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	svc := generateHAProxyRedisSlaveService(rf, labels, ownerRefs)
-	err := r.K8SService.CreateOrUpdateService(rf.Namespace, svc)
-	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyRedisMasterService", rf.Name, err)
-	return err
-}
-
-// EnsureHAProxyRedisSlaveConfigmap makes sure the HAProxy configmap exists
-func (r *RedisFailoverKubeClient) EnsureHAProxyRedisSlaveConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	svc := generateHAProxyRedisSlaveConfigmap(rf, labels, ownerRefs)
-	err := r.K8SService.CreateOrUpdateConfigMap(rf.Namespace, svc)
-	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureHAProxyRedisMasterConfigmap", rf.Name, err)
-	return err
-}
-
-// EnsureHAProxyRedisSlaveDeployment makes sure the deployment exists in the desired state
-func (r *RedisFailoverKubeClient) EnsureHAProxyRedisSlaveDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	d := generateHAProxyRedisSlaveDeployment(rf, labels, ownerRefs)
-	err := r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
-
-	r.setEnsureOperationMetrics(d.Namespace, d.Name, "EnsureHAProxyRedisMasterDeployment", rf.Name, err)
-	return err
-}
-
 // EnsureSentinelService makes sure the sentinel service exists
 func (r *RedisFailoverKubeClient) EnsureSentinelService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	svc := generateSentinelService(rf, labels, ownerRefs)
@@ -228,6 +200,50 @@ func (r *RedisFailoverKubeClient) DestroydOrphanedRedisNetworkPolicy(rf *redisfa
 
 	err := r.K8SService.DeleteNetworkPolicy(rf.Namespace, name)
 	return err
+}
+
+func (r *RedisFailoverKubeClient) DestroyOrphanedRedisSlaveHaProxy(rf *redisfailoverv1.RedisFailover) error {
+
+	// Helper function to handle the deletion of resources
+	deleteResource := func(namespace, name string, getter func(namespace, name string) (interface{}, error), deleter func(namespace, name string) error) error {
+		_, err := getter(namespace, name)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		return deleter(namespace, name)
+	}
+
+	resourceTypes := map[string]struct {
+		getter  func(namespace, name string) (interface{}, error)
+		deleter func(namespace, name string) error
+	}{
+		"service": {
+			getter:  func(namespace, name string) (interface{}, error) { return r.K8SService.GetService(namespace, name) },
+			deleter: r.K8SService.DeleteService,
+		},
+		"configmap": {
+			getter:  func(namespace, name string) (interface{}, error) { return r.K8SService.GetConfigMap(namespace, name) },
+			deleter: r.K8SService.DeleteConfigMap,
+		},
+		"deployment": {
+			getter:  func(namespace, name string) (interface{}, error) { return r.K8SService.GetDeployment(namespace, name) },
+			deleter: r.K8SService.DeleteDeployment,
+		},
+	}
+
+	name := GetHaproxySlaveName(rf)
+
+	for _, resType := range []string{"service", "configmap", "deployment"} {
+		resource := resourceTypes[resType]
+		if err := deleteResource(rf.Namespace, name, resource.getter, resource.deleter); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // EnsureRedisStatefulset makes sure the redis statefulset exists in the desired state
