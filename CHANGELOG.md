@@ -9,6 +9,16 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v3.0.0] - 2024-02-26
+
+### Changed
+
+- [Removing HAProxy for redis with role:slave as unnecessary and potentially dangerous](https://github.com/powerhome/redis-operator/pull/50)
+
+Updat Notes:
+
+While rolling out multi-site data replication we discovered that sentinels pickingh up the "salve" HAProxy pod IP address from the redis INFO command and treats them as valid Redis replica nodes. The sentinels will then consider the HAProxy pods as candidates for "master" promotion during a failover. Since this is not a valid IP address of redis, the operator and sentinel get stuck in a leader election loop.
+
 ## [v2.1.0] - 2024-02-26
 
 ### Fixed
