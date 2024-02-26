@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v2.1.0] - 2024-02-26
+
 ### Fixed
 
 - [In version 2.0.1, the approach to generating network policy by the operator was modified. From v2.0.1 onwards, the operator no longer creates network policy for redis but continues to do it for sentinels. This fix automatically removes any leftover network policy from the namespace, eliminating the need for manual intervention](https://github.com/powerhome/redis-operator/pull/49)
