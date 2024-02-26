@@ -8,9 +8,9 @@ Redis Operator creates/configures/manages redis-failovers atop Kubernetes.
 ## Requirements
 
 Kubernetes version: 1.21 or higher
-Redis version: 6 or higher
+Redis version: 7 or higher
 
-Redis operator is being tested against kubernetes 1.25 1.26 1.27 and redis 6
+Redis operator is being tested against kubernetes 1.21, 1.22, 1.23, 1.24, 1.25 1.26 1.27 and redis 7
 All dependencies have been vendored, so there's no need to any additional download.
 
 ## Operator deployment on Kubernetes

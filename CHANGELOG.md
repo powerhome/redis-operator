@@ -16,6 +16,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 ### Changed
 
 - Add default haproxy image #47
+- Update the default redis version to 7.2.4 #46
 - Update metrics exporter images  #45
 
 ## [v2.0.2] - 2024-02-13
