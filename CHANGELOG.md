@@ -11,7 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## [v3.0.0] - 2024-02-26
 
-### Changed
+### Removed
 
 - [Removing HAProxy for redis with role:slave as unnecessary and potentially dangerous](https://github.com/powerhome/redis-operator/pull/50)
 
