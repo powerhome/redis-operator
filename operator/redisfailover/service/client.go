@@ -38,6 +38,8 @@ type RedisFailoverClient interface {
 
 	DestroySentinelResources(rFailover *redisfailoverv1.RedisFailover) error
 	UpdateStatus(rFailover *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error)
+
+	DestroydOrphanedRedisNetworkPolicy(rFailover *redisfailoverv1.RedisFailover) error
 }
 
 // RedisFailoverKubeClient implements the required methods to talk with kubernetes
@@ -209,6 +211,22 @@ func (r *RedisFailoverKubeClient) DestroySentinelResources(rf *redisfailoverv1.R
 	}
 
 	err := r.K8SService.DeleteDeployment(rf.Namespace, name)
+	return err
+}
+
+func (r *RedisFailoverKubeClient) DestroydOrphanedRedisNetworkPolicy(rf *redisfailoverv1.RedisFailover) error {
+
+	name := GetRedisNetworkPolicyName(rf)
+
+	if _, err := r.K8SService.GetNetworkPolicy(rf.Namespace, name); err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		} else {
+			return err
+		}
+	}
+
+	err := r.K8SService.DeleteNetworkPolicy(rf.Namespace, name)
 	return err
 }
 
