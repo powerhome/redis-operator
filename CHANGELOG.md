@@ -9,6 +9,16 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v3.0.0] - 2024-02-26
+
+### Removed
+
+- [Remove HAProxy for redis with role:slave as unnecessary and potentially dangerous](https://github.com/powerhome/redis-operator/pull/50)
+
+Action required:
+
+If your application is using the `rfrs-haproxy-[redisfailvover-name]` service you'll need to use the `rfrs-[redis-failover-name]` service which bypassess HAProxy altogether.
+
 ## [v2.1.0] - 2024-02-26
 
 ### Fixed

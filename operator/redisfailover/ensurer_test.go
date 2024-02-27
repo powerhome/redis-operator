@@ -139,9 +139,7 @@ func TestEnsure(t *testing.T) {
 				mrfs.On("EnsureHAProxyRedisMasterConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
 				mrfs.On("EnsureHAProxyRedisMasterDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
 
-				mrfs.On("EnsureHAProxyRedisSlaveService", rf, mock.Anything, mock.Anything).Once().Return(nil)
-				mrfs.On("EnsureHAProxyRedisSlaveConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
-				mrfs.On("EnsureHAProxyRedisSlaveDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("DestroyOrphanedRedisSlaveHaProxy", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			}
 
 			mrfs.On("EnsureRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)
