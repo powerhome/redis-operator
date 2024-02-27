@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+- [Upgrade default haproxy image to v2.9.6](https://github.com/powerhome/redis-operator/pull/52)
+
 ## [v3.0.0] - 2024-02-26
 
 ### Removed
@@ -27,15 +29,15 @@ If your application is using the `rfrs-haproxy-[redisfailvover-name]` service yo
 
 ### Changed
 
-- Add default haproxy image #47
-- Update the default redis version to 7.2.4 #46
-- Update metrics exporter images  #45
+- [Add default haproxy image](https://github.com/powerhome/redis-operator/pull/47)
+- [Update the default redis version to 7.2.4](https://github.com/powerhome/redis-operator/pull/46)
+- [Update metrics exporter images](https://github.com/powerhome/redis-operator/pull/45)
 
 ## [v2.0.2] - 2024-02-13
 
 ### Fixed
 
-- Operator detects and attempts to heal excessive replication connections on the master node. This prevents excessive sentinel resets from the operator when extra-RedisFailvoer replication connnections are present on the "slave" nodes. #43
+- [Operator detects and attempts to heal excessive replication connections on the master node](https://github.com/powerhome/redis-operator/pull/43). This prevents excessive sentinel resets from the operator when extra-RedisFailvoer replication connnections are present on the "slave" nodes.
 
 ## [v2.0.1] - 2024-02-09
 
