@@ -6,7 +6,7 @@ const (
 	defaultSentinelExporterImage = "leominov/redis_sentinel_exporter:1.7.1"
 	defaultExporterImage         = "quay.io/oliver006/redis_exporter:v1.57.0"
 	defaultImage                 = "redis:7.2.4-alpine"
-	defaultHAProxyImage          = "haproxy:2.4"
+	defaultHAProxyImage          = "haproxy:2.9.6"
 	defaultRedisPort             = 6379
 )
 
