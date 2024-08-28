@@ -97,9 +97,21 @@ func (s *StatefulSetService) UpdateStatefulSet(namespace string, statefulSet *ap
 // CreateOrUpdateStatefulSet will update the statefulset or create it if does not exist
 func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error {
 	storedStatefulSet, err := s.GetStatefulSet(namespace, statefulSet.Name)
+
+	annotations := map[string]string{
+		"storageCapacity": "0",
+	}
+
 	if err != nil {
 		// If no resource we need to create.
 		if errors.IsNotFound(err) {
+			if len(statefulSet.Spec.VolumeClaimTemplates) != 0 {
+				annotations = map[string]string{
+					"storageCapacity": fmt.Sprintf("%d", statefulSet.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().Value()),
+				}
+			}
+
+			statefulSet.Spec.Template.Annotations = util.MergeAnnotations(statefulSet.Spec.Template.Annotations, annotations)
 			return s.CreateStatefulSet(namespace, statefulSet)
 		}
 		return err
@@ -119,7 +131,7 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 	// 3.2 Writing successful updates to internal
 	// 4. Set to old VolumeClaimTemplates to update.Prevent update error reporting
 	// 5. Set to old annotations to update
-	annotations := storedStatefulSet.Annotations
+	annotations = storedStatefulSet.Annotations
 	if annotations == nil {
 		annotations = map[string]string{
 			"storageCapacity": "0",
@@ -171,6 +183,7 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 	// set stored.volumeClaimTemplates
 	statefulSet.Spec.VolumeClaimTemplates = storedStatefulSet.Spec.VolumeClaimTemplates
 	statefulSet.Annotations = util.MergeAnnotations(storedStatefulSet.Annotations, statefulSet.Annotations)
+	statefulSet.Spec.Template.Annotations = util.MergeAnnotations(annotations, statefulSet.Spec.Template.Annotations)
 	return s.UpdateStatefulSet(namespace, statefulSet)
 }
 
