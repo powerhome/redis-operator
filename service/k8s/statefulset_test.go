@@ -130,6 +130,11 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 					ResourceVersion: "10",
 				},
 				Spec: appsv1.StatefulSetSpec{
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"sts": "sts",
+						},
+					},
 					VolumeClaimTemplates: []v1.PersistentVolumeClaim{
 						{
 							Spec: v1.PersistentVolumeClaimSpec{

@@ -29,6 +29,7 @@ type StatefulSet interface {
 	CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error
 	DeleteStatefulSet(namespace string, name string) error
 	ListStatefulSets(namespace string) (*appsv1.StatefulSetList, error)
+	DeleteStatefulSetPods(namespace string, name string) error
 }
 
 // StatefulSetService is the service account service implementation using API calls to kubernetes.
@@ -161,7 +162,17 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 				annotations["storageCapacity"] = fmt.Sprintf("%d", stateCapacity)
 				storedStatefulSet.Annotations = annotations
 				if realUpdate {
+
 					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("resize statefulset pvcs from %d to %d Success", storedCapacity, stateCapacity)
+
+					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("deleting statefulset pods in order to update pvc mount")
+					err := s.DeleteStatefulSetPods(namespace, storedStatefulSet.Name)
+
+					if err != nil {
+						s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Warningf("deletion of sts pods failed:%s", err.Error())
+						return err
+					}
+
 				} else {
 					s.logger.WithField("namespace", namespace).WithField("pvc", rfName).Warningf("set annotations,resize nothing")
 				}
@@ -187,4 +198,28 @@ func (s *StatefulSetService) ListStatefulSets(namespace string) (*appsv1.Statefu
 	stsList, err := s.kubeClient.AppsV1().StatefulSets(namespace).List(context.TODO(), metav1.ListOptions{})
 	recordMetrics(namespace, "StatefulSet", metrics.NOT_APPLICABLE, "LIST", err, s.metricsRecorder)
 	return stsList, err
+}
+
+func (s *StatefulSetService) DeleteStatefulSetPods(namespace, name string) error {
+
+	rps, err := s.GetStatefulSetPods(namespace, name)
+
+	if err != nil {
+		return err
+	}
+
+	var deleteErrors []string
+	for _, rp := range rps.Items {
+		err := s.kubeClient.CoreV1().Pods(namespace).Delete(context.TODO(), rp.Name, metav1.DeleteOptions{})
+		recordMetrics(namespace, "Pod", name, "DELETE", err, s.metricsRecorder)
+		if err != nil {
+			deleteErrors = append(deleteErrors, err.Error())
+		}
+	}
+
+	if len(deleteErrors) > 0 {
+		return fmt.Errorf("failed to delete some pods: %s", strings.Join(deleteErrors, "; "))
+	}
+
+	return nil
 }
