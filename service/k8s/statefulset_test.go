@@ -20,10 +20,14 @@ import (
 	"github.com/spotahome/redis-operator/log"
 	"github.com/spotahome/redis-operator/metrics"
 	"github.com/spotahome/redis-operator/service/k8s"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 var (
-	statefulSetsGroup = schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
+	statefulSetsGroup          = schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
+	persistentVolumeClaimGroup = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}
+	podGroup                   = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
 )
 
 func newStatefulSetUpdateAction(ns string, statefulSet *appsv1.StatefulSet) kubetesting.UpdateActionImpl {
@@ -36,6 +40,26 @@ func newStatefulSetGetAction(ns, name string) kubetesting.GetActionImpl {
 
 func newStatefulSetCreateAction(ns string, statefulSet *appsv1.StatefulSet) kubetesting.CreateActionImpl {
 	return kubetesting.NewCreateAction(statefulSetsGroup, ns, statefulSet)
+}
+
+func newPVCGetAction(pvc *corev1.PersistentVolumeClaim) kubetesting.CreateActionImpl {
+	return kubetesting.NewCreateAction(statefulSetsGroup, "", pvc)
+}
+
+func newPVCUpdateAction(pvc *corev1.PersistentVolumeClaim) kubetesting.UpdateActionImpl {
+	return kubetesting.NewUpdateAction(persistentVolumeClaimGroup, "", pvc)
+}
+
+func newPVCListAction(opts metav1.ListOptions) kubetesting.ListActionImpl {
+	return kubetesting.NewListAction(persistentVolumeClaimGroup, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "PersistentVolumeClaim"}, "", opts)
+}
+
+func newPodListAction(ns string, opts metav1.ListOptions) kubetesting.ListActionImpl {
+	return kubetesting.NewListAction(podGroup, schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"}, ns, opts)
+}
+
+func newPodDeleteAction(ns string, name string) kubetesting.DeleteActionImpl {
+	return kubetesting.NewDeleteAction(podGroup, ns, name)
 }
 
 func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
@@ -130,11 +154,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 					ResourceVersion: "10",
 				},
 				Spec: appsv1.StatefulSetSpec{
-					Selector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"sts": "sts",
-						},
-					},
+					Selector: &metav1.LabelSelector{},
 					VolumeClaimTemplates: []v1.PersistentVolumeClaim{
 						{
 							Spec: v1.PersistentVolumeClaimSpec{
@@ -163,6 +183,17 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 									},
 								},
 							},
+						},
+					},
+				},
+			}
+
+			podList := &v1.PodList{
+				Items: []v1.Pod{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:   "pod-1",
+							Labels: map[string]string{},
 						},
 					},
 				},
@@ -200,6 +231,18 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 				},
 			}
 			// Mock.
+
+			expActions := []kubetesting.Action{
+				newStatefulSetGetAction(testns, beforeSts.ObjectMeta.Name),
+				newPVCListAction(metav1.ListOptions{
+					LabelSelector: "app.kubernetes.io/component=redis,app.kubernetes.io/name=teststatefulSet1,app.kubernetes.io/part-of=redis-failover",
+				}),
+				newPVCUpdateAction(&pvcList.Items[0]),
+				newStatefulSetGetAction(testns, afterSts.ObjectMeta.Name),
+				newPodListAction(testns, metav1.ListOptions{}),
+				newPodDeleteAction(testns, podList.Items[0].ObjectMeta.Name),
+				newStatefulSetUpdateAction(testns, afterSts),
+			}
 			mcli := &kubernetes.Clientset{}
 			mcli.AddReactor("get", "statefulsets", func(action kubetesting.Action) (bool, runtime.Object, error) {
 				return true, beforeSts, nil
@@ -212,17 +255,41 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 				pvcList.Items[0] = *action.(kubetesting.UpdateActionImpl).Object.(*v1.PersistentVolumeClaim)
 				return true, action.(kubetesting.UpdateActionImpl).Object, nil
 			})
+
+			mcli.AddReactor("list", "pods", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
+				return true, podList, nil
+			})
+
+			mcli.AddReactor("delete", "pods", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
+				return true, podList, nil
+			})
+
 			service := k8s.NewStatefulSetService(mcli, log.Dummy, metrics.Dummy)
 			err := service.CreateOrUpdateStatefulSet(testns, afterSts)
 			assert.NoError(err)
 			assert.Equal(pvcList.Items[0].Spec.Resources, pvcList.Items[1].Spec.Resources)
+			assert.Equal(expActions, mcli.Actions())
+
 			// should not call update
+			mcli = &kubernetes.Clientset{}
+
+			// no deletion pods anymore, as pvc is already resized
+			expActions = []kubetesting.Action{
+				newStatefulSetGetAction(testns, beforeSts.ObjectMeta.Name),
+				newPVCListAction(metav1.ListOptions{
+					LabelSelector: "app.kubernetes.io/component=redis,app.kubernetes.io/name=,app.kubernetes.io/part-of=redis-failover",
+				}),
+				newStatefulSetUpdateAction(testns, afterSts),
+			}
+
 			mcli.AddReactor("update", "persistentvolumeclaims", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
 				panic("shouldn't call update")
 			})
 			service = k8s.NewStatefulSetService(mcli, log.Dummy, metrics.Dummy)
 			err = service.CreateOrUpdateStatefulSet(testns, afterSts)
 			assert.NoError(err)
+
+			assert.Equal(expActions, mcli.Actions())
 		})
 	}
 }
