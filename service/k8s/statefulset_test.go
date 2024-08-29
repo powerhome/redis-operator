@@ -42,10 +42,6 @@ func newStatefulSetCreateAction(ns string, statefulSet *appsv1.StatefulSet) kube
 	return kubetesting.NewCreateAction(statefulSetsGroup, ns, statefulSet)
 }
 
-func newPVCGetAction(pvc *corev1.PersistentVolumeClaim) kubetesting.CreateActionImpl {
-	return kubetesting.NewCreateAction(statefulSetsGroup, "", pvc)
-}
-
 func newPVCUpdateAction(pvc *corev1.PersistentVolumeClaim) kubetesting.UpdateActionImpl {
 	return kubetesting.NewUpdateAction(persistentVolumeClaimGroup, "", pvc)
 }
@@ -231,12 +227,12 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 				},
 			}
 			// Mock.
-
+			opts := metav1.ListOptions{
+				LabelSelector: "app.kubernetes.io/component=redis,app.kubernetes.io/name=teststatefulSet1,app.kubernetes.io/part-of=redis-failover",
+			}
 			expActions := []kubetesting.Action{
 				newStatefulSetGetAction(testns, beforeSts.ObjectMeta.Name),
-				newPVCListAction(metav1.ListOptions{
-					LabelSelector: "app.kubernetes.io/component=redis,app.kubernetes.io/name=teststatefulSet1,app.kubernetes.io/part-of=redis-failover",
-				}),
+				newPVCListAction(opts),
 				newPVCUpdateAction(&pvcList.Items[0]),
 				newStatefulSetGetAction(testns, afterSts.ObjectMeta.Name),
 				newPodListAction(testns, metav1.ListOptions{}),
@@ -272,13 +268,14 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 
 			// should not call update
 			mcli = &kubernetes.Clientset{}
+			mcli.AddReactor("get", "statefulsets", func(action kubetesting.Action) (bool, runtime.Object, error) {
+				return true, afterSts, nil
+			})
 
 			// no deletion pods anymore, as pvc is already resized
 			expActions = []kubetesting.Action{
-				newStatefulSetGetAction(testns, beforeSts.ObjectMeta.Name),
-				newPVCListAction(metav1.ListOptions{
-					LabelSelector: "app.kubernetes.io/component=redis,app.kubernetes.io/name=,app.kubernetes.io/part-of=redis-failover",
-				}),
+				newStatefulSetGetAction(testns, afterSts.ObjectMeta.Name),
+				newPVCListAction(opts),
 				newStatefulSetUpdateAction(testns, afterSts),
 			}
 
@@ -288,7 +285,6 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 			service = k8s.NewStatefulSetService(mcli, log.Dummy, metrics.Dummy)
 			err = service.CreateOrUpdateStatefulSet(testns, afterSts)
 			assert.NoError(err)
-
 			assert.Equal(expActions, mcli.Actions())
 		})
 	}
