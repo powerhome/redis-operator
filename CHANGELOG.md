@@ -9,6 +9,9 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v3.1.0] - 2024-09-05
+
+- [Automatically recreate StatefulSet after volume expansion](https://github.com/powerhome/redis-operator/pull/55)
 - [Upgrade default haproxy image to v2.9.6](https://github.com/powerhome/redis-operator/pull/52)
 
 ## [v3.0.0] - 2024-02-26
