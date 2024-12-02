@@ -134,49 +134,50 @@ func generateHAProxyRedisMasterConfigmap(rf *redisfailoverv1.RedisFailover, labe
 	labels = util.MergeLabels(labels, generateSelectorLabels("haproxy", rf.Name), generateRedisMasterRoleLabel())
 
 	port := rf.Spec.Redis.Port
-	haproxyCfg := fmt.Sprintf(`global
-	daemon
-	maxconn 5000
+	haproxyCfg := fmt.Sprintf(`
+global
+  daemon
+  maxconn 5000
 
-	defaults
-	mode tcp
-	timeout connect 5000ms
-	timeout client 50000ms
-	timeout server 50000ms
-	timeout check 5000ms
+defaults
+  mode tcp
+  timeout connect 5000ms
+  timeout client 50000ms
+  timeout server 50000ms
+  timeout check 5000ms
 
-	frontend http
-	bind :8080
-	default_backend stats
+frontend http
+  bind :8080
+  default_backend stats
 
-	backend stats
-	mode http
-	stats enable
-	stats uri /
-	stats refresh 1s
-	stats show-legends
-	stats admin if TRUE
+backend stats
+  mode http
+  stats enable
+  stats uri /
+  stats refresh 1s
+  stats show-legends
+  stats admin if TRUE
 
-	resolvers k8s
-	parse-resolv-conf
-	hold other 10s
-	hold refused 10s
-	hold nx 10
-	hold timeout 10s
-	hold valid 10s
-	hold obsolete 10s
+resolvers k8s
+  parse-resolv-conf
+  hold other 10s
+  hold refused 10s
+  hold nx 10
+  hold timeout 10s
+  hold valid 10s
+  hold obsolete 10s
 
-	frontend redis-master
-	bind *:%d
-	default_backend redis-master
+frontend redis-master
+  bind *:%d
+  default_backend redis-master
 
-	backend redis-master
-	mode tcp
-	balance first
-	option tcp-check
-	tcp-check send info\ replication\r\n
-	tcp-check expect string role:master
-	server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none
+backend redis-master
+  mode tcp
+  balance first
+  option tcp-check
+  tcp-check send info\ replication\r\n
+  tcp-check expect string role:master
+  server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none init-state down
 `, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
 
 	if rf.Spec.Haproxy.CustomConfig != "" {
