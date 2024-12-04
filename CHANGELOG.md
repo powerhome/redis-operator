@@ -11,7 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Changed
 
-- **BREAKING** [HAProxy: avoid sending traffic to replicas on failover](). RedisFailovers using `haproxy:` must now use a HAProxy image of v3.1.0 or greater. The operator now uses HAProxy v3.1.0 by default.
+- **BREAKING** [HAProxy: avoid sending traffic to replicas on failover](https://github.com/powerhome/redis-operator/pull/57/). RedisFailovers using `haproxy:` must now use a HAProxy image of v3.1.0 or greater. The operator now uses HAProxy v3.1.0 by default.
 
 ## [v3.1.0] - 2024-09-05
 
