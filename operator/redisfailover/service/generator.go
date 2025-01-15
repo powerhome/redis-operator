@@ -177,7 +177,7 @@ backend redis-master
   option tcp-check
   tcp-check send info\ replication\r\n
   tcp-check expect string role:master
-  server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none init-state down
+  server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none init-state down on-marked-down shutdown-sessions
 `, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
 
 	if rf.Spec.Haproxy.CustomConfig != "" {
