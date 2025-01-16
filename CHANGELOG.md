@@ -9,6 +9,12 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.1.0]  - 2025-01-16
+
+### Changed
+
+- [HAProxy: disconnect clients when node is demoted to replica](https://github.com/powerhome/redis-operator/pull/59)
+
 ## [v4.0.0] - 2024-12-05
 
 ### Changed
