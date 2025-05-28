@@ -13,6 +13,6 @@ metadata:
     backstage.io/techdocs-ref: dir:.
     github.com/project-slug: powerhome/redis-operator
 spec:
-  owner: forever-people
+  owner: guardians-of-the-galaxy
   domain: technology-foundations-and-tools
   lifecycle: production
