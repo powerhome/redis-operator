@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+- [Allow different ports on BootstrapNode and RF]()
+
 ## [v4.1.0]  - 2025-01-16
 
 ### Changed
