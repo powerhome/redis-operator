@@ -27,7 +27,7 @@ type Client interface {
 	MakeMaster(ip, port, password string) error
 	ResetReplicaConnections(ip, port, password string) error
 	MakeSlaveOf(ip, masterIP, password string) error
-	MakeSlaveOfWithPort(ip, masterIP, masterPort, password string) error
+	MakeSlaveOfWithPort(ip, port, masterIP, masterPort, password string) error
 	GetSentinelMonitor(ip string, port string) (string, string, error)
 	SetCustomSentinelConfig(ip string, port string, configs []string) error
 	SetCustomRedisConfig(ip string, port string, configs []string, password string) error
@@ -313,12 +313,12 @@ func (c client) ResetReplicaConnections(ip string, port string, password string)
 }
 
 func (c *client) MakeSlaveOf(ip, masterIP, password string) error {
-	return c.MakeSlaveOfWithPort(ip, masterIP, redisPort, password)
+	return c.MakeSlaveOfWithPort(ip, redisPort, masterIP, redisPort, password)
 }
 
-func (c *client) MakeSlaveOfWithPort(ip, masterIP, masterPort, password string) error {
+func (c *client) MakeSlaveOfWithPort(ip, port, masterIP, masterPort, password string) error {
 	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, masterPort), // this is IP and Port for the RedisFailover redis
+		Addr:     net.JoinHostPort(ip, port), // this is IP and Port for the RedisFailover redis
 		Password: password,
 		DB:       0,
 	}
