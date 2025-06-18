@@ -11,7 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Added
 
-- [Haproxy: optionally expose prometheus metrics]()
+- [Haproxy: optionally expose prometheus metrics](https://github.com/powerhome/redis-operator/pull/65)
 
 ### Fixed
 
