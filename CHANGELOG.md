@@ -9,6 +9,12 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Added
+
+- [Haproxy: optionally expose prometheus metrics]()
+
+### Fixed
+
 - [Allow different ports on BootstrapNode and RF](https://github.com/powerhome/redis-operator/pull/64)
 
 ## [v4.1.0]  - 2025-01-16

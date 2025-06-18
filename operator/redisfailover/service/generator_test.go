@@ -1381,6 +1381,51 @@ func TestHaproxyService(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:        "with Exporter",
+			rfRedisPort: defaultRedisPort,
+			haproxy: redisfailoverv1.HaproxySettings{
+				Exporter: &redisfailoverv1.HarpxoyExporterSettings{
+					Enabled: true,
+					Port:    redisfailoverv1.DefaultHaproxyExporterPort,
+				},
+			},
+			expectedService: corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      haproxyName,
+					Namespace: namespace,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Type: corev1.ServiceTypeClusterIP,
+					Selector: map[string]string{
+						"app.kubernetes.io/component":                      "haproxy",
+						"app.kubernetes.io/name":                           "test",
+						"app.kubernetes.io/part-of":                        "redis-failover",
+						"redisfailovers.databases.spotahome.com/component": "haproxy",
+						"redisfailovers-role":                              "master",
+					},
+					Ports: []corev1.ServicePort{
+						{
+							Name:       portName,
+							Port:       defaultRedisPort.ToInt32(),
+							TargetPort: intstr.FromInt(int(defaultRedisPort)),
+							Protocol:   corev1.ProtocolTCP,
+						},
+						{
+							Name:       redisfailoverv1.DefaultHaproxyExporterPortName,
+							Port:       redisfailoverv1.DefaultHaproxyExporterPort,
+							TargetPort: intstr.FromString(redisfailoverv1.DefaultHaproxyExporterPortName),
+							Protocol:   corev1.ProtocolTCP,
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {

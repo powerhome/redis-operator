@@ -79,6 +79,23 @@ func TestValidate(t *testing.T) {
 			rfHAProxyConfig:       &HaproxySettings{Image: "haproxy:0.0.1"},
 			expectedHAProxyConfig: &HaproxySettings{Image: "haproxy:0.0.1"},
 		},
+		{
+			name:   "HAProxy Exporter default port",
+			rfName: "test",
+			rfHAProxyConfig: &HaproxySettings{
+				Image: "_",
+				Exporter: &HarpxoyExporterSettings{
+					Enabled: true,
+				},
+			},
+			expectedHAProxyConfig: &HaproxySettings{
+				Image: "_",
+				Exporter: &HarpxoyExporterSettings{
+					Enabled: true,
+					Port:    DefaultHaproxyExporterPort,
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {

@@ -81,6 +81,19 @@ func generateHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, lab
 		},
 	}
 
+	ports := []corev1.ContainerPort{
+		{
+			ContainerPort: rf.Spec.Redis.Port.ToInt32(),
+		},
+	}
+
+	if rf.Spec.Haproxy != nil && rf.Spec.Haproxy.Exporter != nil && rf.Spec.Haproxy.Exporter.Enabled {
+		ports = append(ports, corev1.ContainerPort{
+			ContainerPort: rf.Spec.Haproxy.Exporter.Port.ToInt32(),
+			Name:          redisfailoverv1.DefaultHaproxyExporterPortName,
+		})
+	}
+
 	sd := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -100,13 +113,9 @@ func generateHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, lab
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:  "haproxy",
-							Image: rf.Spec.Haproxy.Image,
-							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: rf.Spec.Redis.Port.ToInt32(),
-								},
-							},
+							Name:         "haproxy",
+							Image:        rf.Spec.Haproxy.Image,
+							Ports:        ports,
 							VolumeMounts: volumeMounts,
 							Resources:    rf.Spec.Haproxy.Resources,
 						},
@@ -134,6 +143,18 @@ func generateHAProxyRedisMasterConfigmap(rf *redisfailoverv1.RedisFailover, labe
 	labels = util.MergeLabels(labels, generateSelectorLabels("haproxy", rf.Name), generateRedisMasterRoleLabel())
 
 	port := rf.Spec.Redis.Port
+
+	prometheusFrontend := ""
+	if rf.Spec.Haproxy.Exporter != nil && rf.Spec.Haproxy.Exporter.Enabled {
+		prometheusFrontend = fmt.Sprintf(`
+frontend prometheus
+  bind :%d
+  mode http
+  http-request use-service prometheus-exporter
+  no log
+`, rf.Spec.Haproxy.Exporter.Port.ToInt32())
+	}
+
 	haproxyCfg := fmt.Sprintf(`
 global
   daemon
@@ -145,6 +166,8 @@ defaults
   timeout client 50000ms
   timeout server 50000ms
   timeout check 5000ms
+
+%s
 
 frontend http
   bind :8080
@@ -178,7 +201,7 @@ backend redis-master
   tcp-check send info\ replication\r\n
   tcp-check expect string role:master
   server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none init-state down on-marked-down shutdown-sessions
-`, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
+`, prometheusFrontend, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
 
 	if rf.Spec.Haproxy.CustomConfig != "" {
 		haproxyCfg = rf.Spec.Haproxy.CustomConfig
@@ -243,17 +266,28 @@ func generateHAProxyRedisMasterService(rf *redisfailoverv1.RedisFailover, labels
 	selectorLabels = util.MergeLabels(selectorLabels, generateComponentLabel("haproxy"))
 	selectorLabels = util.MergeLabels(labels, selectorLabels)
 
+	ports := []corev1.ServicePort{
+		{
+			Name:       "redis-master",
+			Port:       rf.Spec.Redis.Port.ToInt32(),
+			TargetPort: redisTargetPort,
+			Protocol:   corev1.ProtocolTCP,
+		},
+	}
+
+	if rf.Spec.Haproxy != nil && rf.Spec.Haproxy.Exporter != nil && rf.Spec.Haproxy.Exporter.Enabled {
+		ports = append(ports, corev1.ServicePort{
+			Name:       redisfailoverv1.DefaultHaproxyExporterPortName,
+			Port:       rf.Spec.Haproxy.Exporter.Port.ToInt32(),
+			TargetPort: intstr.FromString(redisfailoverv1.DefaultHaproxyExporterPortName),
+			Protocol:   corev1.ProtocolTCP,
+		})
+	}
+
 	spec := corev1.ServiceSpec{
 		Selector: selectorLabels,
-		Type:     "ClusterIP",
-		Ports: []corev1.ServicePort{
-			{
-				Name:       "redis-master",
-				Port:       rf.Spec.Redis.Port.ToInt32(),
-				TargetPort: redisTargetPort,
-				Protocol:   "TCP",
-			},
-		},
+		Type:     corev1.ServiceTypeClusterIP,
+		Ports:    ports,
 	}
 
 	serviceSettings := rf.Spec.Haproxy.Service

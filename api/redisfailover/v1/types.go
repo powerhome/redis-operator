@@ -69,7 +69,7 @@ type NetworkPolicyNamespaceEntry struct {
 	MatchLabelValue string `json:"matchLabelValue,omitempty"`
 }
 
-// HaproxySettings contains settings about a potential bootstrap node
+// HaproxySettings configures the haproxy workload
 type HaproxySettings struct {
 	RedisHost    string                      `json:"redisHost,omitempty"`
 	Image        string                      `json:"image,omitempty"`
@@ -78,6 +78,13 @@ type HaproxySettings struct {
 	CustomConfig string                      `json:"customConfig,omitempty"`
 	Affinity     *corev1.Affinity            `json:"affinity,omitempty"`
 	Service      *ServiceSettings            `json:"service,omitempty"`
+	Exporter     *HarpxoyExporterSettings    `json:"exporter,omitempty"`
+}
+
+// HarpxoyExporterSettings configures haproxy's prometheus exporter frontend
+type HarpxoyExporterSettings struct {
+	Enabled bool `json:"enabled,omitempty"`
+	Port    Port `json:"port,omitempty"`
 }
 
 type ServiceSettings struct {
@@ -176,7 +183,7 @@ type BootstrapSettings struct {
 	Port           string `json:"port,omitempty"`
 	AllowSentinels bool   `json:"allowSentinels,omitempty"`
 	// +kubebuilder:default=true
-	Enabled        bool   `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 // Exporter defines the specification for the redis/sentinel exporter

@@ -71,6 +71,12 @@ func (r *RedisFailover) Validate() error {
 		if r.Spec.Haproxy.Image == "" {
 			r.Spec.Haproxy.Image = defaultHAProxyImage
 		}
+
+		if r.Spec.Haproxy.Exporter != nil {
+			if r.Spec.Haproxy.Exporter.Port == 0 {
+				r.Spec.Haproxy.Exporter.Port = DefaultHaproxyExporterPort
+			}
+		}
 	}
 
 	return nil

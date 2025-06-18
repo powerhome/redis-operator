@@ -10,7 +10,7 @@ spec:
       image: leominov/redis_sentinel_exporter:1.3.0
   redis:
     replicas: 3
-    exporter: 
+    exporter:
       enabled: true
       image: oliver006/redis_exporter:v1.3.5-alpine
       args:
@@ -19,3 +19,7 @@ spec:
       env:
         - name: REDIS_EXPORTER_LOG_FORMAT
           value: txt
+    harpoxy:
+      exporter:
+        enabled: true
+        port: 8405
