@@ -84,13 +84,13 @@ func TestValidate(t *testing.T) {
 			rfName: "test",
 			rfHAProxyConfig: &HaproxySettings{
 				Image: "_",
-				Exporter: &HarpxoyExporterSettings{
+				Exporter: &HaproxyExporterSettings{
 					Enabled: true,
 				},
 			},
 			expectedHAProxyConfig: &HaproxySettings{
 				Image: "_",
-				Exporter: &HarpxoyExporterSettings{
+				Exporter: &HaproxyExporterSettings{
 					Enabled: true,
 					Port:    DefaultHaproxyExporterPort,
 				},

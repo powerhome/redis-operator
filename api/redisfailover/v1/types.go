@@ -78,11 +78,11 @@ type HaproxySettings struct {
 	CustomConfig string                      `json:"customConfig,omitempty"`
 	Affinity     *corev1.Affinity            `json:"affinity,omitempty"`
 	Service      *ServiceSettings            `json:"service,omitempty"`
-	Exporter     *HarpxoyExporterSettings    `json:"exporter,omitempty"`
+	Exporter     *HaproxyExporterSettings    `json:"exporter,omitempty"`
 }
 
-// HarpxoyExporterSettings configures haproxy's prometheus exporter frontend
-type HarpxoyExporterSettings struct {
+// HaproxyExporterSettings configures haproxy's prometheus exporter frontend
+type HaproxyExporterSettings struct {
 	Enabled bool `json:"enabled,omitempty"`
 	Port    Port `json:"port,omitempty"`
 }

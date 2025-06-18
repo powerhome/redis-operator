@@ -947,7 +947,7 @@ spec:
                   customConfig:
                     type: string
                   exporter:
-                    description: HarpxoyExporterSettings configures haproxy's prometheus
+                    description: HaproxyExporterSettings configures haproxy's prometheus
                       exporter frontend
                     properties:
                       enabled:

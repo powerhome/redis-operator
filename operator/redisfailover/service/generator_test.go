@@ -1385,7 +1385,7 @@ func TestHaproxyService(t *testing.T) {
 			name:        "with Exporter",
 			rfRedisPort: defaultRedisPort,
 			haproxy: redisfailoverv1.HaproxySettings{
-				Exporter: &redisfailoverv1.HarpxoyExporterSettings{
+				Exporter: &redisfailoverv1.HaproxyExporterSettings{
 					Enabled: true,
 					Port:    redisfailoverv1.DefaultHaproxyExporterPort,
 				},
