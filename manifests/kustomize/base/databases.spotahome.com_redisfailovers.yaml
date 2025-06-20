@@ -74,8 +74,7 @@ spec:
                     type: string
                 type: object
               haproxy:
-                description: HaproxySettings contains settings about a potential bootstrap
-                  node
+                description: HaproxySettings configures the haproxy workload
                 properties:
                   affinity:
                     description: Affinity is a group of affinity scheduling rules.
@@ -947,6 +946,16 @@ spec:
                     type: object
                   customConfig:
                     type: string
+                  exporter:
+                    description: HaproxyExporterSettings configures haproxy's prometheus
+                      exporter frontend
+                    properties:
+                      enabled:
+                        type: boolean
+                      port:
+                        format: int32
+                        type: integer
+                    type: object
                   image:
                     type: string
                   redisHost:
