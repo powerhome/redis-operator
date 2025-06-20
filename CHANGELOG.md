@@ -9,7 +9,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
-## [v4.1.0] - 2025-06-20
+## [v4.2.0] - 2025-06-20
 
 ### Added
 
