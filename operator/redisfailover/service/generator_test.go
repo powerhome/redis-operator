@@ -1314,6 +1314,12 @@ func TestHaproxyService(t *testing.T) {
 			rfRedisPort: defaultRedisPort,
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "haproxy",
+						"app.kubernetes.io/name":      "test",
+						"app.kubernetes.io/part-of":   "redis-failover",
+						"redisfailovers-role":         "master",
+					},
 					Name:      haproxyName,
 					Namespace: namespace,
 					OwnerReferences: []metav1.OwnerReference{
@@ -1352,6 +1358,12 @@ func TestHaproxyService(t *testing.T) {
 			},
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "haproxy",
+						"app.kubernetes.io/name":      "test",
+						"app.kubernetes.io/part-of":   "redis-failover",
+						"redisfailovers-role":         "master",
+					},
 					Name:      haproxyName,
 					Namespace: namespace,
 					OwnerReferences: []metav1.OwnerReference{
@@ -1392,6 +1404,12 @@ func TestHaproxyService(t *testing.T) {
 			},
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "haproxy",
+						"app.kubernetes.io/name":      "test",
+						"app.kubernetes.io/part-of":   "redis-failover",
+						"redisfailovers-role":         "master",
+					},
 					Name:      haproxyName,
 					Namespace: namespace,
 					OwnerReferences: []metav1.OwnerReference{

@@ -55,9 +55,15 @@ func generateHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, lab
 	name := GetHaproxyMasterName(rf)
 
 	namespace := rf.Namespace
-
-	labels = util.MergeLabels(labels, generateSelectorLabels("haproxy", rf.Name), generateRedisMasterRoleLabel())
-	selectorLabels := util.MergeLabels(labels, generateComponentLabel("haproxy"))
+	labels = util.MergeLabels(
+		labels,
+		generateSelectorLabels("haproxy", rf.Name),
+		generateRedisMasterRoleLabel(),
+	)
+	selectorLabels := util.MergeLabels(
+		labels,
+		generateComponentLabel("haproxy"),
+	)
 
 	volumeMounts := []corev1.VolumeMount{
 		{
@@ -261,10 +267,16 @@ func generateHAProxyRedisMasterService(rf *redisfailoverv1.RedisFailover, labels
 	}
 	namespace := rf.Namespace
 	redisTargetPort := intstr.FromInt(int(rf.Spec.Redis.Port))
-	selectorLabels := util.MergeLabels(labels, generateSelectorLabels("haproxy", rf.Name), generateRedisMasterRoleLabel())
 
-	selectorLabels = util.MergeLabels(selectorLabels, generateComponentLabel("haproxy"))
-	selectorLabels = util.MergeLabels(labels, selectorLabels)
+	labels = util.MergeLabels(
+		labels,
+		generateSelectorLabels("haproxy", rf.Name),
+		generateRedisMasterRoleLabel(),
+	)
+	selectorLabels := util.MergeLabels(
+		labels,
+		generateComponentLabel("haproxy"),
+	)
 
 	ports := []corev1.ServicePort{
 		{

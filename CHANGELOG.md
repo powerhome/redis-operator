@@ -11,6 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Added
 
+- [Haproxy: add additional service labels](https://github.com/powerhome/redis-operator/pull/66)
 - [Haproxy: optionally expose prometheus metrics](https://github.com/powerhome/redis-operator/pull/65)
 
 ### Fixed
