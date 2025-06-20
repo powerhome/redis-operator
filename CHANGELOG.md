@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.1.0] - 2025-06-20
+
 ### Added
 
 - [Haproxy: add additional service labels](https://github.com/powerhome/redis-operator/pull/66)
