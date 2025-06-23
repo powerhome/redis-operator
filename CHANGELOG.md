@@ -9,6 +9,10 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Changed
+
+- [Haproxy: Haproxy: bootstrap puts haproxy into maint mode]()
+
 ## [v4.2.0] - 2025-06-20
 
 ### Added
