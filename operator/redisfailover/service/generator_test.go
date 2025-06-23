@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"fmt"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1475,6 +1476,107 @@ func TestHaproxyService(t *testing.T) {
 
 			assert.Equal(test.expectedService, generatedService)
 			assert.NoError(err)
+		})
+	}
+}
+
+func TestGenerateHaproxyConfig(t *testing.T) {
+	tests := []struct {
+		name         string
+		rf           *redisfailoverv1.RedisFailover
+		bootstrap    bool
+		mustMatch    []string
+		mustNotMatch []string
+	}{
+		{
+			name: "returns CustomConfig when provided",
+			rf: &redisfailoverv1.RedisFailover{
+				Spec: redisfailoverv1.RedisFailoverSpec{
+					Haproxy: &redisfailoverv1.HaproxySettings{
+						CustomConfig: "custom config here",
+					},
+				},
+			},
+			mustMatch: []string{"custom config here"},
+		},
+		{
+			name: "includes exporter block when enabled",
+			rf: &redisfailoverv1.RedisFailover{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns"},
+				Spec: redisfailoverv1.RedisFailoverSpec{
+					Redis: redisfailoverv1.RedisSettings{
+						Port:     6379,
+						Replicas: 3,
+					},
+					Haproxy: &redisfailoverv1.HaproxySettings{
+						Exporter: &redisfailoverv1.HaproxyExporterSettings{
+							Enabled: true,
+							Port:    9101,
+						},
+					},
+				},
+			},
+			mustMatch: []string{
+				"frontend prometheus",
+				"bind :9101",
+			},
+		},
+		{
+			name: "includes an active redis-master block when not bootstrapping",
+			rf: &redisfailoverv1.RedisFailover{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns", Name: "expected-name"},
+				Spec: redisfailoverv1.RedisFailoverSpec{
+					Redis: redisfailoverv1.RedisSettings{
+						Port:     6379,
+						Replicas: 3,
+					},
+					Haproxy: &redisfailoverv1.HaproxySettings{},
+				},
+			},
+			mustMatch: []string{
+				`frontend redis-master`,
+				`server-template redis 3 _redis\._tcp\.redis-expected-name\.test-ns\.svc\.cluster\.local:6379`,
+			},
+		},
+		{
+			name: "includes an administratively disabled redis-master block when bootstrapping",
+			rf: &redisfailoverv1.RedisFailover{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns", Name: "expected-name"},
+				Spec: redisfailoverv1.RedisFailoverSpec{
+					Redis: redisfailoverv1.RedisSettings{
+						Port:     6379,
+						Replicas: 3,
+					},
+					Haproxy: &redisfailoverv1.HaproxySettings{},
+				},
+			},
+			bootstrap: true,
+			mustNotMatch: []string{
+				`frontend redis-master`,
+				`server-template redis 3 _redis\._tcp\.redis-expected-name\.test-ns\.svc\.cluster\.local:6379`,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rf := *test.rf // shallow copy
+
+			cfg := rfservice.GenerateHaproxyConfig(&rf, test.bootstrap)
+
+			for _, pattern := range test.mustMatch {
+				re := regexp.MustCompile(pattern)
+				if !re.MatchString(cfg) {
+					t.Errorf("expected config to match pattern %q\nConfig:\n%s", pattern, cfg)
+				}
+			}
+
+			for _, pattern := range test.mustNotMatch {
+				re := regexp.MustCompile(pattern)
+				if re.MatchString(cfg) {
+					t.Errorf("expected config NOT to match pattern %q\nConfig:\n%s", pattern, cfg)
+				}
+			}
 		})
 	}
 }

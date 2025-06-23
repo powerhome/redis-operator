@@ -10,3 +10,9 @@ func (r *RedisFailover) SentinelsAllowed() bool {
 	bootstrapping := r.Bootstrapping()
 	return !bootstrapping || (bootstrapping && r.Spec.BootstrapNode.AllowSentinels)
 }
+
+// HaproxyAllowed returns true if haproxy is allowed to run
+func (r *RedisFailover) HaproxyAllowed() bool {
+	bootstrapping := r.Bootstrapping()
+	return !bootstrapping
+}

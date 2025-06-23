@@ -30,24 +30,31 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 	}
 
 	if rf.Spec.Haproxy != nil {
-		if err := w.rfService.EnsureHAProxyRedisMasterService(rf, labels, or); err != nil {
-			return err
-		}
+		haproxyAllowed := rf.HaproxyAllowed()
+		if haproxyAllowed {
+			if err := w.rfService.EnsureHAProxyRedisMasterService(rf, labels, or); err != nil {
+				return err
+			}
 
-		if err := w.rfService.EnsureRedisHeadlessService(rf, labels, or); err != nil {
-			return err
-		}
+			if err := w.rfService.EnsureRedisHeadlessService(rf, labels, or); err != nil {
+				return err
+			}
 
-		if err := w.rfService.EnsureHAProxyRedisMasterConfigmap(rf, labels, or); err != nil {
-			return err
-		}
+			if err := w.rfService.EnsureHAProxyRedisMasterConfigmap(rf, labels, or); err != nil {
+				return err
+			}
 
-		if err := w.rfService.EnsureHAProxyRedisMasterDeployment(rf, labels, or); err != nil {
-			return err
-		}
+			if err := w.rfService.EnsureHAProxyRedisMasterDeployment(rf, labels, or); err != nil {
+				return err
+			}
 
-		if err := w.rfService.DestroyOrphanedRedisSlaveHaProxy(rf); err != nil {
-			return err
+			if err := w.rfService.DestroyOrphanedRedisSlaveHaProxy(rf); err != nil {
+				return err
+			}
+		} else {
+			if err := w.rfService.DestroyHaproxyMasterResources(rf); err != nil {
+				return err
+			}
 		}
 	}
 

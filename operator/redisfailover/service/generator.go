@@ -2,6 +2,8 @@ package service
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -142,26 +144,40 @@ func generateHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, lab
 
 func generateHAProxyRedisMasterConfigmap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
 	name := GetHaproxyMasterName(rf)
-	redisName := rf.GenerateName("redis")
-
-	namespace := rf.Namespace
 
 	labels = util.MergeLabels(labels, generateSelectorLabels("haproxy", rf.Name), generateRedisMasterRoleLabel())
 
-	port := rf.Spec.Redis.Port
+	haproxyCfg := GenerateHaproxyConfig(
+		rf,
+		rf.Bootstrapping(),
+	)
 
-	prometheusFrontend := ""
-	if rf.Spec.Haproxy.Exporter != nil && rf.Spec.Haproxy.Exporter.Enabled {
-		prometheusFrontend = fmt.Sprintf(`
-frontend prometheus
-  bind :%d
-  mode http
-  http-request use-service prometheus-exporter
-  no log
-`, rf.Spec.Haproxy.Exporter.Port.ToInt32())
+	hash := sha256.Sum256([]byte(haproxyCfg))
+	digest := hex.EncodeToString(hash[:])
+
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: rf.Namespace,
+			Labels:    labels,
+			Annotations: map[string]string{
+				haproxyConfigChecksumAnnotationKey: digest,
+			},
+			OwnerReferences: ownerRefs,
+		},
+		Data: map[string]string{
+			"haproxy.cfg": haproxyCfg,
+		},
+	}
+}
+
+func GenerateHaproxyConfig(rf *redisfailoverv1.RedisFailover, bootstrapping bool) string {
+	if rf.Spec.Haproxy.CustomConfig != "" {
+		return rf.Spec.Haproxy.CustomConfig
 	}
 
-	haproxyCfg := fmt.Sprintf(`
+	var haproxyCfgBuilder strings.Builder
+	haproxyCfgBuilder.WriteString(`
 global
   daemon
   maxconn 5000
@@ -172,8 +188,6 @@ defaults
   timeout client 50000ms
   timeout server 50000ms
   timeout check 5000ms
-
-%s
 
 frontend http
   bind :8080
@@ -196,6 +210,23 @@ resolvers k8s
   hold valid 10s
   hold obsolete 10s
 
+`)
+
+	if rf.Spec.Haproxy.Exporter != nil && rf.Spec.Haproxy.Exporter.Enabled {
+		haproxyCfgBuilder.WriteString(fmt.Sprintf(`
+frontend prometheus
+  bind :%d
+  mode http
+  http-request use-service prometheus-exporter
+  no log
+
+`,
+			rf.Spec.Haproxy.Exporter.Port.ToInt32(),
+		))
+	}
+
+	if !bootstrapping {
+		haproxyCfgBuilder.WriteString(fmt.Sprintf(`
 frontend redis-master
   bind *:%d
   default_backend redis-master
@@ -206,24 +237,18 @@ backend redis-master
   option tcp-check
   tcp-check send info\ replication\r\n
   tcp-check expect string role:master
-  server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none init-state down on-marked-down shutdown-sessions
-`, prometheusFrontend, port, rf.Spec.Redis.Replicas, redisName, namespace, port)
-
-	if rf.Spec.Haproxy.CustomConfig != "" {
-		haproxyCfg = rf.Spec.Haproxy.CustomConfig
+  server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none init-state down on-marked-down shutdown-sessions`,
+			rf.Spec.Redis.Port,
+			rf.Spec.Redis.Replicas,
+			rf.GenerateName("redis"),
+			rf.Namespace,
+			rf.Spec.Redis.Port,
+		))
 	}
+	haproxyCfgBuilder.WriteString("\n")
 
-	return &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            name,
-			Namespace:       namespace,
-			Labels:          labels,
-			OwnerReferences: ownerRefs,
-		},
-		Data: map[string]string{
-			"haproxy.cfg": haproxyCfg,
-		},
-	}
+	return haproxyCfgBuilder.String()
+
 }
 
 func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
