@@ -97,6 +97,13 @@ func TestEnsure(t *testing.T) {
 			bootstrappingAllowSentinels: false,
 			haproxy:                     true,
 		},
+		{
+			name:                        "bootstrapping with haproxy enabled",
+			exporter:                    false,
+			bootstrapping:               true,
+			bootstrappingAllowSentinels: false,
+			haproxy:                     true,
+		},
 	}
 
 	for _, test := range tests {
@@ -134,12 +141,16 @@ func TestEnsure(t *testing.T) {
 			}
 
 			if test.haproxy {
-				mrfs.On("EnsureHAProxyRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)
-				mrfs.On("EnsureRedisHeadlessService", rf, mock.Anything, mock.Anything).Once().Return(nil)
-				mrfs.On("EnsureHAProxyRedisMasterConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
-				mrfs.On("EnsureHAProxyRedisMasterDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				if !test.bootstrapping {
+					mrfs.On("EnsureHAProxyRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+					mrfs.On("EnsureRedisHeadlessService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+					mrfs.On("EnsureHAProxyRedisMasterConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
+					mrfs.On("EnsureHAProxyRedisMasterDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
 
-				mrfs.On("DestroyOrphanedRedisSlaveHaProxy", rf, mock.Anything, mock.Anything).Once().Return(nil)
+					mrfs.On("DestroyOrphanedRedisSlaveHaProxy", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				} else {
+					mrfs.On("DestroyHaproxyMasterResources", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				}
 			}
 
 			mrfs.On("EnsureRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)

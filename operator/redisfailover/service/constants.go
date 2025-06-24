@@ -38,3 +38,7 @@ const (
 	redisRoleLabelMaster = "master"
 	redisRoleLabelSlave  = "slave"
 )
+
+const (
+	haproxyConfigChecksumAnnotationKey = "checksum/haproxy-cfg"
+)

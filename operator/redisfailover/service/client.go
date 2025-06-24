@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -32,6 +33,7 @@ type RedisFailoverClient interface {
 	EnsureRedisConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureNotPresentRedisService(rFailover *redisfailoverv1.RedisFailover) error
 
+	DestroyHaproxyMasterResources(rFailover *redisfailoverv1.RedisFailover) error
 	DestroySentinelResources(rFailover *redisfailoverv1.RedisFailover) error
 	UpdateStatus(rFailover *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error)
 
@@ -119,8 +121,29 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterConfigmap(rf *redisfai
 
 // EnsureHAProxyRedisMasterDeployment makes sure the sentinel deployment exists in the desired state
 func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	// Get the name of the ConfigMap we expect to have already been created
+	configMapName := GetHaproxyMasterName(rf)
+
+	// Fetch the existing ConfigMap
+	cm, err := r.K8SService.GetConfigMap(rf.Namespace, configMapName)
+	if err != nil {
+		return fmt.Errorf("EnsureHAProxyRedisMasterDeployment failed to fetch existing ConfigMap %s: %w", configMapName, err)
+	}
+
+	// Extract the checksum from its annotations
+	digest := cm.Annotations[haproxyConfigChecksumAnnotationKey]
+	if digest == "" {
+		return fmt.Errorf("missing %s annotation on ConfigMap %s", haproxyConfigChecksumAnnotationKey, configMapName)
+	}
+
 	d := generateHAProxyRedisMasterDeployment(rf, labels, ownerRefs)
-	err := r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
+
+	if d.Spec.Template.Annotations == nil {
+		d.Spec.Template.Annotations = make(map[string]string)
+	}
+	d.Spec.Template.Annotations[haproxyConfigChecksumAnnotationKey] = digest
+
+	err = r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
 
 	r.setEnsureOperationMetrics(d.Namespace, d.Name, "EnsureHAProxyRedisMasterDeployment", rf.Name, err)
 	return err
@@ -171,6 +194,29 @@ func (r *RedisFailoverKubeClient) DestroySentinelResources(rf *redisfailoverv1.R
 	if !rf.Spec.Sentinel.DisablePodDisruptionBudget {
 		if err := r.K8SService.DeletePodDisruptionBudget(rf.Namespace, name); err != nil {
 			return err
+		}
+	}
+
+	if err := r.K8SService.DeleteService(rf.Namespace, name); err != nil {
+		return err
+	}
+
+	if err := r.K8SService.DeleteConfigMap(rf.Namespace, name); err != nil {
+		return err
+	}
+
+	err := r.K8SService.DeleteDeployment(rf.Namespace, name)
+	return err
+}
+
+// DestroyHaproxyMasterResources eliminates haproxy pods and its dependend resources, unnecessary for a bootstrap mode
+func (r *RedisFailoverKubeClient) DestroyHaproxyMasterResources(rf *redisfailoverv1.RedisFailover) error {
+	name := GetHaproxyMasterName(rf)
+
+	if _, err := r.K8SService.GetDeployment(rf.Namespace, name); err != nil {
+		// If no resource, do nothing
+		if errors.IsNotFound(err) {
+			return nil
 		}
 	}
 
