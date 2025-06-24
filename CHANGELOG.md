@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.3.0] - 2025-06-24
+
 ### Changed
 
 - [Haproxy: remove haproxy master resources when bootstrapping](https://github.com/powerhome/redis-operator/pull/70)
