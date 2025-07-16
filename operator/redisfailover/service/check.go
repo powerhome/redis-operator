@@ -516,12 +516,19 @@ func (r *RedisFailoverChecker) IsHAProxyRunning(rFailover *redisfailoverv1.Redis
 	return err == nil && len(dp.Items) > int(rFailover.Spec.Haproxy.Replicas-1) && AreAllRunning(dp, int(rFailover.Spec.Haproxy.Replicas))
 }
 
-// IsClusterRunning returns true if all the pods in the given redisfailover are Running
-func (r *RedisFailoverChecker) IsClusterRunning(rFailover *redisfailoverv1.RedisFailover) bool {
-	if rFailover.Bootstrapping() && !rFailover.SentinelsAllowed() {
-		return r.IsRedisRunning(rFailover) && r.IsHAProxyRunning(rFailover)
+// IsClusterRunning returns true if all the pods in the given RedisFailover are running.
+func (r *RedisFailoverChecker) IsClusterRunning(rf *redisfailoverv1.RedisFailover) bool {
+	if rf.Bootstrapping() {
+		if !rf.SentinelsAllowed() {
+			return r.IsRedisRunning(rf)
+		}
+		return r.IsRedisRunning(rf) && r.IsSentinelRunning(rf)
 	}
-	return r.IsSentinelRunning(rFailover) && r.IsRedisRunning(rFailover) && r.IsHAProxyRunning(rFailover)
+
+	// In normal mode, Redis, Sentinel, and HAProxy must all be running
+	return r.IsRedisRunning(rf) &&
+		r.IsSentinelRunning(rf) &&
+		r.IsHAProxyRunning(rf)
 }
 
 func AreAllRunning(pods *corev1.PodList, expectedRunningPods int) bool {
