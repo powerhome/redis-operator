@@ -1012,6 +1012,13 @@ func TestClusterRunning(t *testing.T) {
 
 	assert.False(checker.IsClusterRunning(rf))
 
+	rf.Spec.Haproxy = nil
+	ms = &mK8SService.Services{}
+	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(allRunning, nil)
+	checker = rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+
+	assert.True(checker.IsClusterRunning(rf))
 }
 
 func TestClusterRunningWithBootstrap(t *testing.T) {
