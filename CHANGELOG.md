@@ -9,6 +9,12 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.3.1] - 2025-07-16
+
+### Fixed
+
+- [Fixed health check logic in bootstrap mode](https://github.com/powerhome/redis-operator/pull/72)
+
 ## [v4.3.0] - 2025-06-24
 
 ### Changed
