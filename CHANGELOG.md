@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+- [Drop support for kube versions 1.22 and older](https://github.com/powerhome/redis-operator/pull/74)
+
 ## [v4.3.1] - 2025-07-16
 
 ### Fixed
