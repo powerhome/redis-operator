@@ -1,7 +1,7 @@
 # redis-operator
 
-[![Build Status](https://github.com/spotahome/redis-operator/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/spotahome/redis-operator)
-[![Go Report Card](https://goreportcard.com/badge/github.com/spotahome/redis-operator)](https://goreportcard.com/report/github.com/spotahome/redis-operator)
+[![Build Status](https://github.com/powerhome/redis-operator/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/powerhome/redis-operator/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/powerhome/redis-operator)](https://goreportcard.com/report/github.com/powerhome/redis-operator)
 
 Redis Operator creates/configures/manages redis-failovers atop Kubernetes.
 
@@ -16,19 +16,20 @@ All dependencies have been vendored, so there's no need to any additional downlo
 ## Operator deployment on Kubernetes
 
 In order to create Redis failovers inside a Kubernetes cluster, the operator has to be deployed.
-It can be done with plain old [deployment](example/operator), using [Kustomize](manifests/kustomize) or with the provided [Helm chart](charts/redisoperator).
+It can be done with plain old [deployment](/example/operator), using [Kustomize](/manifests/kustomize) or with the provided [Helm chart](/charts/redisoperator).
 
 ### Using the Helm chart
 
-From the root folder of the project, execute the following:
-
+1. Clone this repo
+2. (Optional) Checkout a tag with specific version you want to use
+3. Install the chart with
 ```
-helm repo add redis-operator https://spotahome.github.io/redis-operator
-helm repo update
-helm install redis-operator redis-operator/redis-operator
+helm install redis-operator <path_to_cloned_repo>/charts/redisoperator
 ```
 
 #### Update helm chart
+
+**NOTE:** This doc section is outdated, please create a PR to update it after you actually do it!
 
 Helm chart only manage the creation of CRD in the first install. In order to update the CRD you will need to apply directly.
 
@@ -42,6 +43,8 @@ helm upgrade redis-operator redis-operator/redis-operator
 ```
 ### Using kubectl
 
+**NOTE:** This doc section is outdated, please create a PR to update it after you actually do it!
+
 To create the operator, you can directly create it with kubectl:
 
 ```
@@ -53,6 +56,8 @@ kubectl apply -f https://raw.githubusercontent.com/spotahome/redis-operator/${RE
 This will create a deployment named `redisoperator`.
 
 ### Using kustomize
+
+**NOTE:** This doc section is outdated, please create a PR to update it after you actually do it!
 
 The kustomize setup included in this repo is highly customizable using [components](https://kubectl.docs.kubernetes.io/guides/config_management/components/),
 but it also comes with a few presets (in the form of overlays) supporting the most common use cases.
@@ -89,17 +94,17 @@ resources:
   - github.com/spotahome/redis-operator/manifests/kustomize/overlays/full
 ```
 
-Take a look at the manifests inside [manifests/kustomize](manifests/kustomize) for more details.
+Take a look at the manifests inside [manifests/kustomize](/manifests/kustomize) for more details.
 
 ## Usage
 
 Once the operator is deployed inside a Kubernetes cluster, a new API will be accesible, so you'll be able to create, update and delete redisfailovers.
 
-In order to deploy a new redis-failover a [specification](example/redisfailover/basic.yaml) has to be created:
+In order to deploy a new redis-failover a [specification](/example/redisfailover/basic.yaml) has to be created:
 
 ```
-REDIS_OPERATOR_VERSION=v1.2.4
-kubectl create -f https://raw.githubusercontent.com/spotahome/redis-operator/${REDIS_OPERATOR_VERSION}/example/redisfailover/basic.yaml
+REDIS_OPERATOR_VERSION=v4.3.1
+kubectl create -f https://raw.githubusercontent.com/powerhome/redis-operator/${REDIS_OPERATOR_VERSION}/example/redisfailover/basic.yaml
 ```
 
 This redis-failover will be managed by the operator, resulting in the following elements created inside Kubernetes:
@@ -118,21 +123,21 @@ This redis-failover will be managed by the operator, resulting in the following 
 
 The operator has the ability of add persistence to Redis data. By default an `emptyDir` will be used, so the data is not saved.
 
-In order to have persistence, a `PersistentVolumeClaim` usage is allowed. The full [PVC definition has to be added](example/redisfailover/persistent-storage.yaml) to the Redis Failover Spec under the `Storage` section.
+In order to have persistence, a `PersistentVolumeClaim` usage is allowed. The full [PVC definition has to be added](/example/redisfailover/persistent-storage.yaml) to the Redis Failover Spec under the `Storage` section.
 
-**IMPORTANT**: By default, the persistent volume claims will be deleted when the Redis Failover is. If this is not the expected usage, a `keepAfterDeletion` flag can be added under the `storage` section of Redis. [An example is given](example/redisfailover/persistent-storage-no-pvc-deletion.yaml).
+**IMPORTANT**: By default, the persistent volume claims will be deleted when the Redis Failover is. If this is not the expected usage, a `keepAfterDeletion` flag can be added under the `storage` section of Redis. [An example is given](/example/redisfailover/persistent-storage-no-pvc-deletion.yaml).
 
 ### NodeAffinity and Tolerations
 
-You can use NodeAffinity and Tolerations to deploy Pods to isolated groups of Nodes. Examples are given for [node affinity](example/redisfailover/node-affinity.yaml), [pod anti affinity](example/redisfailover/pod-anti-affinity.yaml) and [tolerations](example/redisfailover/tolerations.yaml).
+You can use NodeAffinity and Tolerations to deploy Pods to isolated groups of Nodes. Examples are given for [node affinity](/example/redisfailover/node-affinity.yaml), [pod anti affinity](/example/redisfailover/pod-anti-affinity.yaml) and [tolerations](/example/redisfailover/tolerations.yaml).
 
 ## Topology Spread Contraints
 
-You can use the `topologySpreadContraints` to ensure the pods of a type(redis or sentinel) are evenly distributed across zones/nodes. Examples are for using [topology spread constraints](example/redisfailover/topology-spread-contraints.yaml). Further document on how `topologySpreadConstraints` work could be found [here](https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/).
+You can use the `topologySpreadContraints` to ensure the pods of a type(redis or sentinel) are evenly distributed across zones/nodes. Examples are for using [topology spread constraints](/example/redisfailover/topology-spread-contraints.yaml). Further document on how `topologySpreadConstraints` work could be found [here](https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/).
 
 ### Custom configurations
 
-It is possible to configure both Redis and Sentinel. This is done with the `customConfig` option inside their spec. It is a list of configurations and their values. Example are given in the [custom config example file](example/redisfailover/custom-config.yaml).
+It is possible to configure both Redis and Sentinel. This is done with the `customConfig` option inside their spec. It is a list of configurations and their values. Example are given in the [custom config example file](/example/redisfailover/custom-config.yaml).
 
 In order to have the ability of this configurations to be changed "on the fly", without the need of reload the redis/sentinel processes, the operator will apply them with calls to the redises/sentinels, using `config set` or `sentinel set mymaster` respectively. Because of this, **no changes on the configmaps** will appear regarding this custom configurations and the entries of `customConfig` from Redis spec will not be written on `redis.conf` file. To verify the actual Redis configuration use [`redis-cli CONFIG GET *`](https://redis.io/commands/config-get).
 
@@ -147,7 +152,7 @@ In order to have the ability of this configurations to be changed "on the fly", 
 
 By default, a custom shutdown file is given. This file makes redis to `SAVE` it's data, and in the case that redis is master, it'll call sentinel to ask for a failover.
 
-This behavior is configurable, creating a configmap and indicating to use it. An example about how to use this option can be found on the [shutdown example file](example/redisfailover/custom-shutdown.yaml).
+This behavior is configurable, creating a configmap and indicating to use it. An example about how to use this option can be found on the [shutdown example file](/example/redisfailover/custom-shutdown.yaml).
 
 **Important**: the configmap has to be in the same namespace. The configmap has to have a `shutdown.sh` data, containing the script.
 
@@ -155,13 +160,13 @@ This behavior is configurable, creating a configmap and indicating to use it. An
 
 By default Kubernetes will run containers as the user specified in the Dockerfile (or the root user if not specified), this is not always desirable.
 If you need the containers to run as a specific user (or provide any other PodSecurityContext options) then you can specify a custom `securityContext` in the
-`redisfailover` object. See the [SecurityContext example file](example/redisfailover/security-context.yaml) for an example. You can visit kubernetes documentation for detailed docs about [security context](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/)
+`redisfailover` object. See the [SecurityContext example file](/example/redisfailover/security-context.yaml) for an example. You can visit kubernetes documentation for detailed docs about [security context](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/)
 
 ### Custom containerSecurityContext at container level
 
 By default Kubernetes will run containers with default docker capabilities for exemple, this is not always desirable.
 If you need the containers to run with specific capabilities or with read only root file system (or provide any other securityContext options) then you can specify a custom `containerSecurityContext` in the
-`redisfailover` object. See the [ContainerSecurityContext example file](example/redisfailover/container-security-context.yaml) for an example. Keys available under containerSecurityContext are detailed [here](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.20/#securitycontext-v1-core)
+`redisfailover` object. See the [ContainerSecurityContext example file](/example/redisfailover/container-security-context.yaml) for an example. Keys available under containerSecurityContext are detailed [here](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.20/#securitycontext-v1-core)
 
 ### Custom command
 
@@ -170,7 +175,7 @@ By default, redis and sentinel will be called with the basic command, giving the
 - Redis: `redis-server /redis/redis.conf`
 - Sentinel: `redis-server /redis/sentinel.conf --sentinel`
 
-If necessary, this command can be changed with the `command` option inside redis/sentinel spec. An example can be found in the [custom command example file](example/redisfailover/custom-command.yaml).
+If necessary, this command can be changed with the `command` option inside redis/sentinel spec. An example can be found in the [custom command example file](/example/redisfailover/custom-command.yaml).
 
 ### Custom Priority Class
 In order to use a custom Kubernetes [Priority Class](https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/#priorityclass) for Redis and/or Sentinel pods, you can set the `priorityClassName` in the redis/sentinel spec, this attribute has no default and depends on the specific cluster configuration. **Note:** the operator doesn't create the referenced `Priority Class` resource.
@@ -181,11 +186,11 @@ In order to use a custom Kubernetes [Service Account](https://kubernetes.io/docs
 ### Custom Pod Annotations
 By default, no pod annotations will be applied to Redis nor Sentinel pods.
 
-In order to apply custom pod Annotations, you can provide the `podAnnotations` option inside redis/sentinel spec. An example can be found in the [custom annotations example file](example/redisfailover/custom-annotations.yaml).
+In order to apply custom pod Annotations, you can provide the `podAnnotations` option inside redis/sentinel spec. An example can be found in the [custom annotations example file](/example/redisfailover/custom-annotations.yaml).
 ### Custom Service Annotations
 By default, no service annotations will be applied to the Redis nor Sentinel services.
 
-In order to apply custom service Annotations, you can provide the `serviceAnnotations` option inside redis/sentinel spec. An example can be found in the [custom annotations example file](example/redisfailover/custom-annotations.yaml).
+In order to apply custom service Annotations, you can provide the `serviceAnnotations` option inside redis/sentinel spec. An example can be found in the [custom annotations example file](/example/redisfailover/custom-annotations.yaml).
 
 ### Allow Operator to Be Namespace-Scoped
 By default operator is cluster wide.
@@ -209,7 +214,7 @@ to resource is creates you can modify the labelWhitelist option in the spec.
 
 By default specifying no whitelist or an empty whitelist will cause all labels to still be copied as not to break backwards compatibility.
 
-Items in the array should be regular expressions, see [here](example/redisfailover/control-label-propagation.yaml) as an example of how they can be used and
+Items in the array should be regular expressions, see [here](/example/redisfailover/control-label-propagation.yaml) as an example of how they can be used and
 [here](https://github.com/google/re2/wiki/Syntax) for a syntax reference.
 
 The whitelist can also be used as a form of blacklist by specifying a regular expression that will not match any label.
@@ -315,10 +320,10 @@ If you are wanting to migrate off of a pre-existing Redis instance, you can prov
 This `bootstrapNode` can be configured as follows:
 |       Key      | Type         | Description                                                                                                                                                                               | Example File                                                                                 |
 |:--------------:|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| host           | **required** | The IP of the target Redis address or the ClusterIP of a pre-existing Kubernetes Service targeting Redis pods                                                                             | [bootstrapping.yaml](example/redisfailover/bootstrapping.yaml)                               |
-| port           | _optional_   | The Port that the target Redis address is listening to. Defaults to `6379`.                                                                                                               | [bootstrapping-with-port.yaml](example/redisfailover/bootstrapping-with-port.yaml)           |
-| allowSentinels | _optional_   | Allow the Operator to also create the specified Sentinel resources and point them to the target Node/Port. By default, the Sentinel resources will **not** be created when bootstrapping. | [bootstrapping-with-sentinels.yaml](example/redisfailover/bootstrapping-with-sentinels.yaml) |
-| enabled        | _optional_  | Allow the Operator to toggle the bootstrapping status of a RedisFailover. By default, Bootstrap mode is enabled, prompting Redis nodes to attempt a connection with the source host. When set to `false`, the Operator disables bootstrapping mode on the Redisfailover. | [bootstrapping-disabled.yaml](example/redisfailover/bootstrapping-disabled.yaml) |
+| host           | **required** | The IP of the target Redis address or the ClusterIP of a pre-existing Kubernetes Service targeting Redis pods                                                                             | [bootstrapping.yaml](/example/redisfailover/bootstrapping.yaml)                               |
+| port           | _optional_   | The Port that the target Redis address is listening to. Defaults to `6379`.                                                                                                               | [bootstrapping-with-port.yaml](/example/redisfailover/bootstrapping-with-port.yaml)           |
+| allowSentinels | _optional_   | Allow the Operator to also create the specified Sentinel resources and point them to the target Node/Port. By default, the Sentinel resources will **not** be created when bootstrapping. | [bootstrapping-with-sentinels.yaml](/example/redisfailover/bootstrapping-with-sentinels.yaml) |
+| enabled        | _optional_  | Allow the Operator to toggle the bootstrapping status of a RedisFailover. By default, Bootstrap mode is enabled, prompting Redis nodes to attempt a connection with the source host. When set to `false`, the Operator disables bootstrapping mode on the Redisfailover. | [bootstrapping-disabled.yaml](/example/redisfailover/bootstrapping-disabled.yaml) |
 
 #### What is Bootstrapping?
 When a `bootstrapNode` is provided, the Operator will always set all of the defined Redis instances to replicate from the provided `bootstrapNode` host value.
@@ -338,7 +343,7 @@ When `allowSentinels` is provided, the Operator will also create the defined Sen
 
 ### Default versions
 
-The image versions deployed by the operator can be found on the [defaults file](api/redisfailover/v1/defaults.go).
+The image versions deployed by the operator can be found on the [defaults file](/api/redisfailover/v1/defaults.go).
 ## Cleanup
 
 ### Operator and CRD
@@ -363,9 +368,10 @@ kubectl delete redisfailover <NAME>
 
 ### Redis Operator
 
-[![Redis Operator Image](https://quay.io/repository/spotahome/redis-operator/status "Redis Operator Image")](https://quay.io/repository/spotahome/redis-operator)
+[![Redis Operator Image](https://img.shields.io/docker/v/powerhome/redis-operator?sort=semver)](https://hub.docker.com/r/powerhome/redis-operator)
+
 ## Documentation
 
 For the code documentation, you can lookup on the [GoDoc](https://godoc.org/github.com/spotahome/redis-operator).
 
-Also, you can check more deeply information on the [docs folder](docs).
+Also, you can check more deeply information on the [docs folder](/docs).
