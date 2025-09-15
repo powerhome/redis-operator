@@ -57,6 +57,7 @@ rules:
     resources:
       - redisfailovers
       - redisfailovers/finalizers
+      - redisfailovers/status
     verbs:
       - "*"
   - apiGroups:
@@ -97,12 +98,19 @@ rules:
     verbs:
       - "*"
   - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - get
+      - list
+  - apiGroups:
       - coordination.k8s.io
     resources:
       - leases
     verbs:
       - "*"
-      
+
 ---
 apiVersion: v1
 kind: ServiceAccount

@@ -8,6 +8,7 @@ rules:
     resources:
       - redisfailovers
       - redisfailovers/finalizers
+      - redisfailovers/status
     verbs:
       - "*"
   - apiGroups:
@@ -24,7 +25,7 @@ rules:
     - create
     - get
     - list
-    - update      
+    - update
   - apiGroups:
       - ""
     resources:
@@ -51,3 +52,10 @@ rules:
       - poddisruptionbudgets
     verbs:
       - "*"
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - get
+      - list
