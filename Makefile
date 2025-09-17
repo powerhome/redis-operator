@@ -131,6 +131,7 @@ generate-crd:
 	-e CRD_OUT_PATH=/go/src/$(PROJECT_PACKAGE)/manifests \
 	$(CODEGEN_IMAGE) update-crd.sh
 	cp -f manifests/databases.spotahome.com_redisfailovers.yaml manifests/kustomize/base
+	cp -f manifests/databases.spotahome.com_redisfailovers.yaml charts/redisoperator/crds/databases.spotahome.com_redisfailovers.yaml
 
 .PHONY: generate-go
 generate-go: image-dev-tools
