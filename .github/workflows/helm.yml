@@ -2,30 +2,38 @@ name: Release Charts
 
 on:
   push:
+    tags:
+      - "chart-v*"
+  pull_request:
     branches:
-      - master
+      - 'master'
 
 jobs:
   release:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Configure Git
         run: |
           git config user.name "$GITHUB_ACTOR"
           git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
-
-      - name: Install Helm
-        uses: azure/setup-helm@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
         with:
-          version: v3.7.2
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Release
-        uses: helm/chart-releaser-action@v1.5.0
+      - name: Relese charts
+        uses: bitdeps/helm-oci-charts-releaser@v0.1.4
         with:
-          charts_dir: charts
-          config: charts/chart-release-config.yaml
-        env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+            github_token: ${{ secrets.GITHUB_TOKEN }}
+            oci_password: ${{ secrets.GITHUB_TOKEN }}
+            oci_registry: ghcr.io/powerhome
+            oci_username: powerhome
+            tag_name_pattern: "{chartName}-helm-chart"
+            skip_gh_release: true
