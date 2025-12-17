@@ -227,11 +227,11 @@ frontend prometheus
 
 	if !bootstrapping {
 		haproxyCfgBuilder.WriteString(fmt.Sprintf(`
-frontend redis-master
+frontend redis-master-frontend
   bind *:%d
-  default_backend redis-master
+  default_backend redis-master-backend
 
-backend redis-master
+backend redis-master-backend
   mode tcp
   balance first
   option tcp-check

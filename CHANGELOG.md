@@ -9,8 +9,11 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
-- [Drop support for kube versions 1.22 and older](https://github.com/powerhome/redis-operator/pull/74)
+### Changed
+
+- [Haproxy: Fix config deprecation warning to support v3.3+]()
 - [Add kube 1.32.2 and 1.33.0 to testing matrix](https://github.com/powerhome/redis-operator/pull/75)
+- [Drop support for kube versions 1.22 and older](https://github.com/powerhome/redis-operator/pull/74)
 
 ## [v4.3.1] - 2025-07-16
 
