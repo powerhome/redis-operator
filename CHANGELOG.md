@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.3.2] - 2025-12-19
+
 ### Changed
 
 - [Haproxy: Fix config deprecation warning to support v3.3+](https://github.com/powerhome/redis-operator/pull/82)
