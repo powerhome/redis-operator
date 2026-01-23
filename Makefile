@@ -154,7 +154,6 @@ generate-mocks: image-dev-tools
 .PHONY: lint
 lint:
 	docker run --rm -it \
-	  --platform=linux/amd64 \
 	  -v $(PWD):$(WORKDIR) \
 	  -w $(WORKDIR) \
 	  $(GOLANGCI_LINT_IMAGE) \
