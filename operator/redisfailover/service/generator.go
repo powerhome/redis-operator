@@ -392,15 +392,15 @@ func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map
 				),
 			},
 			Ingress: []np.NetworkPolicyIngressRule{
-				np.NetworkPolicyIngressRule{
+				{
 					From:  peers,
 					Ports: ports,
 				},
 			},
 			Egress: []np.NetworkPolicyEgressRule{
-				np.NetworkPolicyEgressRule{
+				{
 					To: []np.NetworkPolicyPeer{
-						np.NetworkPolicyPeer{
+						{
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: redisfailoverLabels,
 							},

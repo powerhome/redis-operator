@@ -263,7 +263,7 @@ func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 								AccessModes: []corev1.PersistentVolumeAccessMode{
 									"ReadWriteOnce",
 								},
-								Resources: corev1.ResourceRequirements{
+								Resources: corev1.VolumeResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceStorage: resource.MustParse("1Gi"),
 									},
@@ -282,7 +282,7 @@ func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 						AccessModes: []corev1.PersistentVolumeAccessMode{
 							"ReadWriteOnce",
 						},
-						Resources: corev1.ResourceRequirements{
+						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse("1Gi"),
 							},
@@ -378,7 +378,7 @@ func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 								AccessModes: []corev1.PersistentVolumeAccessMode{
 									"ReadWriteOnce",
 								},
-								Resources: corev1.ResourceRequirements{
+								Resources: corev1.VolumeResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceStorage: resource.MustParse("1Gi"),
 									},
@@ -397,7 +397,7 @@ func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 						AccessModes: []corev1.PersistentVolumeAccessMode{
 							"ReadWriteOnce",
 						},
-						Resources: corev1.ResourceRequirements{
+						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse("1Gi"),
 							},
@@ -488,7 +488,7 @@ func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 								AccessModes: []corev1.PersistentVolumeAccessMode{
 									"ReadWriteOnce",
 								},
-								Resources: corev1.ResourceRequirements{
+								Resources: corev1.VolumeResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceStorage: resource.MustParse("1Gi"),
 									},
@@ -508,7 +508,7 @@ func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 						AccessModes: []corev1.PersistentVolumeAccessMode{
 							"ReadWriteOnce",
 						},
-						Resources: corev1.ResourceRequirements{
+						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse("1Gi"),
 							},
@@ -1594,7 +1594,7 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 		{
 			name: "with defaults",
 			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
-				redisfailoverv1.NetworkPolicyNamespaceEntry{
+				{
 					MatchLabelKey:   "app.kubernetes.io/instance",
 					MatchLabelValue: namespace,
 				},
@@ -1623,9 +1623,9 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 						},
 					},
 					Ingress: []networkingv1.NetworkPolicyIngressRule{
-						networkingv1.NetworkPolicyIngressRule{
+						{
 							From: []networkingv1.NetworkPolicyPeer{
-								networkingv1.NetworkPolicyPeer{
+								{
 									NamespaceSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"app.kubernetes.io/instance": namespace,
@@ -1634,7 +1634,7 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 								},
 							},
 							Ports: []networkingv1.NetworkPolicyPort{
-								networkingv1.NetworkPolicyPort{
+								{
 									Port: &intstr.IntOrString{
 										IntVal: 26379,
 										Type:   intstr.Int,
@@ -1644,9 +1644,9 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 						},
 					},
 					Egress: []networkingv1.NetworkPolicyEgressRule{
-						networkingv1.NetworkPolicyEgressRule{
+						{
 							To: []networkingv1.NetworkPolicyPeer{
-								networkingv1.NetworkPolicyPeer{
+								{
 									PodSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"redisfailovers.databases.spotahome.com/name": name,
@@ -1663,7 +1663,7 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 			name:           "with custom sentinel Port",
 			rfSentinelPort: 17781,
 			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
-				redisfailoverv1.NetworkPolicyNamespaceEntry{
+				{
 					MatchLabelKey:   "app.kubernetes.io/instance",
 					MatchLabelValue: namespace,
 				},
@@ -1692,9 +1692,9 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 						},
 					},
 					Ingress: []networkingv1.NetworkPolicyIngressRule{
-						networkingv1.NetworkPolicyIngressRule{
+						{
 							From: []networkingv1.NetworkPolicyPeer{
-								networkingv1.NetworkPolicyPeer{
+								{
 									NamespaceSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"app.kubernetes.io/instance": namespace,
@@ -1703,7 +1703,7 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 								},
 							},
 							Ports: []networkingv1.NetworkPolicyPort{
-								networkingv1.NetworkPolicyPort{
+								{
 									Port: &intstr.IntOrString{
 										IntVal: 17781,
 										Type:   intstr.Int,
@@ -1713,9 +1713,9 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 						},
 					},
 					Egress: []networkingv1.NetworkPolicyEgressRule{
-						networkingv1.NetworkPolicyEgressRule{
+						{
 							To: []networkingv1.NetworkPolicyPeer{
-								networkingv1.NetworkPolicyPeer{
+								{
 									PodSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"redisfailovers.databases.spotahome.com/name": name,
@@ -1731,11 +1731,11 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 		{
 			name: "with custom NetorkPolicyNamespaceEntries",
 			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
-				redisfailoverv1.NetworkPolicyNamespaceEntry{
+				{
 					MatchLabelKey:   "app.kubernetes.io/instance",
 					MatchLabelValue: namespace,
 				},
-				redisfailoverv1.NetworkPolicyNamespaceEntry{
+				{
 					MatchLabelKey:   "app.kubernetes.io/instance",
 					MatchLabelValue: "extra-namespace",
 				},
@@ -1764,16 +1764,16 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 						},
 					},
 					Ingress: []networkingv1.NetworkPolicyIngressRule{
-						networkingv1.NetworkPolicyIngressRule{
+						{
 							From: []networkingv1.NetworkPolicyPeer{
-								networkingv1.NetworkPolicyPeer{
+								{
 									NamespaceSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"app.kubernetes.io/instance": namespace,
 										},
 									},
 								},
-								networkingv1.NetworkPolicyPeer{
+								{
 									NamespaceSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"app.kubernetes.io/instance": "extra-namespace",
@@ -1782,7 +1782,7 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 								},
 							},
 							Ports: []networkingv1.NetworkPolicyPort{
-								networkingv1.NetworkPolicyPort{
+								{
 									Port: &intstr.IntOrString{
 										IntVal: 26379,
 										Type:   intstr.Int,
@@ -1792,9 +1792,9 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 						},
 					},
 					Egress: []networkingv1.NetworkPolicyEgressRule{
-						networkingv1.NetworkPolicyEgressRule{
+						{
 							To: []networkingv1.NetworkPolicyPeer{
-								networkingv1.NetworkPolicyPeer{
+								{
 									PodSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"redisfailovers.databases.spotahome.com/name": name,

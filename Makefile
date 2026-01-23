@@ -22,7 +22,7 @@ ifneq ($(shell git status --porcelain),)
 endif
 
 PROJECT_PACKAGE := github.com/spotahome/redis-operator
-CODEGEN_IMAGE := ghcr.io/slok/kube-code-generator:v1.27.0
+CODEGEN_IMAGE := ghcr.io/slok/kube-code-generator:v0.6.0
 PORT := 9710
 
 # workdir
@@ -113,23 +113,21 @@ test-helm-ci:
 generate-client:
 	@echo ">> Generating code for Kubernetes CRD types..."
 	docker run --rm -it \
-	-v $(PWD):/go/src/$(PROJECT_PACKAGE) \
-	-e PROJECT_PACKAGE=$(PROJECT_PACKAGE) \
-	-e CLIENT_GENERATOR_OUT=$(PROJECT_PACKAGE)/client/k8s \
-	-e APIS_ROOT=$(PROJECT_PACKAGE)/api \
-	-e GROUPS_VERSION="redisfailover:v1" \
-	-e GENERATION_TARGETS="deepcopy,client" \
-	$(CODEGEN_IMAGE)
+		-v $(PWD):$(WORKDIR) \
+		-w $(PWD):$(WORKDIR) \
+		$(CODEGEN_IMAGE) \
+		--apis-in $(WORKDIR)/api \
+		--go-gen-out $(WORKDIR)/client/k8s
 
 # Generate kubernetes Custom Resource Definitions
 .PHONY: generate-crd
 generate-crd:
-	docker run -it --rm \
-	-v $(PWD):/go/src/$(PROJECT_PACKAGE) \
-	-e GO_PROJECT_ROOT=/go/src/$(PROJECT_PACKAGE) \
-	-e CRD_TYPES_PATH=/go/src/$(PROJECT_PACKAGE)/api \
-	-e CRD_OUT_PATH=/go/src/$(PROJECT_PACKAGE)/manifests \
-	$(CODEGEN_IMAGE) update-crd.sh
+	docker run --rm -it \
+		-v $(PWD):$(WORKDIR) \
+		-w $(PWD):$(WORKDIR) \
+		$(CODEGEN_IMAGE) \
+		--apis-in $(WORKDIR)/api \
+		--crd-gen-out $(WORKDIR)/manifests
 	cp -f manifests/databases.spotahome.com_redisfailovers.yaml manifests/kustomize/base
 
 .PHONY: generate-go

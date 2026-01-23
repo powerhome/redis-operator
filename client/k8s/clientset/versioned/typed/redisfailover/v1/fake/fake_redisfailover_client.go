@@ -13,7 +13,7 @@ type FakeDatabasesV1 struct {
 }
 
 func (c *FakeDatabasesV1) RedisFailovers(namespace string) v1.RedisFailoverInterface {
-	return &FakeRedisFailovers{c, namespace}
+	return newFakeRedisFailovers(c, namespace)
 }
 
 // RESTClient returns a RESTClient that is used to communicate
