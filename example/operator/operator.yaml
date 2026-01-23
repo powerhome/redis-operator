@@ -25,7 +25,7 @@ spec:
     spec:
       serviceAccountName: redisoperator
       containers:
-        - image: powerhome/redis-operator:2a0c39827b65ee6efa35da98c6b668af503f05b3-dirty
+        - image: powerhome/redis-operator:latest
           imagePullPolicy: IfNotPresent
           name: app
           env:
