@@ -25,6 +25,9 @@ PROJECT_PACKAGE := github.com/spotahome/redis-operator
 CODEGEN_IMAGE := ghcr.io/slok/kube-code-generator:v0.6.0
 PORT := 9710
 
+GOLANGCI_LINT_VERSION := v1.64.2
+GOLANGCI_LINT_IMAGE := golangci/golangci-lint:$(GOLANGCI_LINT_VERSION)
+
 # workdir
 WORKDIR := /go/src/github.com/spotahome/redis-operator
 
@@ -114,20 +117,20 @@ generate-client:
 	@echo ">> Generating code for Kubernetes CRD types..."
 	docker run --rm -it \
 		-v $(PWD):$(WORKDIR) \
-		-w $(PWD):$(WORKDIR) \
+		-w $(WORKDIR) \
 		$(CODEGEN_IMAGE) \
-		--apis-in $(WORKDIR)/api \
-		--go-gen-out $(WORKDIR)/client/k8s
+		--apis-in ./api \
+		--go-gen-out ./client/k8s
 
 # Generate kubernetes Custom Resource Definitions
 .PHONY: generate-crd
 generate-crd:
 	docker run --rm -it \
 		-v $(PWD):$(WORKDIR) \
-		-w $(PWD):$(WORKDIR) \
+		-w $(WORKDIR) \
 		$(CODEGEN_IMAGE) \
-		--apis-in $(WORKDIR)/api \
-		--crd-gen-out $(WORKDIR)/manifests
+		--apis-in ./api \
+		--crd-gen-out ./manifests
 	cp -f manifests/databases.spotahome.com_redisfailovers.yaml manifests/kustomize/base
 
 .PHONY: generate-go
@@ -146,6 +149,16 @@ generate-mocks: image-dev-tools
 	  -u $(UID):$(UID) \
 	  --name $(SERVICE_NAME) \
 	  $(REPOSITORY)-dev /bin/sh -c '$(MOCKS_CMD)'
+
+# Run lint
+.PHONY: lint
+lint:
+	docker run --rm -it \
+	  --platform=linux/amd64 \
+	  -v $(PWD):$(WORKDIR) \
+	  -w $(WORKDIR) \
+	  $(GOLANGCI_LINT_IMAGE) \
+	  golangci-lint run --fix --timeout=15m
 
 # Run all code generators
 .PHONY: generate
