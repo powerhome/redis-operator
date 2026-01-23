@@ -4,9 +4,9 @@ metadata:
   name: redisfailover-persistent
 spec:
   sentinel:
-    replicas: 1
+    replicas: 3
   redis:
-    replicas: 2
+    replicas: 3
     storage:
       persistentVolumeClaim:
         metadata:
@@ -17,4 +17,3 @@ spec:
           resources:
             requests:
               storage: 1Gi
-          storageClassName: csi-hostpath-sc
