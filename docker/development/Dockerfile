@@ -1,7 +1,5 @@
 FROM golang:1.24-alpine
 
-RUN go version
-
 ARG TARGETOS
 ARG TARGETARCH
 
