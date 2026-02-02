@@ -149,7 +149,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 					VolumeClaimTemplates: []v1.PersistentVolumeClaim{
 						{
 							Spec: v1.PersistentVolumeClaimSpec{
-								Resources: v1.ResourceRequirements{
+								Resources: v1.VolumeResourceRequirements{
 									Requests: v1.ResourceList{
 										v1.ResourceStorage: resource.MustParse("0.5Gi"),
 									},
@@ -168,7 +168,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 					VolumeClaimTemplates: []v1.PersistentVolumeClaim{
 						{
 							Spec: v1.PersistentVolumeClaimSpec{
-								Resources: v1.ResourceRequirements{
+								Resources: v1.VolumeResourceRequirements{
 									Requests: v1.ResourceList{
 										v1.ResourceStorage: resource.MustParse("1Gi"),
 									},
@@ -190,7 +190,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 						},
 						Spec: v1.PersistentVolumeClaimSpec{
 							VolumeName: "vol-1",
-							Resources: v1.ResourceRequirements{
+							Resources: v1.VolumeResourceRequirements{
 								Requests: v1.ResourceList{
 									v1.ResourceStorage: resource.MustParse("0.5Gi"),
 								},
@@ -201,7 +201,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 					{
 						Spec: v1.PersistentVolumeClaimSpec{
 							VolumeName: "vol-2",
-							Resources: v1.ResourceRequirements{
+							Resources: v1.VolumeResourceRequirements{
 								Requests: v1.ResourceList{
 									v1.ResourceStorage: resource.MustParse("1Gi"),
 								},

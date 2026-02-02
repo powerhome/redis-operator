@@ -9,6 +9,10 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Changed
+
+- [Upgraded the project to Go 1.24, updated the redis-operator client to be compatible with Kubernetes 1.32, and applied minor maintenance fixes including linting and operator manifest adjustments](https://github.com/powerhome/redis-operator/pull/84)
+
 ## [v4.3.2] - 2025-12-19
 
 ### Changed

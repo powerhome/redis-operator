@@ -1,4 +1,4 @@
-FROM golang:1.20-alpine
+FROM golang:1.24-alpine
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -14,18 +14,9 @@ ENV HELM_VERSION="v3.12.0"
 RUN wget -c https://get.helm.sh/helm-${HELM_VERSION}-${TARGETOS}-${TARGETARCH}.tar.gz -O - | tar zxv -C /tmp && \
     mv /tmp/${TARGETOS}-${TARGETARCH}/helm /go/bin/helm
 
-# Code generator stuff
-# Check: https://github.com/kubernetes/kubernetes/pull/57656
-ENV CODEGEN_VERSION="1.11.9"
-RUN wget http://github.com/kubernetes/code-generator/archive/kubernetes-${CODEGEN_VERSION}.tar.gz && \
-    mkdir -p /go/src/k8s.io/code-generator/ && \
-    tar zxvf kubernetes-${CODEGEN_VERSION}.tar.gz --strip 1 -C /go/src/k8s.io/code-generator/ && \
-    mkdir -p /go/src/k8s.io/kubernetes/hack/boilerplate/ && \
-    touch /go/src/k8s.io/kubernetes/hack/boilerplate/boilerplate.go.txt
-
 # Mock creator
-ARG MOCKERY_VERSION="2.32.0"
-RUN wget -c https://github.com/vektra/mockery/releases/download/v${MOCKERY_VERSION}/mockery_${MOCKERY_VERSION}_$(uname -o)_${TARGETARCH}.tar.gz -O - | tar -xz -C /go/bin/
+ARG MOCKERY_VERSION="2.52.4"
+RUN GOBIN=/go/bin go install github.com/vektra/mockery/v2@v${MOCKERY_VERSION}
 
 # Create user
 ARG uid=1000
