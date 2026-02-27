@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	rediscli "github.com/go-redis/redis/v8"
 	"github.com/spotahome/redis-operator/log"
@@ -69,14 +70,29 @@ var (
 	redisConnectedSlavesRE = regexp.MustCompile(redisConnectedSlavesREString)
 )
 
+// redisOptions returns redis client options with retry and timeout defaults.
+func redisOptions(addr, password string) *rediscli.Options {
+	return &rediscli.Options{
+		Addr:            addr,
+		Password:        password,
+		DB:              0,
+		DialTimeout:     5 * time.Second,
+		ReadTimeout:     5 * time.Second,
+		WriteTimeout:    5 * time.Second,
+		MaxRetries:      3,
+		MinRetryBackoff: 200 * time.Millisecond,
+		MaxRetryBackoff: 2 * time.Second,
+	}
+}
+
+// sentinelOptions returns sentinel client options with retry and timeout defaults.
+func sentinelOptions(addr string) *rediscli.Options {
+	return redisOptions(addr, "")
+}
+
 // GetNumberSentinelsInMemory return the number of sentinels that the requested sentinel has
 func (c *client) GetNumberSentinelsInMemory(ip string, sentinelPort string) (int32, error) {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, sentinelPort),
-		Password: "",
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(sentinelOptions(net.JoinHostPort(ip, sentinelPort)))
 	defer rClient.Close()
 	info, err := rClient.Info(context.TODO(), "sentinel").Result()
 	if err != nil {
@@ -103,12 +119,7 @@ func (c *client) GetNumberSentinelsInMemory(ip string, sentinelPort string) (int
 
 // GetNumberSentinelsInMemory return the number of sentinels that the requested sentinel has
 func (c *client) GetNumberSentinelSlavesInMemory(ip string, sentinelPort string) (int32, error) {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, sentinelPort),
-		Password: "",
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(sentinelOptions(net.JoinHostPort(ip, sentinelPort)))
 	defer rClient.Close()
 	info, err := rClient.Info(context.TODO(), "sentinel").Result()
 	if err != nil {
@@ -135,12 +146,7 @@ func (c *client) GetNumberSentinelSlavesInMemory(ip string, sentinelPort string)
 
 // GetNumberRedisConnectedSlaves return the number of slaves that the requested redis has
 func (c *client) GetNumberRedisConnectedSlaves(ip string, sentinelPort string) (int32, error) {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, sentinelPort),
-		Password: "",
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(sentinelOptions(net.JoinHostPort(ip, sentinelPort)))
 	defer rClient.Close()
 	info, err := rClient.Info(context.TODO(), "replication").Result()
 	if err != nil {
@@ -172,12 +178,7 @@ func isSentinelReady(info string) error {
 
 // ResetSentinel sends a sentinel reset * for the given sentinel
 func (c *client) ResetSentinel(ip string, sentinelPort string) error {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, sentinelPort),
-		Password: "",
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(sentinelOptions(net.JoinHostPort(ip, sentinelPort)))
 	defer rClient.Close()
 	cmd := rediscli.NewIntCmd(context.TODO(), "SENTINEL", "reset", "*")
 	err := rClient.Process(context.TODO(), cmd)
@@ -196,13 +197,7 @@ func (c *client) ResetSentinel(ip string, sentinelPort string) error {
 
 // GetSlaveOf returns the master of the given redis, or nil if it's master
 func (c *client) GetSlaveOf(ip, port, password string) (string, error) {
-
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, port),
-		Password: password,
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(redisOptions(net.JoinHostPort(ip, port), password))
 	defer rClient.Close()
 	info, err := rClient.Info(context.TODO(), "replication").Result()
 	if err != nil {
@@ -220,12 +215,7 @@ func (c *client) GetSlaveOf(ip, port, password string) (string, error) {
 }
 
 func (c *client) IsMaster(ip, port, password string) (bool, error) {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, port),
-		Password: password,
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(redisOptions(net.JoinHostPort(ip, port), password))
 	defer rClient.Close()
 	info, err := rClient.Info(context.TODO(), "replication").Result()
 	if err != nil {
@@ -241,12 +231,7 @@ func (c *client) MonitorRedis(ip, monitor, quorum, password string, sentinelPort
 }
 
 func (c *client) MonitorRedisWithPort(ip, monitor, port, quorum, password string, sentinelPort string) error {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, sentinelPort),
-		Password: "",
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(sentinelOptions(net.JoinHostPort(ip, sentinelPort)))
 	defer rClient.Close()
 	cmd := rediscli.NewBoolCmd(context.TODO(), "SENTINEL", "REMOVE", masterName)
 	_ = rClient.Process(context.TODO(), cmd)
@@ -281,12 +266,7 @@ func (c *client) MonitorRedisWithPort(ip, monitor, port, quorum, password string
 }
 
 func (c *client) MakeMaster(ip string, port string, password string) error {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, port),
-		Password: password,
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(redisOptions(net.JoinHostPort(ip, port), password))
 	defer rClient.Close()
 	if res := rClient.SlaveOf(context.TODO(), "NO", "ONE"); res.Err() != nil {
 		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MAKE_MASTER, metrics.FAIL, getRedisError(res.Err()))
@@ -297,12 +277,7 @@ func (c *client) MakeMaster(ip string, port string, password string) error {
 }
 
 func (c client) ResetReplicaConnections(ip string, port string, password string) error {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, port),
-		Password: password,
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(redisOptions(net.JoinHostPort(ip, port), password))
 	defer rClient.Close()
 	if res := rClient.ClientKillByFilter(context.TODO(), "TYPE", "REPLICA"); res.Err() != nil {
 		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.RESET_REPLICA_CONNECTIONS, metrics.FAIL, getRedisError(res.Err()))
@@ -317,12 +292,7 @@ func (c *client) MakeSlaveOf(ip, masterIP, password string) error {
 }
 
 func (c *client) MakeSlaveOfWithPort(ip, port, masterIP, masterPort, password string) error {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, port), // this is IP and Port for the RedisFailover redis
-		Password: password,
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(redisOptions(net.JoinHostPort(ip, port), password))
 	defer rClient.Close()
 	if res := rClient.SlaveOf(context.TODO(), masterIP, masterPort); res.Err() != nil {
 		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MAKE_SLAVE_OF, metrics.FAIL, getRedisError(res.Err()))
@@ -333,12 +303,7 @@ func (c *client) MakeSlaveOfWithPort(ip, port, masterIP, masterPort, password st
 }
 
 func (c *client) GetSentinelMonitor(ip string, sentinelPort string) (string, string, error) {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, sentinelPort),
-		Password: "",
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(sentinelOptions(net.JoinHostPort(ip, sentinelPort)))
 	defer rClient.Close()
 	cmd := rediscli.NewSliceCmd(context.TODO(), "SENTINEL", "master", masterName)
 	err := rClient.Process(context.TODO(), cmd)
@@ -358,12 +323,7 @@ func (c *client) GetSentinelMonitor(ip string, sentinelPort string) (string, str
 }
 
 func (c *client) SetCustomSentinelConfig(ip string, sentinelPort string, configs []string) error {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, sentinelPort),
-		Password: "",
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(sentinelOptions(net.JoinHostPort(ip, sentinelPort)))
 	defer rClient.Close()
 
 	for _, config := range configs {
@@ -379,13 +339,7 @@ func (c *client) SetCustomSentinelConfig(ip string, sentinelPort string, configs
 }
 
 func (c *client) SentinelCheckQuorum(ip string, sentinelPort string) error {
-
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, sentinelPort),
-		Password: "",
-		DB:       0,
-	}
-	rClient := rediscli.NewSentinelClient(options)
+	rClient := rediscli.NewSentinelClient(sentinelOptions(net.JoinHostPort(ip, sentinelPort)))
 	defer rClient.Close()
 	cmd := rClient.CkQuorum(context.TODO(), masterName)
 	res, err := cmd.Result()
@@ -420,12 +374,7 @@ func (c *client) SentinelCheckQuorum(ip string, sentinelPort string) error {
 
 }
 func (c *client) SetCustomRedisConfig(ip string, port string, configs []string, password string) error {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, port),
-		Password: password,
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(redisOptions(net.JoinHostPort(ip, port), password))
 	defer rClient.Close()
 
 	for _, config := range configs {
@@ -478,12 +427,7 @@ func (c *client) getConfigParameters(config string) (parameter string, value str
 }
 
 func (c *client) SlaveIsReady(ip, port, password string) (bool, error) {
-	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, port),
-		Password: password,
-		DB:       0,
-	}
-	rClient := rediscli.NewClient(options)
+	rClient := rediscli.NewClient(redisOptions(net.JoinHostPort(ip, port), password))
 	defer rClient.Close()
 	info, err := rClient.Info(context.TODO(), "replication").Result()
 	if err != nil {
