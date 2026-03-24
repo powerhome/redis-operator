@@ -9,6 +9,9 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Fixed
+- [Fix unnecessary kube deployment and statefulset generation increment on operator tick](https://github.com/powerhome/redis-operator/pull/86)
+
 ## [v4.4.0] - 2025-12-19
 
 ### Changed
