@@ -1,7 +1,12 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -143,10 +148,57 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterDeployment(rf *redisfa
 	}
 	d.Spec.Template.Annotations[haproxyConfigChecksumAnnotationKey] = digest
 
+	// Compute a digest of the desired spec and store it on the
+	// deployment's metadata annotations. On each reconcile we
+	// re-generate the desired spec, re-hash it, and compare
+	// against the stored annotation — comparison is O(1). This
+	// also automatically catches any future additions to
+	// generateHAProxyRedisMasterDeployment without needing manual
+	// updates here.
+	specDigest, specErr := specDigest(d.Spec)
+	if specErr != nil {
+		return fmt.Errorf("EnsureHAProxyRedisMasterDeployment failed to compute spec digest: %w", specErr)
+	}
+	if existing, getErr := r.K8SService.GetDeployment(rf.Namespace, d.Name); getErr == nil {
+		if existing.Annotations[haproxyDeploymentSpecChecksumKey] == specDigest {
+			return nil
+		}
+	}
+	if d.Annotations == nil {
+		d.Annotations = make(map[string]string)
+	}
+	d.Annotations[haproxyDeploymentSpecChecksumKey] = specDigest
+
 	err = r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
 
 	r.setEnsureOperationMetrics(d.Namespace, d.Name, "EnsureHAProxyRedisMasterDeployment", rf.Name, err)
 	return err
+}
+
+// specDigest returns a stable SHA-256 hex digest of any resource Spec
+// value. encoding/json marshals struct fields in declaration order
+// and map keys in sorted order (since Go 1.12), so the output is
+// deterministic for a given input. managedSpec is a type constraint
+// that enumerates the Kubernetes resource spec structs whose digests
+// the operator tracks. Listing types expelicitly here means:
+//
+//   - the compiler rejects any accidental wrong-type call site - nil
+//   can never be passed (struct types are not nilable)
+//
+//   - adding a new Ensure* method for a new resource type requires
+//   updating this list, which serves as a forcing function to
+//   remember to add the skip-update guard too
+type managedSpec interface {
+	appsv1.DeploymentSpec | appsv1.StatefulSetSpec
+}
+
+func specDigest[T managedSpec](spec T) (string, error) {
+	data, err := json.Marshal(spec)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // EnsureSentinelService makes sure the sentinel service exists
@@ -173,8 +225,22 @@ func (r *RedisFailoverKubeClient) EnsureSentinelDeployment(rf *redisfailoverv1.R
 		}
 	}
 	d := generateSentinelDeployment(rf, labels, ownerRefs)
-	err := r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
 
+	digest, err := specDigest(d.Spec)
+	if err != nil {
+		return fmt.Errorf("EnsureSentinelDeployment failed to compute spec digest: %w", err)
+	}
+	if existing, getErr := r.K8SService.GetDeployment(rf.Namespace, d.Name); getErr == nil {
+		if existing.Annotations[sentinelDeploymentSpecChecksumKey] == digest {
+			return nil
+		}
+	}
+	if d.Annotations == nil {
+		d.Annotations = make(map[string]string)
+	}
+	d.Annotations[sentinelDeploymentSpecChecksumKey] = digest
+
+	err = r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
 	r.setEnsureOperationMetrics(d.Namespace, d.Name, "Deployment", rf.Name, err)
 	return err
 }
@@ -300,8 +366,22 @@ func (r *RedisFailoverKubeClient) EnsureRedisStatefulset(rf *redisfailoverv1.Red
 		}
 	}
 	ss := generateRedisStatefulSet(rf, labels, ownerRefs)
-	err := r.K8SService.CreateOrUpdateStatefulSet(rf.Namespace, ss)
 
+	digest, err := specDigest(ss.Spec)
+	if err != nil {
+		return fmt.Errorf("EnsureRedisStatefulset failed to compute spec digest: %w", err)
+	}
+	if existing, getErr := r.K8SService.GetStatefulSet(rf.Namespace, ss.Name); getErr == nil {
+		if existing.Annotations[redisStatefulSetSpecChecksumKey] == digest {
+			return nil
+		}
+	}
+	if ss.Annotations == nil {
+		ss.Annotations = make(map[string]string)
+	}
+	ss.Annotations[redisStatefulSetSpecChecksumKey] = digest
+
+	err = r.K8SService.CreateOrUpdateStatefulSet(rf.Namespace, ss)
 	r.setEnsureOperationMetrics(ss.Namespace, ss.Name, "StatefulSet", rf.Name, err)
 	return err
 }

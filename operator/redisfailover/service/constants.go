@@ -41,4 +41,7 @@ const (
 
 const (
 	haproxyConfigChecksumAnnotationKey = "checksum/haproxy-cfg"
+	haproxyDeploymentSpecChecksumKey   = "checksum/haproxy-deployment-spec"
+	sentinelDeploymentSpecChecksumKey  = "checksum/sentinel-deployment-spec"
+	redisStatefulSetSpecChecksumKey    = "checksum/redis-statefulset-spec"
 )
