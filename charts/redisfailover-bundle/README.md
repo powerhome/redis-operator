@@ -1,18 +1,18 @@
 # `redisfailover-bundle`
 
-Compatibility chart for rendering one or more `RedisFailover` resources from the
-values structure currently used by
+Compatibility chart for installing the Redis operator and rendering one or more
+`RedisFailover` resources from the values structure currently used by
 application deploys such as `example-rails-app`.
 
 This chart assumes the cluster prerequisites already exist:
 
-- the Redis operator is already deployed and ready
 - the `RedisFailover` CRD is already installed
 - the `redis-operator` service account already exists in the target namespace
 - the required RBAC for that service account is already installed
 
 ## What it installs
 
+- Redis operator deployment, metrics service, and operator `ServiceMonitor`
 - `RedisFailover` resources for each `redis.<instance>` entry
 - Redis and HAProxy `ServiceMonitor` resources per instance
 - A bootstrap `Service` per instance for cross-cluster replication
@@ -22,6 +22,8 @@ This chart assumes the cluster prerequisites already exist:
 The chart preserves the same top-level values contract used by existing app
 deployment charts:
 
+- `operators.redis`
+  Enables the operator install.
 - `applicationName`
   Used in labels and namespaced Redis instance identity.
 - `environment`
@@ -60,27 +62,15 @@ For backwards compatibility with older values, `keepAfterDeletion` is also read
 from `redis.<instance>.keepAfterDeletion` when it is not present under
 `storage.keepAfterDeletion`.
 
-## Deployment model
+## Operator-specific values
 
-This chart intentionally does not deploy the operator. If strict ordering matters,
-the recommended flow is:
+The operator deployment is configurable via:
 
-1. deploy the Redis operator chart
-2. wait for the operator to be ready
-3. deploy `redisfailover-bundle`
+- `operator.image.repository`
+- `operator.image.tag`
+- `operator.image.digest`
+- `operator.image.pullPolicy`
+- `operator.resources`
+- `operator.securityContext`
 
-For a single-command deploy with explicit release ordering, use the repository
-root [helmfile.yaml.gotmpl](/Users/artur.zheludkov/power/redis-operator-master/helmfile.yaml.gotmpl:1).
-It installs:
-
-1. `redis-operator`
-2. `redisfailover-bundle` with `needs: redis-operator`
-
-Example:
-
-```bash
-NAMESPACE=redis \
-REDIS_OPERATOR_VALUES=./charts/redisoperator/values.yaml \
-REDISFAILOVER_BUNDLE_VALUES=./charts/redisfailover-bundle/values.yaml \
-helmfile sync
-```
+If `operator.image.tag` is empty, the chart defaults it to `.Chart.AppVersion`.

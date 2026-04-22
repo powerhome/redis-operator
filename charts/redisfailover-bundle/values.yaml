@@ -1,12 +1,16 @@
 # Compatibility chart for example-rails-app-style Redis deployments.
 #
 # This chart installs:
+# - the Redis operator deployment, metrics service, and operator ServiceMonitor
 # - one RedisFailover resource per redis.<instance> entry
 # - per-instance Redis and HAProxy ServiceMonitors
 # - a bootstrap Service used for cross-cluster replication
 #
-# This chart assumes the Redis operator, RedisFailover CRD, service account, and
-# RBAC are already present in the target cluster/namespace.
+# This chart assumes the RedisFailover CRD, service account, and RBAC are already
+# present in the target cluster/namespace.
+
+operators:
+  redis: true
 
 applicationName: example-rails-app
 environment: review
@@ -17,6 +21,23 @@ cluster:
 
 serviceMonitor:
   prometheus: kube-prometheus
+
+operator:
+  image:
+    repository: powerhome/redis-operator
+    tag: ""
+    digest: sha256:3d530d1cf5fdd4eb8741c980a5c4587de42bd9f70812cf1732710ee3c2bf412d
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      memory: 50Mi
+    requests:
+      cpu: 10m
+      memory: 50Mi
+  securityContext:
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
 
 redis:
   defaultInstance: cache
