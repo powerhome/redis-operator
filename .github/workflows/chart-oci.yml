@@ -29,7 +29,7 @@ jobs:
         id: target
         run: |
           owner="$(echo "${{ secrets.DOCKERHUB_USERNAME }}" | tr '[:upper:]' '[:lower:]')"
-          echo "repo=registry-1.docker.io/${owner}/charts" >> "${GITHUB_OUTPUT}"
+          echo "repo=registry-1.docker.io/${owner}" >> "${GITHUB_OUTPUT}"
 
       - name: Resolve chart versions
         id: versions
