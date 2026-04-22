@@ -1,0 +1,47 @@
+name: Publish Charts OCI
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+
+      - name: Helm test
+        run: make test-helm-ci
+
+      - name: Resolve OCI target
+        id: target
+        run: |
+          owner="$(echo "${{ secrets.DOCKERHUB_USERNAME }}" | tr '[:upper:]' '[:lower:]')"
+          echo "repo=registry-1.docker.io/${owner}/charts" >> "${GITHUB_OUTPUT}"
+
+      - name: Login to DockerHub OCI
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | helm registry login registry-1.docker.io \
+            --username "${{ secrets.DOCKERHUB_USERNAME }}" \
+            --password-stdin
+
+      - name: Package charts
+        run: ./scripts/package-charts.sh .chart-packages
+
+      - name: Push charts
+        run: |
+          for package in .chart-packages/*.tgz; do
+            helm push "${package}" "oci://${{ steps.target.outputs.repo }}"
+          done
