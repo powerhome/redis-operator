@@ -31,6 +31,37 @@ jobs:
           owner="$(echo "${{ secrets.DOCKERHUB_USERNAME }}" | tr '[:upper:]' '[:lower:]')"
           echo "repo=registry-1.docker.io/${owner}/charts" >> "${GITHUB_OUTPUT}"
 
+      - name: Resolve chart versions
+        id: versions
+        run: |
+          sanitize_ref() {
+            printf '%s' "$1" \
+              | tr '[:upper:]' '[:lower:]' \
+              | sed -E 's/[^0-9a-z-]+/-/g; s/-+/-/g; s/^-+//; s/-+$//'
+          }
+
+          redisoperator_version="$(awk '/^version:/ {print $2; exit}' charts/redisoperator/Chart.yaml)"
+          redisoperator_app_version="$(awk -F'"' '/^appVersion:/ {print $2; exit}' charts/redisoperator/Chart.yaml)"
+          bundle_version="$(awk '/^version:/ {print $2; exit}' charts/redisfailover-bundle/Chart.yaml)"
+          bundle_app_version="$(awk -F'"' '/^appVersion:/ {print $2; exit}' charts/redisfailover-bundle/Chart.yaml)"
+
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            ref_name="$(sanitize_ref "${GITHUB_REF_NAME}")"
+            suffix="${ref_name}.${GITHUB_RUN_NUMBER}"
+            redisoperator_version="${redisoperator_version}-${suffix}"
+            bundle_version="${bundle_version}-${suffix}"
+          else
+            redisoperator_app_version="${GITHUB_REF_NAME}"
+            bundle_app_version="${GITHUB_REF_NAME}"
+          fi
+
+          {
+            echo "redisoperator_version=${redisoperator_version}"
+            echo "redisoperator_app_version=${redisoperator_app_version}"
+            echo "bundle_version=${bundle_version}"
+            echo "bundle_app_version=${bundle_app_version}"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Login to DockerHub OCI
         run: |
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | helm registry login registry-1.docker.io \
@@ -38,7 +69,16 @@ jobs:
             --password-stdin
 
       - name: Package charts
-        run: ./scripts/package-charts.sh .chart-packages
+        run: |
+          mkdir -p .chart-packages
+          helm package charts/redisoperator \
+            --version "${{ steps.versions.outputs.redisoperator_version }}" \
+            --app-version "${{ steps.versions.outputs.redisoperator_app_version }}" \
+            --destination .chart-packages
+          helm package charts/redisfailover-bundle \
+            --version "${{ steps.versions.outputs.bundle_version }}" \
+            --app-version "${{ steps.versions.outputs.bundle_app_version }}" \
+            --destination .chart-packages
 
       - name: Push charts
         run: |
