@@ -2,6 +2,7 @@ package redisfailover
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"regexp"
 	"time"
@@ -27,6 +28,9 @@ const (
 	resync       = 30 * time.Second
 	operatorName = "redis-operator"
 	lockKey      = "redis-failover-lease"
+	defaultLeaderElectionLeaseDuration = 60 * time.Second
+	defaultLeaderElectionRenewDeadline = 40 * time.Second
+	defaultLeaderElectionRetryPeriod   = 10 * time.Second
 )
 
 // New will create an operator that is responsible of managing all the required stuff
@@ -43,8 +47,12 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 	rfRetriever := NewRedisFailoverRetriever(cfg, k8sService, watchNamespace)
 
 	kooperLogger := kooperlogger{Logger: logger.WithField("operator", "redisfailover")}
+	lockCfg, err := leaderElectionLockConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	// Leader election service.
-	leSVC, err := leaderelection.NewDefault(lockKey, lockNamespace, k8sClient, kooperLogger)
+	leSVC, err := leaderelection.New(lockKey, lockNamespace, lockCfg, k8sClient, kooperLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +68,36 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 		ResyncInterval:    resync,
 		ConcurrentWorkers: cfg.Concurrency,
 	})
+}
+
+func leaderElectionLockConfig(cfg Config) (*leaderelection.LockConfig, error) {
+	leaseDuration := cfg.LeaderElectionLeaseDuration
+	if leaseDuration <= 0 {
+		leaseDuration = defaultLeaderElectionLeaseDuration
+	}
+
+	renewDeadline := cfg.LeaderElectionRenewDeadline
+	if renewDeadline <= 0 {
+		renewDeadline = defaultLeaderElectionRenewDeadline
+	}
+
+	retryPeriod := cfg.LeaderElectionRetryPeriod
+	if retryPeriod <= 0 {
+		retryPeriod = defaultLeaderElectionRetryPeriod
+	}
+
+	if leaseDuration <= renewDeadline {
+		return nil, fmt.Errorf("invalid leader election configuration: lease duration (%s) should be greater than renew deadline (%s)", leaseDuration, renewDeadline)
+	}
+	if renewDeadline <= retryPeriod {
+		return nil, fmt.Errorf("invalid leader election configuration: renew deadline (%s) should be greater than retry period (%s)", renewDeadline, retryPeriod)
+	}
+
+	return &leaderelection.LockConfig{
+		LeaseDuration: leaseDuration,
+		RenewDeadline: renewDeadline,
+		RetryPeriod:   retryPeriod,
+	}, nil
 }
 
 func NewRedisFailoverRetriever(cfg Config, cli k8s.Services, watchNamespace string) controller.Retriever {
