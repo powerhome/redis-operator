@@ -91,6 +91,23 @@ resources:
 
 Take a look at the manifests inside [manifests/kustomize](manifests/kustomize) for more details.
 
+### Leader election configuration
+
+The operator uses a Kubernetes Lease (`redis-failover-lease`) for leader
+election. The renewal cadence is tunable via command-line flags:
+
+| flag | default | description |
+|---|---|---|
+| `-leader-election-lease-duration-seconds` | 60 | How long a lease is valid before non-leaders may take over |
+| `-leader-election-renew-deadline-seconds` | 40 | How long the leader keeps retrying a failed renewal before giving up leadership |
+| `-leader-election-retry-period-seconds` | 10 | How often the leader renews the lease (each renewal is an API write) |
+
+The defaults renew the lease every 10 seconds. Values must satisfy
+`lease duration > renew deadline > retry period`; the operator refuses to start
+otherwise. Longer periods mean fewer Kubernetes API writes (less audit-log
+volume) at the cost of a slower takeover when the leader dies — with a single
+operator replica there is no takeover to wait for, so longer values are safe.
+
 ## Usage
 
 Once the operator is deployed inside a Kubernetes cluster, a new API will be accesible, so you'll be able to create, update and delete redisfailovers.

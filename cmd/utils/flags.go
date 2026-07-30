@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/spotahome/redis-operator/operator/redisfailover"
 	"k8s.io/client-go/util/homedir"
@@ -22,6 +23,9 @@ type CMDFlags struct {
 	K8sQueriesBurstable      int
 	Concurrency              int
 	LogLevel                 string
+	LeaderElectionLeaseDurationSeconds int
+	LeaderElectionRenewDeadlineSeconds int
+	LeaderElectionRetryPeriodSeconds   int
 }
 
 // Init initializes and parse the flags
@@ -38,6 +42,9 @@ func (c *CMDFlags) Init() {
 	// default is 3 for conccurency because kooper also defines 3 as default
 	// reference: https://github.com/spotahome/kooper/blob/master/controller/controller.go#L89
 	flag.IntVar(&c.Concurrency, "concurrency", 3, "Number of conccurent workers meant to process events")
+	flag.IntVar(&c.LeaderElectionLeaseDurationSeconds, "leader-election-lease-duration-seconds", 60, "Leader election lease duration in seconds")
+	flag.IntVar(&c.LeaderElectionRenewDeadlineSeconds, "leader-election-renew-deadline-seconds", 40, "Leader election renew deadline in seconds")
+	flag.IntVar(&c.LeaderElectionRetryPeriodSeconds, "leader-election-retry-period-seconds", 10, "Leader election retry period in seconds")
 	flag.StringVar(&c.LogLevel, "log-level", "info", "set log level")
 	// Parse flags
 	flag.Parse()
@@ -54,5 +61,8 @@ func (c *CMDFlags) ToRedisOperatorConfig() redisfailover.Config {
 		MetricsPath:              c.MetricsPath,
 		Concurrency:              c.Concurrency,
 		SupportedNamespacesRegex: c.SupportedNamespacesRegex,
+		LeaderElectionLeaseDuration: time.Duration(c.LeaderElectionLeaseDurationSeconds) * time.Second,
+		LeaderElectionRenewDeadline: time.Duration(c.LeaderElectionRenewDeadlineSeconds) * time.Second,
+		LeaderElectionRetryPeriod:   time.Duration(c.LeaderElectionRetryPeriodSeconds) * time.Second,
 	}
 }
