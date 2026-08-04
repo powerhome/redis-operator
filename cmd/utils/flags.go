@@ -42,9 +42,9 @@ func (c *CMDFlags) Init() {
 	// default is 3 for conccurency because kooper also defines 3 as default
 	// reference: https://github.com/spotahome/kooper/blob/master/controller/controller.go#L89
 	flag.IntVar(&c.Concurrency, "concurrency", 3, "Number of conccurent workers meant to process events")
-	flag.IntVar(&c.LeaderElectionLeaseDurationSeconds, "leader-election-lease-duration-seconds", 60, "Leader election lease duration in seconds")
-	flag.IntVar(&c.LeaderElectionRenewDeadlineSeconds, "leader-election-renew-deadline-seconds", 40, "Leader election renew deadline in seconds")
-	flag.IntVar(&c.LeaderElectionRetryPeriodSeconds, "leader-election-retry-period-seconds", 10, "Leader election retry period in seconds")
+	flag.IntVar(&c.LeaderElectionLeaseDurationSeconds, "leader-election-lease-duration-seconds", int(redisfailover.DefaultLeaderElectionLeaseDuration/time.Second), "Leader election lease duration in seconds")
+	flag.IntVar(&c.LeaderElectionRenewDeadlineSeconds, "leader-election-renew-deadline-seconds", int(redisfailover.DefaultLeaderElectionRenewDeadline/time.Second), "Leader election renew deadline in seconds")
+	flag.IntVar(&c.LeaderElectionRetryPeriodSeconds, "leader-election-retry-period-seconds", int(redisfailover.DefaultLeaderElectionRetryPeriod/time.Second), "Leader election retry period in seconds")
 	flag.StringVar(&c.LogLevel, "log-level", "info", "set log level")
 	// Parse flags
 	flag.Parse()

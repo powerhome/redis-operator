@@ -25,12 +25,9 @@ import (
 )
 
 const (
-	resync                             = 30 * time.Second
-	operatorName                       = "redis-operator"
-	lockKey                            = "redis-failover-lease"
-	defaultLeaderElectionLeaseDuration = 60 * time.Second
-	defaultLeaderElectionRenewDeadline = 40 * time.Second
-	defaultLeaderElectionRetryPeriod   = 10 * time.Second
+	resync       = 30 * time.Second
+	operatorName = "redis-operator"
+	lockKey      = "redis-failover-lease"
 )
 
 // New will create an operator that is responsible of managing all the required stuff
@@ -73,17 +70,17 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 func leaderElectionLockConfig(cfg Config) (*leaderelection.LockConfig, error) {
 	leaseDuration := cfg.LeaderElectionLeaseDuration
 	if leaseDuration <= 0 {
-		leaseDuration = defaultLeaderElectionLeaseDuration
+		leaseDuration = DefaultLeaderElectionLeaseDuration
 	}
 
 	renewDeadline := cfg.LeaderElectionRenewDeadline
 	if renewDeadline <= 0 {
-		renewDeadline = defaultLeaderElectionRenewDeadline
+		renewDeadline = DefaultLeaderElectionRenewDeadline
 	}
 
 	retryPeriod := cfg.LeaderElectionRetryPeriod
 	if retryPeriod <= 0 {
-		retryPeriod = defaultLeaderElectionRetryPeriod
+		retryPeriod = DefaultLeaderElectionRetryPeriod
 	}
 
 	if leaseDuration <= renewDeadline {
