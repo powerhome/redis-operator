@@ -25,9 +25,9 @@ import (
 )
 
 const (
-	resync       = 30 * time.Second
-	operatorName = "redis-operator"
-	lockKey      = "redis-failover-lease"
+	resync                             = 30 * time.Second
+	operatorName                       = "redis-operator"
+	lockKey                            = "redis-failover-lease"
 	defaultLeaderElectionLeaseDuration = 60 * time.Second
 	defaultLeaderElectionRenewDeadline = 40 * time.Second
 	defaultLeaderElectionRetryPeriod   = 10 * time.Second

@@ -14,15 +14,15 @@ import (
 // CMDFlags are the flags used by the cmd
 // TODO: improve flags.
 type CMDFlags struct {
-	KubeConfig               string
-	SupportedNamespacesRegex string
-	Development              bool
-	ListenAddr               string
-	MetricsPath              string
-	K8sQueriesPerSecond      int
-	K8sQueriesBurstable      int
-	Concurrency              int
-	LogLevel                 string
+	KubeConfig                         string
+	SupportedNamespacesRegex           string
+	Development                        bool
+	ListenAddr                         string
+	MetricsPath                        string
+	K8sQueriesPerSecond                int
+	K8sQueriesBurstable                int
+	Concurrency                        int
+	LogLevel                           string
 	LeaderElectionLeaseDurationSeconds int
 	LeaderElectionRenewDeadlineSeconds int
 	LeaderElectionRetryPeriodSeconds   int
@@ -57,10 +57,10 @@ func (c *CMDFlags) Init() {
 // ToRedisOperatorConfig convert the flags to redisfailover config
 func (c *CMDFlags) ToRedisOperatorConfig() redisfailover.Config {
 	return redisfailover.Config{
-		ListenAddress:            c.ListenAddr,
-		MetricsPath:              c.MetricsPath,
-		Concurrency:              c.Concurrency,
-		SupportedNamespacesRegex: c.SupportedNamespacesRegex,
+		ListenAddress:               c.ListenAddr,
+		MetricsPath:                 c.MetricsPath,
+		Concurrency:                 c.Concurrency,
+		SupportedNamespacesRegex:    c.SupportedNamespacesRegex,
 		LeaderElectionLeaseDuration: time.Duration(c.LeaderElectionLeaseDurationSeconds) * time.Second,
 		LeaderElectionRenewDeadline: time.Duration(c.LeaderElectionRenewDeadlineSeconds) * time.Second,
 		LeaderElectionRetryPeriod:   time.Duration(c.LeaderElectionRetryPeriodSeconds) * time.Second,
