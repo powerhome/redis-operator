@@ -58,6 +58,15 @@ func TestLeaderElectionLockConfig(t *testing.T) {
 			},
 			expErr: true,
 		},
+		{
+			name: "Renew deadline within the retry period jitter factor errors",
+			cfg: Config{
+				LeaderElectionLeaseDuration: 60 * time.Second,
+				LeaderElectionRenewDeadline: 11 * time.Second,
+				LeaderElectionRetryPeriod:   10 * time.Second,
+			},
+			expErr: true,
+		},
 	}
 
 	for _, test := range tests {

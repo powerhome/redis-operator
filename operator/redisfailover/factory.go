@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
+	clientleaderelection "k8s.io/client-go/tools/leaderelection"
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	"github.com/spotahome/redis-operator/log"
@@ -86,8 +87,8 @@ func leaderElectionLockConfig(cfg Config) (*leaderelection.LockConfig, error) {
 	if leaseDuration <= renewDeadline {
 		return nil, fmt.Errorf("invalid leader election configuration: lease duration (%s) should be greater than renew deadline (%s)", leaseDuration, renewDeadline)
 	}
-	if renewDeadline <= retryPeriod {
-		return nil, fmt.Errorf("invalid leader election configuration: renew deadline (%s) should be greater than retry period (%s)", renewDeadline, retryPeriod)
+	if renewDeadline <= time.Duration(clientleaderelection.JitterFactor*float64(retryPeriod)) {
+		return nil, fmt.Errorf("invalid leader election configuration: renew deadline (%s) should be greater than retry period (%s) times the client-go jitter factor (%v)", renewDeadline, retryPeriod, clientleaderelection.JitterFactor)
 	}
 
 	return &leaderelection.LockConfig{
