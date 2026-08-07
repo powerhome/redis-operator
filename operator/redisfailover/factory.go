@@ -2,6 +2,7 @@ package redisfailover
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"regexp"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
+	clientleaderelection "k8s.io/client-go/tools/leaderelection"
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	"github.com/spotahome/redis-operator/log"
@@ -43,8 +45,12 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 	rfRetriever := NewRedisFailoverRetriever(cfg, k8sService, watchNamespace)
 
 	kooperLogger := kooperlogger{Logger: logger.WithField("operator", "redisfailover")}
+	lockCfg, err := leaderElectionLockConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	// Leader election service.
-	leSVC, err := leaderelection.NewDefault(lockKey, lockNamespace, k8sClient, kooperLogger)
+	leSVC, err := leaderelection.New(lockKey, lockNamespace, lockCfg, k8sClient, kooperLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +66,36 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 		ResyncInterval:    resync,
 		ConcurrentWorkers: cfg.Concurrency,
 	})
+}
+
+func leaderElectionLockConfig(cfg Config) (*leaderelection.LockConfig, error) {
+	leaseDuration := cfg.LeaderElectionLeaseDuration
+	if leaseDuration <= 0 {
+		leaseDuration = DefaultLeaderElectionLeaseDuration
+	}
+
+	renewDeadline := cfg.LeaderElectionRenewDeadline
+	if renewDeadline <= 0 {
+		renewDeadline = DefaultLeaderElectionRenewDeadline
+	}
+
+	retryPeriod := cfg.LeaderElectionRetryPeriod
+	if retryPeriod <= 0 {
+		retryPeriod = DefaultLeaderElectionRetryPeriod
+	}
+
+	if leaseDuration <= renewDeadline {
+		return nil, fmt.Errorf("invalid leader election configuration: lease duration (%s) should be greater than renew deadline (%s)", leaseDuration, renewDeadline)
+	}
+	if renewDeadline <= time.Duration(clientleaderelection.JitterFactor*float64(retryPeriod)) {
+		return nil, fmt.Errorf("invalid leader election configuration: renew deadline (%s) should be greater than retry period (%s) times the client-go jitter factor (%v)", renewDeadline, retryPeriod, clientleaderelection.JitterFactor)
+	}
+
+	return &leaderelection.LockConfig{
+		LeaseDuration: leaseDuration,
+		RenewDeadline: renewDeadline,
+		RetryPeriod:   retryPeriod,
+	}, nil
 }
 
 func NewRedisFailoverRetriever(cfg Config, cli k8s.Services, watchNamespace string) controller.Retriever {

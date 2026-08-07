@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/spotahome/redis-operator/operator/redisfailover"
 	"k8s.io/client-go/util/homedir"
@@ -13,15 +14,18 @@ import (
 // CMDFlags are the flags used by the cmd
 // TODO: improve flags.
 type CMDFlags struct {
-	KubeConfig               string
-	SupportedNamespacesRegex string
-	Development              bool
-	ListenAddr               string
-	MetricsPath              string
-	K8sQueriesPerSecond      int
-	K8sQueriesBurstable      int
-	Concurrency              int
-	LogLevel                 string
+	KubeConfig                         string
+	SupportedNamespacesRegex           string
+	Development                        bool
+	ListenAddr                         string
+	MetricsPath                        string
+	K8sQueriesPerSecond                int
+	K8sQueriesBurstable                int
+	Concurrency                        int
+	LogLevel                           string
+	LeaderElectionLeaseDurationSeconds int
+	LeaderElectionRenewDeadlineSeconds int
+	LeaderElectionRetryPeriodSeconds   int
 }
 
 // Init initializes and parse the flags
@@ -38,6 +42,9 @@ func (c *CMDFlags) Init() {
 	// default is 3 for conccurency because kooper also defines 3 as default
 	// reference: https://github.com/spotahome/kooper/blob/master/controller/controller.go#L89
 	flag.IntVar(&c.Concurrency, "concurrency", 3, "Number of conccurent workers meant to process events")
+	flag.IntVar(&c.LeaderElectionLeaseDurationSeconds, "leader-election-lease-duration-seconds", int(redisfailover.DefaultLeaderElectionLeaseDuration/time.Second), "Leader election lease duration in seconds")
+	flag.IntVar(&c.LeaderElectionRenewDeadlineSeconds, "leader-election-renew-deadline-seconds", int(redisfailover.DefaultLeaderElectionRenewDeadline/time.Second), "Leader election renew deadline in seconds")
+	flag.IntVar(&c.LeaderElectionRetryPeriodSeconds, "leader-election-retry-period-seconds", int(redisfailover.DefaultLeaderElectionRetryPeriod/time.Second), "Leader election retry period in seconds")
 	flag.StringVar(&c.LogLevel, "log-level", "info", "set log level")
 	// Parse flags
 	flag.Parse()
@@ -50,9 +57,12 @@ func (c *CMDFlags) Init() {
 // ToRedisOperatorConfig convert the flags to redisfailover config
 func (c *CMDFlags) ToRedisOperatorConfig() redisfailover.Config {
 	return redisfailover.Config{
-		ListenAddress:            c.ListenAddr,
-		MetricsPath:              c.MetricsPath,
-		Concurrency:              c.Concurrency,
-		SupportedNamespacesRegex: c.SupportedNamespacesRegex,
+		ListenAddress:               c.ListenAddr,
+		MetricsPath:                 c.MetricsPath,
+		Concurrency:                 c.Concurrency,
+		SupportedNamespacesRegex:    c.SupportedNamespacesRegex,
+		LeaderElectionLeaseDuration: time.Duration(c.LeaderElectionLeaseDurationSeconds) * time.Second,
+		LeaderElectionRenewDeadline: time.Duration(c.LeaderElectionRenewDeadlineSeconds) * time.Second,
+		LeaderElectionRetryPeriod:   time.Duration(c.LeaderElectionRetryPeriodSeconds) * time.Second,
 	}
 }
