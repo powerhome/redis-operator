@@ -9,6 +9,13 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.5.0] - 2026-08-06
+
+### Changed
+
+- [Make leader-election lease renewal tunable, relax defaults](https://github.com/powerhome/redis-operator/pull/91)
+- [Update Kubernetes testing matrix](https://github.com/powerhome/redis-operator/pull/88)
+
 ## [v4.4.1] - 2026-03-24
 
 ### Fixed
