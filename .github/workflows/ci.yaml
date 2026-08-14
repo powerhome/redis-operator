@@ -10,6 +10,7 @@ on:
     branches:
       - 'master'
 
+
 env:
   DOCKER_METADATA_PR_HEAD_SHA: true
 
