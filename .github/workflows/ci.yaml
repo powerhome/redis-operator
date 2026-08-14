@@ -59,6 +59,8 @@ jobs:
           go-version-file: go.mod
       - name: Install conntrack
         run: sudo apt-get install -y conntrack
+      - name: Ensure CNI config directory exists
+        run: sudo mkdir -p /etc/cni/net.d
       - uses: medyagh/setup-minikube@v0.0.18
         with:
           kubernetes-version: ${{ matrix.kubernetes }}
