@@ -59,6 +59,9 @@ jobs:
           go-version-file: go.mod
       - name: Install conntrack
         run: sudo apt-get install -y conntrack
+      # medyagh/setup-minikube chmods /etc/cni/net.d without creating it, and the
+      # runner image no longer ships that directory.
+      # Upstream fix: https://github.com/medyagh/setup-minikube/pull/836
       - name: Ensure CNI config directory exists
         run: sudo mkdir -p /etc/cni/net.d
       - uses: medyagh/setup-minikube@v0.0.18
@@ -86,6 +89,10 @@ jobs:
       - name: Helm test
         run: make test-helm-ci
 
+  # Despite the name, this job publishes the operator image to both Docker Hub
+  # (powerhome/redis-operator) and ghcr.io/powerhome/redis-operator in one build.
+  # Kept as `dockerhub-image` to avoid renaming a status check that branch
+  # protection may require; see PR #93 discussion.
   dockerhub-image:
     needs:
       - check
@@ -132,3 +139,13 @@ jobs:
             ${{ steps.meta.outputs.bake-file }}
           targets: build
           push: true
+      - name: Verify the ghcr package is publicly pullable
+        if: github.event_name != 'pull_request'
+        run: |
+          tag='${{ steps.meta.outputs.version }}'
+          token=$(curl -sf "https://ghcr.io/token?scope=repository:powerhome/redis-operator:pull&service=ghcr.io" | jq -r .token)
+          curl -sf -o /dev/null \
+            -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            "https://ghcr.io/v2/powerhome/redis-operator/manifests/$tag" \
+            || { echo "ghcr package is not anonymously pullable"; exit 1; }
