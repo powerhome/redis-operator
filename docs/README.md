@@ -381,6 +381,20 @@ kubectl delete redisfailover <NAME>
 ### Redis Operator
 
 [![Redis Operator Image](https://quay.io/repository/spotahome/redis-operator/status "Redis Operator Image")](https://quay.io/repository/spotahome/redis-operator)
+
+### Powerhome fork
+
+The `powerhome` fork publishes the operator image to two registries with identical
+tags, digests, and platforms:
+
+- Docker Hub (default): `powerhome/redis-operator`
+- GitHub Container Registry: `ghcr.io/powerhome/redis-operator`
+
+Docker Hub remains the advertised default. ghcr is a mirror added alongside it and is
+**not backfilled**: ghcr carries only releases published *after* `v4.5.0`. `v4.5.0` and
+every earlier tag (for example `v4.4.1`) exist **only on Docker Hub** — pull those from
+Docker Hub, as ghcr will not have them.
+
 ## Documentation
 
 For the code documentation, you can lookup on the [GoDoc](https://godoc.org/github.com/spotahome/redis-operator).
