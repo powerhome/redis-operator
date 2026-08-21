@@ -14,5 +14,5 @@ metadata:
     github.com/project-slug: powerhome/redis-operator
 spec:
   owner: guardians-of-the-galaxy
-  domain: technology-foundations-and-tools
+  domain: platform
   lifecycle: production
