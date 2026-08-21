@@ -9,6 +9,16 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.5.1] - 2026-08-18
+
+### Changed
+
+- [Publish the operator image to ghcr.io/powerhome in addition to Docker Hub](https://github.com/powerhome/redis-operator/pull/93)
+
+### Fixed as a temporary workaround to have checks green. Will be removed when [fix: create /etc/cni/net.d before chmod in none driver](https://github.com/medyagh/setup-minikube/pull/836) merges
+
+- [Create /etc/cni/net.d before setup-minikube so the integration-test none driver works on current runner images](https://github.com/powerhome/redis-operator/pull/93)
+
 ## [v4.5.0] - 2026-08-06
 
 ### Changed
