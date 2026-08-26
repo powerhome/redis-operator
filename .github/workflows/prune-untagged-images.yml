@@ -1,0 +1,33 @@
+name: Prune untagged image versions
+
+on:
+  schedule:
+    - cron: '0 5 * * 0'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Simulate the run without deleting anything'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: prune-untagged-images
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune untagged manifests not referenced by any tag
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          owner: powerhome
+          package: redis-operator
+          delete-untagged: true
+          validate: true
+          dry-run: ${{ github.event.inputs.dry_run || 'false' }}
+          token: ${{ secrets.GITHUB_TOKEN }}
