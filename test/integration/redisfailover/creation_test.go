@@ -41,6 +41,7 @@ const (
 	namespace      = "rf-integration-tests"
 	redisSize      = int32(3)
 	sentinelSize   = int32(3)
+	haproxySize    = int32(1)
 	authSecretPath = "redis-auth"
 	testPass       = "test-pass"
 	redisAddr      = "redis://127.0.0.1:6379"
@@ -160,6 +161,10 @@ func TestRedisFailover(t *testing.T) {
 	// check that all of them are connected to the same Redis node, and also that that node
 	// is the master.
 	t.Run("Check Sentinels Checking the Redis Master", clients.testSentinelMonitoring)
+
+	// Reach the master through HAProxy, which only routes once its health check
+	// has authenticated against a password-protected Redis.
+	t.Run("Check HAProxy Routing To The Redis Master", clients.testHaproxyMaster)
 }
 
 const sentinelPort = 26379
@@ -182,6 +187,9 @@ func (c *clients) testCRCreation(t *testing.T) {
 			Sentinel: redisfailoverv1.SentinelSettings{
 				Replicas: sentinelSize,
 				Port:     redisfailoverv1.Port(sentinelPort),
+			},
+			Haproxy: &redisfailoverv1.HaproxySettings{
+				Replicas: haproxySize,
 			},
 			Auth: redisfailoverv1.AuthSettings{
 				SecretPath: authSecretPath,
@@ -263,6 +271,50 @@ func (c *clients) testSentinelMonitoring(t *testing.T) {
 	isMaster, err := c.redisClient.IsMaster(masters[0], "6379", testPass)
 	assert.NoError(err)
 	assert.True(isMaster, "Sentinel should monitor the Redis master")
+}
+
+// testHaproxyMaster reaches Redis through the HAProxy master proxy instead of
+// through a Redis pod directly. Backends start DOWN and only join the pool once
+// the health check gets the reply it expects, and this failover sets
+// requirepass, so the check has to authenticate before Redis will answer it. An
+// unauthenticated check leaves HAProxy with an empty pool and nothing to route
+// to, which is why this asserts on reaching a master rather than on the text of
+// the generated config.
+func (c *clients) testHaproxyMaster(t *testing.T) {
+	assert := assert.New(t)
+
+	haproxyD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfrm-haproxy-%s", name), metav1.GetOptions{})
+	if !assert.NoError(err) {
+		return
+	}
+	assert.Equal(haproxySize, int32(haproxyD.Status.Replicas))
+
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.FormatLabels(haproxyD.Spec.Selector.MatchLabels),
+	}
+	haproxyPodList, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
+	if !assert.NoError(err) {
+		return
+	}
+	if !assert.NotEmpty(haproxyPodList.Items, "expected an HAProxy pod to route through") {
+		return
+	}
+
+	// The backends are discovered through SRV records and checked once a
+	// second, so poll for the pool to come up rather than reading it the
+	// instant the pod is scheduled.
+	var isMaster bool
+	var lastErr error
+	for deadline := time.Now().Add(2 * time.Minute); time.Now().Before(deadline); {
+		isMaster, lastErr = c.redisClient.IsMaster(haproxyPodList.Items[0].Status.PodIP, "6379", testPass)
+		if lastErr == nil && isMaster {
+			break
+		}
+		time.Sleep(5 * time.Second)
+	}
+
+	assert.NoError(lastErr, "HAProxy should have a Redis backend to route to; without an authenticated health check every backend stays DOWN")
+	assert.True(isMaster, "HAProxy should route to the Redis master")
 }
 
 func (c *clients) testAuth(t *testing.T) {
