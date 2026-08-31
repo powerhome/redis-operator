@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"testing"
@@ -1487,6 +1488,61 @@ func TestHaproxyService(t *testing.T) {
 	}
 }
 
+func TestHaproxyDeploymentRedisPassword(t *testing.T) {
+	tests := []struct {
+		name       string
+		secretPath string
+		wantEnv    bool
+	}{
+		{name: "carries REDIS_PASSWORD when the failover has a password", secretPath: "redis-auth", wantEnv: true},
+		{name: "carries no env when it does not", secretPath: "", wantEnv: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+			rf.Spec.Auth.SecretPath = test.secretPath
+			rf.Spec.Haproxy = &redisfailoverv1.HaproxySettings{Replicas: 2}
+
+			var got *appsv1.Deployment
+			ms := &mK8SService.Services{}
+			// EnsureHAProxyRedisMasterDeployment refuses to proceed without the
+			// config checksum it stamps onto the pod template.
+			ms.On("GetConfigMap", namespace, mock.Anything).Once().Return(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"checksum/haproxy-cfg": "deadbeef"},
+				},
+			}, nil)
+			// No existing Deployment, so the spec-checksum short circuit is skipped.
+			ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, errors.New("not found"))
+			ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+				got = args.Get(1).(*appsv1.Deployment)
+			}).Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			err := client.EnsureHAProxyRedisMasterDeployment(rf, nil, []metav1.OwnerReference{})
+			assert.NoError(err)
+
+			env := got.Spec.Template.Spec.Containers[0].Env
+			if !test.wantEnv {
+				assert.Empty(env, "haproxy should get no environment without a password")
+				return
+			}
+
+			assert.Len(env, 1)
+			assert.Equal("REDIS_PASSWORD", env[0].Name)
+			// From the Secret, never an inline value -- the whole point of
+			// send-lf in the config is to keep the password out of the
+			// ConfigMap, which a literal here would undo.
+			assert.Empty(env[0].Value)
+			assert.Equal(test.secretPath, env[0].ValueFrom.SecretKeyRef.Name)
+			assert.Equal("password", env[0].ValueFrom.SecretKeyRef.Key)
+		})
+	}
+}
+
 func TestGenerateHaproxyConfig(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -1543,6 +1599,50 @@ func TestGenerateHaproxyConfig(t *testing.T) {
 			mustMatch: []string{
 				`frontend redis-master`,
 				`server-template redis 3 _redis\._tcp\.redis-expected-name\.test-ns\.svc\.cluster\.local:6379`,
+			},
+		},
+		{
+			name: "authenticates the health check when the failover has a password",
+			rf: &redisfailoverv1.RedisFailover{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns", Name: "expected-name"},
+				Spec: redisfailoverv1.RedisFailoverSpec{
+					Redis: redisfailoverv1.RedisSettings{
+						Port:     6379,
+						Replicas: 3,
+					},
+					Haproxy: &redisfailoverv1.HaproxySettings{},
+					Auth:    redisfailoverv1.AuthSettings{SecretPath: "redis-auth"},
+				},
+			},
+			mustMatch: []string{
+				// send-lf, not send: a plain `tcp-check send` forwards ${VAR}
+				// literally instead of expanding it.
+				`tcp-check send-lf AUTH\\ \\"%\[env\(REDIS_PASSWORD\)\]\\"`,
+				`tcp-check expect string \+OK`,
+				// and it has to precede the role check it exists to unblock
+				`(?s)tcp-check send-lf AUTH.*tcp-check send info`,
+			},
+			mustNotMatch: []string{
+				// the literal password must never reach the ConfigMap
+				`redis-auth`,
+			},
+		},
+		{
+			name: "leaves the health check unauthenticated when there is no password",
+			rf: &redisfailoverv1.RedisFailover{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns", Name: "expected-name"},
+				Spec: redisfailoverv1.RedisFailoverSpec{
+					Redis: redisfailoverv1.RedisSettings{
+						Port:     6379,
+						Replicas: 3,
+					},
+					Haproxy: &redisfailoverv1.HaproxySettings{},
+				},
+			},
+			mustMatch: []string{`tcp-check send info\\ replication`},
+			mustNotMatch: []string{
+				`AUTH`,
+				`REDIS_PASSWORD`,
 			},
 		},
 		{

@@ -126,6 +126,9 @@ func generateHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, lab
 							Ports:        ports,
 							VolumeMounts: volumeMounts,
 							Resources:    rf.Spec.Haproxy.Resources,
+							// Consumed by the tcp-check AUTH in the generated
+							// config. Empty unless the failover has a password.
+							Env: getRedisPasswordEnv(rf),
 						},
 					},
 					Volumes:       volumes,
@@ -226,6 +229,34 @@ frontend prometheus
 	}
 
 	if !bootstrapping {
+		// With requirepass set, an unauthenticated `info replication` answers
+		// -NOAUTH, so the role check below never matches and every server stays
+		// DOWN -- they start init-state down -- leaving the master Service with
+		// no backend. AUTH first when the failover has a password.
+		//
+		// The password is read from the environment rather than written into
+		// the config, so it stays out of this ConfigMap, which is readable by
+		// anything holding `get configmaps` in the namespace; the Deployment
+		// gets REDIS_PASSWORD from the same Secret the Redis pods use.
+		//
+		// send-lf, not send: HAProxy does not expand ${VAR} in a plain
+		// `tcp-check send` argument -- it forwards the literal text and the
+		// AUTH silently fails -- so the value has to come from a log-format
+		// expression. Verified against haproxy 3.4.
+		//
+		// The escaped quotes are deliberate and end up on the wire. AUTH here
+		// is an inline command, which Redis splits on whitespace, so an
+		// unquoted password containing a space arrives as the two-argument ACL
+		// form `AUTH <user> <pass>` and fails. Quoting keeps it one argument;
+		// Redis's inline parser strips the quotes. Exercised with passwords
+		// containing spaces and with `@ : / # %`.
+		authCheck := ""
+		if rf.Spec.Auth.SecretPath != "" {
+			authCheck = `
+  tcp-check send-lf AUTH\ \"%[env(REDIS_PASSWORD)]\"\r\n
+  tcp-check expect string +OK`
+		}
+
 		haproxyCfgBuilder.WriteString(fmt.Sprintf(`
 frontend redis-master-frontend
   bind *:%d
@@ -234,11 +265,12 @@ frontend redis-master-frontend
 backend redis-master-backend
   mode tcp
   balance first
-  option tcp-check
+  option tcp-check%s
   tcp-check send info\ replication\r\n
   tcp-check expect string role:master
   server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none init-state down on-marked-down shutdown-sessions`,
 			rf.Spec.Redis.Port,
+			authCheck,
 			rf.Spec.Redis.Replicas,
 			rf.GenerateName("redis"),
 			rf.Namespace,
@@ -1511,8 +1543,22 @@ func getRedisEnv(rf *redisfailoverv1.RedisFailover) []corev1.EnvVar {
 		Value: "default",
 	})
 
-	if rf.Spec.Auth.SecretPath != "" {
-		env = append(env, corev1.EnvVar{
+	env = append(env, getRedisPasswordEnv(rf)...)
+
+	return env
+}
+
+// getRedisPasswordEnv returns the REDIS_PASSWORD variable, or nothing when the
+// failover has no password. Shared by every component that needs to
+// authenticate: Redis and Sentinel through getRedisEnv, and HAProxy for the
+// AUTH step of its health check.
+func getRedisPasswordEnv(rf *redisfailoverv1.RedisFailover) []corev1.EnvVar {
+	if rf.Spec.Auth.SecretPath == "" {
+		return nil
+	}
+
+	return []corev1.EnvVar{
+		{
 			Name: "REDIS_PASSWORD",
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
@@ -1522,8 +1568,6 @@ func getRedisEnv(rf *redisfailoverv1.RedisFailover) []corev1.EnvVar {
 					Key: "password",
 				},
 			},
-		})
+		},
 	}
-
-	return env
 }
