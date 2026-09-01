@@ -5,6 +5,7 @@ package redisfailover_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -162,6 +163,10 @@ func TestRedisFailover(t *testing.T) {
 	// is the master.
 	t.Run("Check Sentinels Checking the Redis Master", clients.testSentinelMonitoring)
 
+	// Check that an HAProxy Deployment is created and the size of it is the one
+	// defined by the Redis Failover definition created before.
+	t.Run("Check HAProxy Deployment existing and size", clients.testHaproxyDeployment)
+
 	// Reach the master through HAProxy, which only routes once its health check
 	// has authenticated against a password-protected Redis.
 	t.Run("Check HAProxy Routing To The Redis Master", clients.testHaproxyMaster)
@@ -273,6 +278,13 @@ func (c *clients) testSentinelMonitoring(t *testing.T) {
 	assert.True(isMaster, "Sentinel should monitor the Redis master")
 }
 
+func (c *clients) testHaproxyDeployment(t *testing.T) {
+	assert := assert.New(t)
+	haproxyD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfrm-haproxy-%s", name), metav1.GetOptions{})
+	assert.NoError(err)
+	assert.Equal(haproxySize, int32(haproxyD.Status.Replicas))
+}
+
 // testHaproxyMaster reaches Redis through the HAProxy master proxy instead of
 // through a Redis pod directly. Backends start DOWN and only join the pool once
 // the health check gets the reply it expects, and this failover sets
@@ -287,30 +299,41 @@ func (c *clients) testHaproxyMaster(t *testing.T) {
 	if !assert.NoError(err) {
 		return
 	}
-	assert.Equal(haproxySize, int32(haproxyD.Status.Replicas))
-
 	listOptions := metav1.ListOptions{
 		LabelSelector: labels.FormatLabels(haproxyD.Spec.Selector.MatchLabels),
 	}
-	haproxyPodList, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
-	if !assert.NoError(err) {
-		return
-	}
-	if !assert.NotEmpty(haproxyPodList.Items, "expected an HAProxy pod to route through") {
-		return
-	}
 
-	// The backends are discovered through SRV records and checked once a
-	// second, so poll for the pool to come up rather than reading it the
-	// instant the pod is scheduled.
+	// Backends are discovered through SRV records and checked once a second, so
+	// poll for the pool to come up rather than reading it the instant the pod is
+	// scheduled. The pod is looked up each time round: one that has not been
+	// assigned an address yet, or one replaced while this waits, would otherwise
+	// leave every attempt dialling an address that can never answer, and report
+	// it as an authentication failure.
 	var isMaster bool
 	var lastErr error
-	for deadline := time.Now().Add(2 * time.Minute); time.Now().Before(deadline); {
-		isMaster, lastErr = c.redisClient.IsMaster(haproxyPodList.Items[0].Status.PodIP, "6379", testPass)
+	for deadline := time.Now().Add(2 * time.Minute); time.Now().Before(deadline); time.Sleep(5 * time.Second) {
+		haproxyPods, listErr := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
+		if listErr != nil {
+			lastErr = listErr
+			continue
+		}
+
+		address := ""
+		for _, pod := range haproxyPods.Items {
+			if pod.Status.PodIP != "" {
+				address = pod.Status.PodIP
+				break
+			}
+		}
+		if address == "" {
+			lastErr = errors.New("no HAProxy pod has been assigned an address yet")
+			continue
+		}
+
+		isMaster, lastErr = c.redisClient.IsMaster(address, "6379", testPass)
 		if lastErr == nil && isMaster {
 			break
 		}
-		time.Sleep(5 * time.Second)
 	}
 
 	assert.NoError(lastErr, "HAProxy should have a Redis backend to route to; without an authenticated health check every backend stays DOWN")
