@@ -98,6 +98,13 @@ replaced by a static `server` (SRV discovery needs a cluster). Backend `UP` /
 Layer7 check passed, and `SET`/`GET` succeeded through the proxy with the
 password `pé 'a"b\c#1%x`.
 
+That the `,length` converter returns a byte count rather than a character count
+is the assumption the framing rests on, since RESP counts bytes: a character
+count would send a short prefix and Redis would misparse every non-ASCII
+password. Confirmed independently on review against `haproxy:3.4-alpine` and
+`redis:8.10.1-alpine` with `pässwörd✓`, which is 13 bytes over 9 characters and
+comes up `UP`/`L7OK` with a successful write.
+
 The pairing is now covered automatically: the integration test's `RedisFailover`
 declares `haproxy` alongside the `auth.secretPath` it already set, and
 `testHaproxyMaster` reaches the master *through* the proxy. That assertion fails
