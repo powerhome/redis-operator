@@ -102,25 +102,9 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 func (r *RedisFailoverHandler) applyCredentialChange(rf *redisfailoverv1.RedisFailover, authErr error) error {
 	logger := r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace)
 
-	ssUR, err := r.rfChecker.GetStatefulSetUpdateRevision(rf)
+	stale, err := r.rfChecker.GetRedisesPodsWithStalePassword(rf)
 	if err != nil {
 		return err
-	}
-
-	pods, err := r.rfChecker.GetRedisesPodNames(rf)
-	if err != nil {
-		return err
-	}
-
-	stale := []string{}
-	for _, pod := range pods {
-		revision, err := r.rfChecker.GetRedisRevisionHash(pod, rf)
-		if err != nil {
-			return err
-		}
-		if revision != ssUR {
-			stale = append(stale, pod)
-		}
 	}
 
 	if len(stale) == 0 {
@@ -180,8 +164,7 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		// rolling update that applies the new password sits behind all of them,
 		// so the failover would wedge here and never reach its own repair.
 		// Waiting does not help either, since the pods keep whatever they
-		// started with. Roll them, replicas first and the master last, the same
-		// way any other pod-template change is applied.
+		// started with.
 		return r.applyCredentialChange(rf, err)
 	}
 	if err != nil {

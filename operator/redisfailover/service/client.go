@@ -147,8 +147,7 @@ func (r *RedisFailoverKubeClient) haproxyPasswordChecksum(rf *redisfailoverv1.Re
 		return "", nil
 	}
 
-	sum := sha256.Sum256([]byte(password))
-	current := hex.EncodeToString(sum[:])
+	current := redisPasswordChecksum(password)
 
 	if r.redisPodsHavePassword(rf, current) {
 		return current, nil

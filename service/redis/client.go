@@ -498,6 +498,20 @@ func (c *client) SlaveIsReady(ip, port, password string) (bool, error) {
 	return ok, nil
 }
 
+// How Redis says it is unhappy with the credential it was offered. Matching on
+// the reply text is the only signal available, so the operator's ability to
+// recover from a password change rests on these strings.
+const (
+	// It wants a password and got none.
+	noAuthReply = "NOAUTH"
+	// It got the wrong one.
+	wrongPassReply = "WRONGPASS"
+	// It wants none and got one, which is what adding auth.secretPath to a
+	// failover whose pods are already running produces.
+	noPasswordSetReply       = "without any password configured"
+	noPasswordSetLegacyReply = "but no password is set"
+)
+
 // IsAuthError reports whether Redis refused the credential we offered, rather
 // than failing for some other reason.
 //
@@ -515,16 +529,16 @@ func IsAuthError(err error) bool {
 		return false
 	}
 	msg := err.Error()
-	return strings.Contains(msg, "NOAUTH") ||
-		strings.Contains(msg, "WRONGPASS") ||
-		strings.Contains(msg, "without any password configured") ||
-		strings.Contains(msg, "but no password is set")
+	return strings.Contains(msg, noAuthReply) ||
+		strings.Contains(msg, wrongPassReply) ||
+		strings.Contains(msg, noPasswordSetReply) ||
+		strings.Contains(msg, noPasswordSetLegacyReply)
 }
 
 func getRedisError(err error) string {
-	if strings.Contains(err.Error(), "NOAUTH") {
+	if strings.Contains(err.Error(), noAuthReply) {
 		return metrics.NOAUTH
-	} else if strings.Contains(err.Error(), "WRONGPASS") {
+	} else if strings.Contains(err.Error(), wrongPassReply) {
 		return metrics.WRONG_PASSWORD_USED
 	} else if strings.Contains(err.Error(), "NOPERM") {
 		return metrics.NOPERM

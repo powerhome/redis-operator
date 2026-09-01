@@ -748,10 +748,17 @@ func withRedisPasswordChecksum(annotations map[string]string, password string) m
 		withChecksum[k] = v
 	}
 
-	sum := sha256.Sum256([]byte(password))
-	withChecksum[redisPasswordChecksumKey] = hex.EncodeToString(sum[:])
+	withChecksum[redisPasswordChecksumKey] = redisPasswordChecksum(password)
 
 	return withChecksum
+}
+
+// redisPasswordChecksum identifies a password without disclosing it, so that
+// what a pod was built for can be compared with what the failover is now
+// configured with. Pod templates are readable by anything that can get pods.
+func redisPasswordChecksum(password string) string {
+	sum := sha256.Sum256([]byte(password))
+	return hex.EncodeToString(sum[:])
 }
 
 func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference, password string) *appsv1.StatefulSet {

@@ -492,11 +492,13 @@ func TestCheckAndHealAppliesACredentialChange(t *testing.T) {
 			mrfc.On("IsRedisRunning", rf).Once().Return(true)
 			mrfc.On("IsSentinelRunning", rf).Once().Return(true)
 			mrfc.On("GetNumberMasters", rf).Once().Return(0, test.err)
-			mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("current", nil)
-			mrfc.On("GetRedisesPodNames", rf).Once().Return(names, nil)
+			stale := []string{}
 			for _, name := range names {
-				mrfc.On("GetRedisRevisionHash", name, rf).Once().Return(test.staleRevs[name], nil)
+				if test.staleRevs[name] != "current" {
+					stale = append(stale, name)
+				}
 			}
+			mrfc.On("GetRedisesPodsWithStalePassword", rf).Once().Return(stale, nil)
 
 			deleted := []string{}
 			mrfh.On("DeletePod", mock.Anything, rf).Return(nil).Run(func(args mock.Arguments) {

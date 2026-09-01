@@ -33,7 +33,7 @@ type RedisFailoverCheck interface {
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetSentinelsIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetMaxRedisPodTime(rFailover *redisfailoverv1.RedisFailover) (time.Duration, error)
-	GetRedisesPodNames(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
+	GetRedisesPodsWithStalePassword(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesSlavesPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesMasterPod(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetStatefulSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error)
@@ -412,24 +412,39 @@ func (r *RedisFailoverChecker) GetMaxRedisPodTime(rf *redisfailoverv1.RedisFailo
 	return maxTime, nil
 }
 
-// GetRedisesPodNames returns the names of the running Redis pods, without
-// asking Redis anything. Every other pod lookup here decides a pod's role by
-// querying it, which is unavailable precisely when Redis is refusing the
-// operator's credential.
-func (r *RedisFailoverChecker) GetRedisesPodNames(rf *redisfailoverv1.RedisFailover) ([]string, error) {
-	names := []string{}
+// GetRedisesPodsWithStalePassword returns the names of the running Redis pods
+// that were built for a different password than the failover is now configured
+// with, and so are still serving the old one.
+//
+// The pods carry a digest of their password, inherited from the StatefulSet's
+// pod template. Asking them directly is deliberate: every other pod lookup here
+// decides what it needs by querying Redis, which is unavailable precisely when
+// Redis is refusing the operator's credential, and comparing pod revisions
+// instead would depend on the StatefulSet having already been updated this pass.
+func (r *RedisFailoverChecker) GetRedisesPodsWithStalePassword(rf *redisfailoverv1.RedisFailover) ([]string, error) {
+	stale := []string{}
+
+	password, err := k8s.GetRedisPassword(r.k8sService, rf)
+	if err != nil {
+		return nil, err
+	}
+
 	rps, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
 	if err != nil {
 		return nil, err
 	}
 
+	current := redisPasswordChecksum(password)
 	for _, rp := range rps.Items {
-		if rp.Status.Phase == corev1.PodRunning && rp.DeletionTimestamp == nil {
-			names = append(names, rp.ObjectMeta.Name)
+		if rp.Status.Phase != corev1.PodRunning || rp.DeletionTimestamp != nil {
+			continue
+		}
+		if rp.ObjectMeta.Annotations[redisPasswordChecksumKey] != current {
+			stale = append(stale, rp.ObjectMeta.Name)
 		}
 	}
 
-	return names, nil
+	return stale, nil
 }
 
 // GetRedisesSlavesPods returns pods names of the Redis slave nodes
