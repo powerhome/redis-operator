@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1545,9 +1546,13 @@ func TestHaproxyDeploymentRedisPassword(t *testing.T) {
 
 func TestGenerateHaproxyConfig(t *testing.T) {
 	tests := []struct {
-		name         string
-		rf           *redisfailoverv1.RedisFailover
-		bootstrap    bool
+		name      string
+		rf        *redisfailoverv1.RedisFailover
+		bootstrap bool
+		// mustContain holds literal config text, for lines worth pinning
+		// exactly; mustMatch and mustNotMatch hold regular expressions, for
+		// everything that only has to be present, absent or in order.
+		mustContain  []string
 		mustMatch    []string
 		mustNotMatch []string
 	}{
@@ -1614,11 +1619,13 @@ func TestGenerateHaproxyConfig(t *testing.T) {
 					Auth:    redisfailoverv1.AuthSettings{SecretPath: "redis-auth"},
 				},
 			},
+			// Both `send-lf` and the length-prefixed AUTH break silently when
+			// simplified, so pin the whole line.
+			mustContain: []string{
+				`  tcp-check send-lf *2\r\n$4\r\nAUTH\r\n$%[env(REDIS_PASSWORD),length]\r\n%[env(REDIS_PASSWORD)]\r\n
+  tcp-check expect string +OK`,
+			},
 			mustMatch: []string{
-				// Both `send-lf` and the length-prefixed AUTH break silently
-				// when simplified, so match the whole line.
-				`tcp-check send-lf \*2\\r\\n\$4\\r\\nAUTH\\r\\n\$%\[env\(REDIS_PASSWORD\),length\]\\r\\n%\[env\(REDIS_PASSWORD\)\]\\r\\n`,
-				`tcp-check expect string \+OK`,
 				// and it has to precede the role check it exists to unblock
 				`(?s)AUTH.*tcp-check send info`,
 			},
@@ -1643,7 +1650,9 @@ func TestGenerateHaproxyConfig(t *testing.T) {
 			},
 			mustMatch: []string{`tcp-check send info\\ replication`},
 			mustNotMatch: []string{
-				`AUTH`,
+				// Named as the config directive and the variable rather than
+				// as the bare word AUTH, which any future comment could carry.
+				`tcp-check send-lf`,
 				`REDIS_PASSWORD`,
 			},
 		},
@@ -1672,6 +1681,12 @@ func TestGenerateHaproxyConfig(t *testing.T) {
 			rf := *test.rf // shallow copy
 
 			cfg := rfservice.GenerateHaproxyConfig(&rf, test.bootstrap)
+
+			for _, want := range test.mustContain {
+				if !strings.Contains(cfg, want) {
+					t.Errorf("expected config to contain:\n%s\nConfig:\n%s", want, cfg)
+				}
+			}
 
 			for _, pattern := range test.mustMatch {
 				re := regexp.MustCompile(pattern)
