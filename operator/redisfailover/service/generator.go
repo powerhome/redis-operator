@@ -229,31 +229,26 @@ frontend prometheus
 	}
 
 	if !bootstrapping {
-		// With requirepass set, an unauthenticated `info replication` answers
-		// -NOAUTH, so the role check below never matches and every server stays
-		// DOWN -- they start init-state down -- leaving the master Service with
-		// no backend. AUTH first when the failover has a password.
+		// Authenticate ahead of the role check: under requirepass an
+		// unauthenticated `info replication` answers -NOAUTH, so every server
+		// stays DOWN and the HAProxy master Service has nothing to route to.
 		//
-		// The password is read from the environment rather than written into
-		// the config, so it stays out of this ConfigMap, which is readable by
-		// anything holding `get configmaps` in the namespace; the Deployment
-		// gets REDIS_PASSWORD from the same Secret the Redis pods use.
+		// Two things below look simplifiable and are not, and a check that
+		// cannot pass empties the pool instead of reporting an error, so
+		// either mistake is silent.
 		//
-		// send-lf, not send: HAProxy does not expand ${VAR} in a plain
-		// `tcp-check send` argument -- it forwards the literal text and the
-		// AUTH silently fails -- so the value has to come from a log-format
-		// expression. Verified against haproxy 3.4.
+		// `send-lf` evaluates the log-format expression that keeps the password
+		// out of this ConfigMap; plain `send` forwards it as literal text.
 		//
-		// The escaped quotes are deliberate and end up on the wire. AUTH here
-		// is an inline command, which Redis splits on whitespace, so an
-		// unquoted password containing a space arrives as the two-argument ACL
-		// form `AUTH <user> <pass>` and fails. Quoting keeps it one argument;
-		// Redis's inline parser strips the quotes. Exercised with passwords
-		// containing spaces and with `@ : / # %`.
+		// AUTH goes in the length-prefixed Redis Serialization Protocol (RESP)
+		// form, which gives Redis each argument's size in bytes. The inline
+		// `AUTH <password>` form is split on whitespace and reparsed for
+		// quotes, which would make the set of usable passwords depend on how
+		// this string is escaped.
 		authCheck := ""
 		if rf.Spec.Auth.SecretPath != "" {
 			authCheck = `
-  tcp-check send-lf AUTH\ \"%[env(REDIS_PASSWORD)]\"\r\n
+  tcp-check send-lf *2\r\n$4\r\nAUTH\r\n$%[env(REDIS_PASSWORD),length]\r\n%[env(REDIS_PASSWORD)]\r\n
   tcp-check expect string +OK`
 		}
 

@@ -1615,15 +1615,17 @@ func TestGenerateHaproxyConfig(t *testing.T) {
 				},
 			},
 			mustMatch: []string{
-				// send-lf, not send: a plain `tcp-check send` forwards ${VAR}
-				// literally instead of expanding it.
-				`tcp-check send-lf AUTH\\ \\"%\[env\(REDIS_PASSWORD\)\]\\"`,
+				// Both `send-lf` and the length-prefixed AUTH break silently
+				// when simplified, so match the whole line.
+				`tcp-check send-lf \*2\\r\\n\$4\\r\\nAUTH\\r\\n\$%\[env\(REDIS_PASSWORD\),length\]\\r\\n%\[env\(REDIS_PASSWORD\)\]\\r\\n`,
 				`tcp-check expect string \+OK`,
 				// and it has to precede the role check it exists to unblock
-				`(?s)tcp-check send-lf AUTH.*tcp-check send info`,
+				`(?s)AUTH.*tcp-check send info`,
 			},
 			mustNotMatch: []string{
-				// the literal password must never reach the ConfigMap
+				// The Secret is referenced through the pod environment, so
+				// neither its name nor the password it holds belongs in a
+				// ConfigMap that anyone with `get configmaps` can read.
 				`redis-auth`,
 			},
 		},
