@@ -11,7 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Added
 
-- [Apply a password change to a running `RedisFailover` without manual intervention](https://github.com/powerhome/redis-operator/pull/98)
+- [Apply a password change to a running `RedisFailover` without manual intervention]()
 
   Adding `auth.secretPath` to a running failover, or changing the value in the secret it names, left Redis using the password it started with: it reads `requirepass` only at startup, and the Redis StatefulSet uses the `OnDelete` update strategy, so nothing restarted the pods. The operator meanwhile had taken the new password, so every one of its checks was refused and the reconcile failed on the first of them, never reaching the rolling update that would have applied it. Recovering meant deleting the Redis pods by hand.
 
