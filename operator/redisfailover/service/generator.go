@@ -727,7 +727,34 @@ esac`, port)
 	}
 }
 
-func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.StatefulSet {
+// withRedisPasswordChecksum records which password a Redis pod was built for.
+//
+// Redis reads requirepass from its config file at startup, so a pod keeps
+// whatever password it began with. The secret reaches the pod by reference,
+// which means rotating its value leaves the pod template byte for byte the
+// same: the StatefulSet computes no new revision, and the rolling update has
+// nothing to roll to. Recording a digest of the password gives it one.
+//
+// A failover without a password gets no annotation at all, so its template is
+// unchanged and nothing restarts on upgrade. Only the digest is stored; the
+// pod template is readable by anything that can get pods.
+func withRedisPasswordChecksum(annotations map[string]string, password string) map[string]string {
+	if password == "" {
+		return annotations
+	}
+
+	withChecksum := make(map[string]string, len(annotations)+1)
+	for k, v := range annotations {
+		withChecksum[k] = v
+	}
+
+	sum := sha256.Sum256([]byte(password))
+	withChecksum[redisPasswordChecksumKey] = hex.EncodeToString(sum[:])
+
+	return withChecksum
+}
+
+func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference, password string) *appsv1.StatefulSet {
 	name := GetRedisName(rf)
 	namespace := rf.Namespace
 
@@ -763,7 +790,7 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      labels,
-					Annotations: rf.Spec.Redis.PodAnnotations,
+					Annotations: withRedisPasswordChecksum(rf.Spec.Redis.PodAnnotations, password),
 				},
 				Spec: corev1.PodSpec{
 					Affinity:                      getAffinity(rf.Spec.Redis.Affinity, labels),

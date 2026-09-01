@@ -365,7 +365,16 @@ func (r *RedisFailoverKubeClient) EnsureRedisStatefulset(rf *redisfailoverv1.Red
 			return err
 		}
 	}
-	ss := generateRedisStatefulSet(rf, labels, ownerRefs)
+	// The pod template records which password it was built for, so that
+	// rotating the secret produces a new revision for the rolling update to
+	// apply. Without it the template is identical across a rotation and the
+	// pods keep the password they started with.
+	password, err := k8s.GetRedisPassword(r.K8SService, rf)
+	if err != nil {
+		return err
+	}
+
+	ss := generateRedisStatefulSet(rf, labels, ownerRefs, password)
 
 	digest, err := specDigest(ss.Spec)
 	if err != nil {

@@ -2923,6 +2923,13 @@ func TestRedisEnv(t *testing.T) {
 		}
 
 		ms := &mK8SService.Services{}
+		// The pod template records a digest of the password, so the statefulset
+		// ensurer reads the secret.
+		if test.auth != "" {
+			ms.On("GetSecret", namespace, test.auth).Once().Return(&corev1.Secret{
+				Data: map[string][]byte{"password": []byte("s3cr3tpass")},
+			}, nil)
+		}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
 		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
@@ -2936,6 +2943,67 @@ func TestRedisEnv(t *testing.T) {
 		assert.NoError(err)
 		assert.Equal(test.expectedRedisEnv, env)
 	}
+}
+
+// Redis reads requirepass at startup, so a pod keeps the password it began
+// with. The secret reaches it by reference, which leaves the pod template
+// identical across a rotation and gives the rolling update no new revision to
+// apply. A digest of the password is what makes the rotation visible.
+func TestRedisStatefulSetPasswordChecksum(t *testing.T) {
+	const key = "checksum/redis-password"
+
+	stamp := func(t *testing.T, secretPath, password string) *appsv1.StatefulSet {
+		t.Helper()
+
+		rf := generateRF()
+		rf.Spec.Auth.SecretPath = secretPath
+
+		var got *appsv1.StatefulSet
+		ms := &mK8SService.Services{}
+		if secretPath != "" {
+			ms.On("GetSecret", namespace, secretPath).Once().Return(&corev1.Secret{
+				Data: map[string][]byte{"password": []byte(password)},
+			}, nil)
+		}
+		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+			got = args.Get(1).(*appsv1.StatefulSet)
+		}).Return(nil)
+
+		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+		if err := client.EnsureRedisStatefulset(rf, nil, []metav1.OwnerReference{}); err != nil {
+			t.Fatalf("EnsureRedisStatefulset: %v", err)
+		}
+		return got
+	}
+
+	t.Run("carries no annotation when the failover has no password", func(t *testing.T) {
+		// Every failover in the estate is in this state, so the template has to
+		// come out unchanged or upgrading the operator restarts all of them.
+		assert.NotContains(t, stamp(t, "", "").Spec.Template.Annotations, key)
+	})
+
+	t.Run("changes when the password changes", func(t *testing.T) {
+		before := stamp(t, "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key]
+		after := stamp(t, "redis-auth", "rotated-pass").Spec.Template.Annotations[key]
+
+		assert.NotEmpty(t, before)
+		assert.NotEqual(t, before, after, "a rotation must produce a new revision to roll to")
+	})
+
+	t.Run("is stable for an unchanged password", func(t *testing.T) {
+		// Otherwise every reconcile would look like a rotation and roll the pods.
+		first := stamp(t, "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key]
+		second := stamp(t, "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key]
+
+		assert.Equal(t, first, second)
+	})
+
+	t.Run("does not expose the password", func(t *testing.T) {
+		// The pod template is readable by anything that can get pods.
+		assert.NotContains(t, stamp(t, "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key], "s3cr3tpass")
+	})
 }
 
 func TestRedisStartupProbe(t *testing.T) {
