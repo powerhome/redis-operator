@@ -324,7 +324,44 @@ spec:
   auth:
     secretPath: redis-auth
 ```
-You need to set secretPath as the secret name which is created before.
+You need to set secretPath as the secret name which is created before. The
+secret's `password` field must not be empty: a `RedisFailover` naming a secret
+with an empty password is refused, rather than started with no authentication at
+all.
+
+#### Enabling auth on a RedisFailover that is already running
+
+Adding `auth.secretPath` to a running failover needs one manual step. The Redis
+StatefulSet uses the `OnDelete` update strategy, so it prepares a new revision
+carrying the password but does not restart any pod. Until the pods restart they
+keep serving without a password while the operator, HAProxy and the sentinels
+have already picked one up, and every component that authenticates against them
+is answered with:
+
+```
+ERR AUTH <password> called without any password configured for the default user.
+```
+
+The operator logs that on each reconcile, the HAProxy backends stay `DOWN`, and
+nothing recovers on its own. Delete the Redis pods so they restart with the new
+configuration:
+
+```
+kubectl delete pod -n <namespace> \
+  -l redisfailovers.databases.spotahome.com/name=<failover-name>,redisfailovers.databases.spotahome.com/component=redis
+```
+
+Both labels are needed. `app.kubernetes.io/component=redis` alone selects the
+Redis pods of every `RedisFailover` in the namespace, not just the one being
+changed.
+
+Delete them together rather than one at a time. A restarted pod has
+`requirepass` and `masterauth` while any pod still awaiting restart has neither,
+so replication between them fails with the same error until every pod carries
+the password. Sentinel re-establishes monitoring afterwards, and the operator
+sets the sentinels' `auth-pass` on its next pass.
+
+The same applies in reverse when removing `auth.secretPath`.
 
 ### Bootstrapping from pre-existing Redis Instance(s)
 If you are wanting to migrate off of a pre-existing Redis instance, you can provide a `bootstrapNode` to your `RedisFailover` resource spec.

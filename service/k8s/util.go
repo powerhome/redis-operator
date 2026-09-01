@@ -23,6 +23,15 @@ func GetRedisPassword(s Services, rf *redisfailoverv1.RedisFailover) (string, er
 	}
 
 	if password, ok := secret.Data["password"]; ok {
+		// An empty password is a misconfiguration rather than a request for no
+		// auth: the failover asked for a secret. Left alone it produces a Redis
+		// with neither requirepass nor masterauth while the failover reports
+		// itself healthy, and an HAProxy health check that authenticates
+		// against a Redis expecting no password, which fails and empties the
+		// backend pool. Both are silent.
+		if len(password) == 0 {
+			return "", fmt.Errorf("secret \"%s\" has an empty password field", rf.Spec.Auth.SecretPath)
+		}
 		return string(password), nil
 	}
 

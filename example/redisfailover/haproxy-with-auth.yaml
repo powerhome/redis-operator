@@ -1,0 +1,52 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: haproxy-auth
+---
+# The key must be named "password". HAProxy reads it to authenticate its health
+# check, and the Redis pods read it for requirepass and masterauth, so both
+# reach the same value from the one secret.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-auth
+  namespace: haproxy-auth
+type: Opaque
+stringData:
+  password: pass
+---
+apiVersion: databases.spotahome.com/v1
+kind: RedisFailover
+metadata:
+  name: redisfailover
+  namespace: haproxy-auth
+spec:
+  auth:
+    secretPath: redis-auth
+  sentinel:
+    replicas: 3
+    resources:
+      requests:
+        cpu: 100m
+      limits:
+        memory: 100Mi
+  redis:
+    replicas: 3
+    resources:
+      requests:
+        cpu: 100m
+        memory: 100Mi
+      limits:
+        cpu: 400m
+        memory: 500Mi
+  haproxy:
+    replicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 100Mi
+        ephemeral-storage: 100Mi
+      limits:
+        memory: 500Mi
+        ephemeral-storage: 100Mi

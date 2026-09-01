@@ -126,6 +126,9 @@ func generateHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, lab
 							Ports:        ports,
 							VolumeMounts: volumeMounts,
 							Resources:    rf.Spec.Haproxy.Resources,
+							// Consumed by the tcp-check AUTH in the generated
+							// config. Empty unless the failover has a password.
+							Env: getRedisPasswordEnv(rf),
 						},
 					},
 					Volumes:       volumes,
@@ -226,6 +229,29 @@ frontend prometheus
 	}
 
 	if !bootstrapping {
+		// Authenticate ahead of the role check: under requirepass an
+		// unauthenticated `info replication` answers -NOAUTH, so every server
+		// stays DOWN and the HAProxy master Service has nothing to route to.
+		//
+		// Two things below look simplifiable and are not, and a check that
+		// cannot pass empties the pool instead of reporting an error, so
+		// either mistake is silent.
+		//
+		// `send-lf` evaluates the log-format expression that keeps the password
+		// out of this ConfigMap; plain `send` forwards it as literal text.
+		//
+		// AUTH goes in the length-prefixed Redis Serialization Protocol (RESP)
+		// form, which gives Redis each argument's size in bytes. The inline
+		// `AUTH <password>` form is split on whitespace and reparsed for
+		// quotes, which would make the set of usable passwords depend on how
+		// this string is escaped.
+		authCheck := ""
+		if rf.Spec.Auth.SecretPath != "" {
+			authCheck = `
+  tcp-check send-lf *2\r\n$4\r\nAUTH\r\n$%[env(REDIS_PASSWORD),length]\r\n%[env(REDIS_PASSWORD)]\r\n
+  tcp-check expect string +OK`
+		}
+
 		haproxyCfgBuilder.WriteString(fmt.Sprintf(`
 frontend redis-master-frontend
   bind *:%d
@@ -234,11 +260,12 @@ frontend redis-master-frontend
 backend redis-master-backend
   mode tcp
   balance first
-  option tcp-check
+  option tcp-check%s
   tcp-check send info\ replication\r\n
   tcp-check expect string role:master
   server-template redis %d _redis._tcp.%s.%s.svc.cluster.local:%d check inter 1s resolvers k8s init-addr none init-state down on-marked-down shutdown-sessions`,
 			rf.Spec.Redis.Port,
+			authCheck,
 			rf.Spec.Redis.Replicas,
 			rf.GenerateName("redis"),
 			rf.Namespace,
@@ -1511,8 +1538,22 @@ func getRedisEnv(rf *redisfailoverv1.RedisFailover) []corev1.EnvVar {
 		Value: "default",
 	})
 
-	if rf.Spec.Auth.SecretPath != "" {
-		env = append(env, corev1.EnvVar{
+	env = append(env, getRedisPasswordEnv(rf)...)
+
+	return env
+}
+
+// getRedisPasswordEnv returns the REDIS_PASSWORD variable, or nothing when the
+// failover has no password. Shared by every component that needs to
+// authenticate: Redis and Sentinel through getRedisEnv, and HAProxy for the
+// AUTH step of its health check.
+func getRedisPasswordEnv(rf *redisfailoverv1.RedisFailover) []corev1.EnvVar {
+	if rf.Spec.Auth.SecretPath == "" {
+		return nil
+	}
+
+	return []corev1.EnvVar{
+		{
 			Name: "REDIS_PASSWORD",
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
@@ -1522,8 +1563,6 @@ func getRedisEnv(rf *redisfailoverv1.RedisFailover) []corev1.EnvVar {
 					Key: "password",
 				},
 			},
-		})
+		},
 	}
-
-	return env
 }

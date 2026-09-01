@@ -1,8 +1,10 @@
 package service_test
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1487,11 +1489,70 @@ func TestHaproxyService(t *testing.T) {
 	}
 }
 
+func TestHaproxyDeploymentRedisPassword(t *testing.T) {
+	tests := []struct {
+		name       string
+		secretPath string
+		wantEnv    bool
+	}{
+		{name: "carries REDIS_PASSWORD when the failover has a password", secretPath: "redis-auth", wantEnv: true},
+		{name: "carries no env when it does not", secretPath: "", wantEnv: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+			rf.Spec.Auth.SecretPath = test.secretPath
+			rf.Spec.Haproxy = &redisfailoverv1.HaproxySettings{Replicas: 2}
+
+			var got *appsv1.Deployment
+			ms := &mK8SService.Services{}
+			// EnsureHAProxyRedisMasterDeployment refuses to proceed without the
+			// config checksum it stamps onto the pod template.
+			ms.On("GetConfigMap", namespace, mock.Anything).Once().Return(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"checksum/haproxy-cfg": "deadbeef"},
+				},
+			}, nil)
+			// No existing Deployment, so the spec-checksum short circuit is skipped.
+			ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, errors.New("not found"))
+			ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+				got = args.Get(1).(*appsv1.Deployment)
+			}).Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			err := client.EnsureHAProxyRedisMasterDeployment(rf, nil, []metav1.OwnerReference{})
+			assert.NoError(err)
+
+			env := got.Spec.Template.Spec.Containers[0].Env
+			if !test.wantEnv {
+				assert.Empty(env, "haproxy should get no environment without a password")
+				return
+			}
+
+			assert.Len(env, 1)
+			assert.Equal("REDIS_PASSWORD", env[0].Name)
+			// From the Secret, never an inline value -- the whole point of
+			// send-lf in the config is to keep the password out of the
+			// ConfigMap, which a literal here would undo.
+			assert.Empty(env[0].Value)
+			assert.Equal(test.secretPath, env[0].ValueFrom.SecretKeyRef.Name)
+			assert.Equal("password", env[0].ValueFrom.SecretKeyRef.Key)
+		})
+	}
+}
+
 func TestGenerateHaproxyConfig(t *testing.T) {
 	tests := []struct {
-		name         string
-		rf           *redisfailoverv1.RedisFailover
-		bootstrap    bool
+		name      string
+		rf        *redisfailoverv1.RedisFailover
+		bootstrap bool
+		// mustContain holds literal config text, for lines worth pinning
+		// exactly; mustMatch and mustNotMatch hold regular expressions, for
+		// everything that only has to be present, absent or in order.
+		mustContain  []string
 		mustMatch    []string
 		mustNotMatch []string
 	}{
@@ -1546,6 +1607,56 @@ func TestGenerateHaproxyConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "authenticates the health check when the failover has a password",
+			rf: &redisfailoverv1.RedisFailover{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns", Name: "expected-name"},
+				Spec: redisfailoverv1.RedisFailoverSpec{
+					Redis: redisfailoverv1.RedisSettings{
+						Port:     6379,
+						Replicas: 3,
+					},
+					Haproxy: &redisfailoverv1.HaproxySettings{},
+					Auth:    redisfailoverv1.AuthSettings{SecretPath: "redis-auth"},
+				},
+			},
+			// Both `send-lf` and the length-prefixed AUTH break silently when
+			// simplified, so pin the whole line.
+			mustContain: []string{
+				`  tcp-check send-lf *2\r\n$4\r\nAUTH\r\n$%[env(REDIS_PASSWORD),length]\r\n%[env(REDIS_PASSWORD)]\r\n
+  tcp-check expect string +OK`,
+			},
+			mustMatch: []string{
+				// and it has to precede the role check it exists to unblock
+				`(?s)AUTH.*tcp-check send info`,
+			},
+			mustNotMatch: []string{
+				// The Secret is referenced through the pod environment, so
+				// neither its name nor the password it holds belongs in a
+				// ConfigMap that anyone with `get configmaps` can read.
+				`redis-auth`,
+			},
+		},
+		{
+			name: "leaves the health check unauthenticated when there is no password",
+			rf: &redisfailoverv1.RedisFailover{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns", Name: "expected-name"},
+				Spec: redisfailoverv1.RedisFailoverSpec{
+					Redis: redisfailoverv1.RedisSettings{
+						Port:     6379,
+						Replicas: 3,
+					},
+					Haproxy: &redisfailoverv1.HaproxySettings{},
+				},
+			},
+			mustMatch: []string{`tcp-check send info\\ replication`},
+			mustNotMatch: []string{
+				// Named as the config directive and the variable rather than
+				// as the bare word AUTH, which any future comment could carry.
+				`tcp-check send-lf`,
+				`REDIS_PASSWORD`,
+			},
+		},
+		{
 			name: "includes an administratively disabled redis-master block when bootstrapping",
 			rf: &redisfailoverv1.RedisFailover{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns", Name: "expected-name"},
@@ -1570,6 +1681,12 @@ func TestGenerateHaproxyConfig(t *testing.T) {
 			rf := *test.rf // shallow copy
 
 			cfg := rfservice.GenerateHaproxyConfig(&rf, test.bootstrap)
+
+			for _, want := range test.mustContain {
+				if !strings.Contains(cfg, want) {
+					t.Errorf("expected config to contain:\n%s\nConfig:\n%s", want, cfg)
+				}
+			}
 
 			for _, pattern := range test.mustMatch {
 				re := regexp.MustCompile(pattern)
