@@ -18,7 +18,7 @@ import (
 type Client interface {
 	GetNumberSentinelsInMemory(ip string, port string) (int32, error)
 	GetNumberSentinelSlavesInMemory(ip string, port string) (int32, error)
-	GetNumberRedisConnectedSlaves(ip string, port string) (int32, error)
+	GetNumberRedisConnectedSlaves(ip, port, password string) (int32, error)
 	ResetSentinel(ip string, port string) error
 	GetSlaveOf(ip, port, password string) (string, error)
 	IsMaster(ip, port, password string) (bool, error)
@@ -134,10 +134,10 @@ func (c *client) GetNumberSentinelSlavesInMemory(ip string, sentinelPort string)
 }
 
 // GetNumberRedisConnectedSlaves return the number of slaves that the requested redis has
-func (c *client) GetNumberRedisConnectedSlaves(ip string, sentinelPort string) (int32, error) {
+func (c *client) GetNumberRedisConnectedSlaves(ip, port, password string) (int32, error) {
 	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, sentinelPort),
-		Password: "",
+		Addr:     net.JoinHostPort(ip, port),
+		Password: password,
 		DB:       0,
 	}
 	rClient := rediscli.NewClient(options)
