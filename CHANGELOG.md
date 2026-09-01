@@ -21,6 +21,12 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
   An empty `password` produced a Redis with neither `requirepass` nor `masterauth` while the `RedisFailover` reported itself healthy, so a failover configured for authentication silently ran without any. The operator now fails the reconcile and reports the secret by name. A `RedisFailover` relying on that to run unauthenticated must remove `auth.secretPath` to keep doing so.
 
+- [Authenticate the connected-slaves health check](https://github.com/powerhome/redis-operator/pull/102)
+
+  On a `RedisFailover` with `auth.secretPath` set, the check of how many replicas the master has connected did not authenticate, so under `requirepass` it was answered `NOAUTH` on every reconcile. The operator read that as a replica-count mismatch and responded by killing the master's replica connections, forcing the replicas to resync roughly every 30 seconds on an otherwise healthy cluster. The check now authenticates when the failover has a password.
+
+  A `RedisFailover` without `auth.secretPath` is unaffected: the resolved password is empty, which is what the check already sent.
+
 ## [v4.5.1] - 2026-08-18
 
 ### Changed
