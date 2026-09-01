@@ -33,6 +33,7 @@ type RedisFailoverCheck interface {
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetSentinelsIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetMaxRedisPodTime(rFailover *redisfailoverv1.RedisFailover) (time.Duration, error)
+	GetRedisesPodNames(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesSlavesPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesMasterPod(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetStatefulSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error)
@@ -409,6 +410,26 @@ func (r *RedisFailoverChecker) GetMaxRedisPodTime(rf *redisfailoverv1.RedisFailo
 		}
 	}
 	return maxTime, nil
+}
+
+// GetRedisesPodNames returns the names of the running Redis pods, without
+// asking Redis anything. Every other pod lookup here decides a pod's role by
+// querying it, which is unavailable precisely when Redis is refusing the
+// operator's credential.
+func (r *RedisFailoverChecker) GetRedisesPodNames(rf *redisfailoverv1.RedisFailover) ([]string, error) {
+	names := []string{}
+	rps, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
+	if err != nil {
+		return nil, err
+	}
+
+	for _, rp := range rps.Items {
+		if rp.Status.Phase == corev1.PodRunning && rp.DeletionTimestamp == nil {
+			names = append(names, rp.ObjectMeta.Name)
+		}
+	}
+
+	return names, nil
 }
 
 // GetRedisesSlavesPods returns pods names of the Redis slave nodes

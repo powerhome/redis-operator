@@ -402,6 +402,36 @@ func (_m *RedisFailoverCheck) GetRedisesMasterPod(rFailover *v1.RedisFailover) (
 	return r0, r1
 }
 
+// GetRedisesPodNames provides a mock function with given fields: rFailover
+func (_m *RedisFailoverCheck) GetRedisesPodNames(rFailover *v1.RedisFailover) ([]string, error) {
+	ret := _m.Called(rFailover)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRedisesPodNames")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) ([]string, error)); ok {
+		return rf(rFailover)
+	}
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) []string); ok {
+		r0 = rf(rFailover)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(*v1.RedisFailover) error); ok {
+		r1 = rf(rFailover)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetRedisesSlavesPods provides a mock function with given fields: rFailover
 func (_m *RedisFailoverCheck) GetRedisesSlavesPods(rFailover *v1.RedisFailover) ([]string, error) {
 	ret := _m.Called(rFailover)
