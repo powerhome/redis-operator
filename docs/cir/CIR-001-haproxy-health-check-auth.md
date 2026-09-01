@@ -34,6 +34,12 @@ configuration that worked.
 - WHEN the operator generates its HAProxy config and Deployment
 - THEN both are byte-identical to before, so nothing restarts on upgrade
 
+- GIVEN a `RedisFailover` whose `auth.secretPath` names a secret with an empty
+  password
+- WHEN the operator reconciles it
+- THEN the reconcile fails and names the secret, rather than producing a Redis
+  with no `requirepass` and an HAProxy check that authenticates against it
+
 - GIVEN a `RedisFailover` that is bootstrapping
 - WHEN the operator reconciles it
 - THEN no HAProxy resources exist to authenticate, because `HaproxyAllowed()` is
@@ -84,6 +90,16 @@ proved wrong twice. Results:
   supplies both blanks from the environment via `%[env(REDIS_PASSWORD),length]`
   and `%[env(REDIS_PASSWORD)]`. No password is unusable and no validation is
   needed.
+
+- **Rejected: resolving the password for the HAProxy generators.** An empty
+  password splits the two conditions that stand for "this failover has a
+  password": the Redis config gates on the resolved value and emits no
+  `requirepass`, while the HAProxy config and Deployment gate on the spec field
+  and still send an AUTH, which Redis answers `-ERR`. Threading the resolved
+  value through both HAProxy generators aligns them, but leaves a failover that
+  asked for authentication running without any. Refusing an empty password in
+  `GetRedisPassword` makes the split unreachable and surfaces the
+  misconfiguration instead.
 
 Also considered and left alone: **a Redis NetworkPolicy.** Reported alongside
 this in the same issue, but #42 removed those policies deliberately and #48
