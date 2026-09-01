@@ -432,6 +432,83 @@ func TestCheckAndHeal(t *testing.T) {
 	}
 }
 
+// Adding auth.secretPath to a running failover, or rotating the secret it names,
+// leaves the running Redis using a password the operator no longer has. Every
+// check in CheckAndHeal authenticates, and the rolling update that applies the
+// new password sits behind all of them, so without this the failover wedges at
+// the first check and never reaches its own repair.
+func TestCheckAndHealRollsPodsWhenRedisRefusesTheConfiguredPassword(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantRoll bool
+	}{
+		{
+			name:     "pods still have no password",
+			err:      errors.New("ERR AUTH <password> called without any password configured for the default user."),
+			wantRoll: true,
+		},
+		{
+			name:     "pods have the password from before the rotation",
+			err:      errors.New("WRONGPASS invalid username-password pair or user is disabled."),
+			wantRoll: true,
+		},
+		{
+			name:     "pods want a password the operator did not send",
+			err:      errors.New("NOAUTH Authentication required."),
+			wantRoll: true,
+		},
+		{
+			// Not a credential problem, so the existing handling stands: this
+			// must not be answered by restarting Redis.
+			name:     "a pod is simply unreachable",
+			err:      errors.New("dial tcp 10.0.0.1:6379: connect: connection refused"),
+			wantRoll: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			config := generateConfig()
+			rf := generateRF(false, false)
+			mrfs := &mRFService.RedisFailoverClient{}
+			mrfc := &mRFService.RedisFailoverCheck{}
+			mrfh := &mRFService.RedisFailoverHeal{}
+			mk := &mK8SService.Services{}
+
+			mrfc.On("IsRedisRunning", rf).Once().Return(true)
+			mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+			mrfc.On("GetNumberMasters", rf).Once().Return(0, test.err)
+
+			if test.wantRoll {
+				// The roll is the one already used for any pod-template change:
+				// it reads the pods, compares revisions, and deletes the stale
+				// ones. Here every pod is current, so it finds nothing to do and
+				// the point is only that it was reached at all.
+				mrfc.On("GetRedisesIPs", rf).Once().Return([]string{"1.1.1.1"}, nil)
+				mrfc.On("GetMasterIP", rf).Once().Return("1.1.1.1", nil)
+				mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("rev-2", nil)
+				mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+				mrfc.On("GetRedisesMasterPod", rf).Once().Return("rfr-test-0", nil)
+				mrfc.On("GetRedisRevisionHash", "rfr-test-0", rf).Once().Return("rev-2", nil)
+			}
+
+			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
+			err := handler.CheckAndHeal(rf)
+
+			if test.wantRoll {
+				assert.NoError(err)
+			} else {
+				assert.Error(err, "a fault that is not about credentials should surface, not trigger a restart")
+			}
+			mrfc.AssertExpectations(t)
+			mrfh.AssertExpectations(t)
+		})
+	}
+}
+
 func TestUpdate(t *testing.T) {
 	type podStatus struct {
 		pod    corev1.Pod

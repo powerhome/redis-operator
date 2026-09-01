@@ -6,6 +6,7 @@ import (
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	"github.com/spotahome/redis-operator/metrics"
+	"github.com/spotahome/redis-operator/service/redis"
 )
 
 // UpdateRedisesPods if the running version of pods are equal to the statefulset one
@@ -24,9 +25,16 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		if rip != masterIP {
 			ready, err := r.rfChecker.CheckRedisSlavesReady(rip, rf)
 			if err != nil {
-				return err
-			}
-			if !ready {
+				// This gate exists to avoid rolling pods mid-resync, which is
+				// a state that resolves itself given time. A credential
+				// mismatch is not: the pods keep whatever password they
+				// started with, and rolling them is what applies the new one.
+				// Waiting for a reply that cannot come would leave the
+				// failover stuck here for good.
+				if !redis.IsAuthError(err) {
+					return err
+				}
+			} else if !ready {
 				return nil
 			}
 		}
@@ -110,6 +118,24 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 	}
 
 	nMasters, err := r.rfChecker.GetNumberMasters(rf)
+	if redis.IsAuthError(err) {
+		// The running Redis is not using the password the failover is
+		// configured with. Two ordinary actions leave it that way: adding
+		// auth.secretPath to a running failover, and rotating the value in the
+		// secret it names. In both the generated config carries the new
+		// password and the running Redis does not, because it reads that config
+		// only at startup.
+		//
+		// Nothing below can see past this. Every check authenticates, and the
+		// rolling update that applies the new password sits behind all of them,
+		// so the failover would wedge here and never reach its own repair.
+		// Waiting does not help either, since the pods keep whatever they
+		// started with. Roll them, replicas first and the master last, the same
+		// way any other pod-template change is applied.
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
+			Warningf("Redis is not using the password the failover is configured with, rolling pods to apply it: %s", err.Error())
+		return r.UpdateRedisesPods(rf)
+	}
 	if err != nil {
 		return err
 	}

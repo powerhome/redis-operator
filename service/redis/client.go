@@ -498,6 +498,29 @@ func (c *client) SlaveIsReady(ip, port, password string) (bool, error) {
 	return ok, nil
 }
 
+// IsAuthError reports whether Redis refused the credential we offered, rather
+// than failing for some other reason.
+//
+// All three answers mean the same thing to the operator: the running Redis is
+// not using the password the RedisFailover's secret currently holds. Redis
+// answers NOAUTH when it wants a password and got none, WRONGPASS when it got
+// the wrong one, and complains that no password is configured when it wants
+// none and got one. That last case is the one an operator hits first, by adding
+// auth.secretPath to a failover whose pods are already running.
+//
+// Waiting cannot resolve any of them. The pods have to restart to pick up the
+// credential the spec now describes.
+func IsAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "NOAUTH") ||
+		strings.Contains(msg, "WRONGPASS") ||
+		strings.Contains(msg, "without any password configured") ||
+		strings.Contains(msg, "but no password is set")
+}
+
 func getRedisError(err error) string {
 	if strings.Contains(err.Error(), "NOAUTH") {
 		return metrics.NOAUTH
