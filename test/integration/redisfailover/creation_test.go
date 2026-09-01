@@ -170,6 +170,10 @@ func TestRedisFailover(t *testing.T) {
 	// Reach the master through HAProxy, which only routes once its health check
 	// has authenticated against a password-protected Redis.
 	t.Run("Check HAProxy Routing To The Redis Master", clients.testHaproxyMaster)
+
+	// Change the password and check the operator applies it without help. This
+	// runs last because it restarts every Redis pod.
+	t.Run("Check Rotating The Password Is Applied", clients.testPasswordRotation)
 }
 
 const sentinelPort = 26379
@@ -338,6 +342,74 @@ func (c *clients) testHaproxyMaster(t *testing.T) {
 
 	assert.NoError(lastErr, "HAProxy should have a Redis backend to route to; without an authenticated health check every backend stays DOWN")
 	assert.True(isMaster, "HAProxy should route to the Redis master")
+}
+
+// testPasswordRotation changes the password in the secret and waits for the
+// failover to come back using it.
+//
+// Redis reads requirepass only at startup and the StatefulSet uses the OnDelete
+// update strategy, so nothing restarts the pods on their own; the operator has
+// to notice that Redis is refusing the configured password and restart them. It
+// is the transition that matters here, which is why this asserts on reaching a
+// master with the new password rather than on any generated resource: an
+// assertion over configuration passes just as well when the pods are still
+// serving the old one.
+func (c *clients) testPasswordRotation(t *testing.T) {
+	assert := assert.New(t)
+
+	const rotated = "rotated-pass"
+	secret, err := c.k8sClient.CoreV1().Secrets(namespace).Get(context.Background(), authSecretPath, metav1.GetOptions{})
+	if !assert.NoError(err) {
+		return
+	}
+	secret.Data = map[string][]byte{"password": []byte(rotated)}
+	_, err = c.k8sClient.CoreV1().Secrets(namespace).Update(context.Background(), secret, metav1.UpdateOptions{})
+	if !assert.NoError(err) {
+		return
+	}
+
+	redisSS, err := c.k8sClient.AppsV1().StatefulSets(namespace).Get(context.Background(), fmt.Sprintf("rfr-%s", name), metav1.GetOptions{})
+	if !assert.NoError(err) {
+		return
+	}
+	listOptions := metav1.ListOptions{LabelSelector: labels.FormatLabels(redisSS.Spec.Selector.MatchLabels)}
+
+	// The operator restarts the pods together, sentinel then elects a master,
+	// and the operator restores the role labels. Poll for the end of all of
+	// that rather than for any one step.
+	var master string
+	var lastErr error
+	for deadline := time.Now().Add(5 * time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Second) {
+		pods, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		master, lastErr = "", nil
+		ready := 0
+		for _, pod := range pods.Items {
+			if pod.Status.PodIP == "" {
+				continue
+			}
+			isMaster, err := c.redisClient.IsMaster(pod.Status.PodIP, "6379", rotated)
+			if err != nil {
+				lastErr = err
+				break
+			}
+			ready++
+			if isMaster {
+				master = pod.Status.PodIP
+			}
+		}
+
+		if lastErr == nil && master != "" && ready == int(redisSize) {
+			break
+		}
+	}
+
+	assert.NoError(lastErr, "every Redis pod should accept the rotated password once the operator has applied it")
+	assert.NotEmpty(master, "the failover should have a master again after the rotation")
 }
 
 func (c *clients) testAuth(t *testing.T) {
