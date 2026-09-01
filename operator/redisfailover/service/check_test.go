@@ -41,6 +41,81 @@ func generateRF() *redisfailoverv1.RedisFailover {
 	}
 }
 
+// A node that is not ready yet is worth skipping past; another may answer and
+// the condition clears on its own. A node refusing the credential will keep
+// refusing until its pod restarts, so reporting zero masters and no error hides
+// the one fault the caller can repair.
+func TestGetNumberMastersSurfacesRefusedCredentials(t *testing.T) {
+	tests := []struct {
+		name      string
+		podErr    error
+		anyMaster bool
+		wantErr   bool
+	}{
+		{
+			name:    "every node refuses the credential",
+			podErr:  errors.New("WRONGPASS invalid username-password pair or user is disabled."),
+			wantErr: true,
+		},
+		{
+			name:    "every node wants a password we did not send",
+			podErr:  errors.New("NOAUTH Authentication required."),
+			wantErr: true,
+		},
+		{
+			// Unreachable is the case the existing skip-and-continue is for.
+			name:    "a node is simply unreachable",
+			podErr:  errors.New("dial tcp 10.0.0.1:6379: connect: connection refused"),
+			wantErr: false,
+		},
+		{
+			// Mid-rotation some pods hold the new password and some the old. If
+			// a master still answers there is nothing to repair.
+			name:      "a master answers despite another refusing",
+			podErr:    errors.New("WRONGPASS invalid username-password pair or user is disabled."),
+			anyMaster: true,
+			wantErr:   false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+			rf.Spec.Auth.SecretPath = "redis-auth"
+
+			ms := &mK8SService.Services{}
+			ms.On("GetStatefulSetPods", rf.Namespace, mock.Anything).Once().Return(&corev1.PodList{
+				Items: []corev1.Pod{
+					{Status: corev1.PodStatus{PodIP: "1.1.1.1", Phase: corev1.PodRunning}},
+					{Status: corev1.PodStatus{PodIP: "1.1.1.2", Phase: corev1.PodRunning}},
+				},
+			}, nil)
+			ms.On("GetSecret", rf.Namespace, "redis-auth").Once().Return(&corev1.Secret{
+				Data: map[string][]byte{"password": []byte("s3cr3tpass")},
+			}, nil)
+
+			mr := &mRedisService.Client{}
+			mr.On("IsMaster", "1.1.1.1", mock.Anything, mock.Anything).Once().Return(false, test.podErr)
+			if test.anyMaster {
+				mr.On("IsMaster", "1.1.1.2", mock.Anything, mock.Anything).Once().Return(true, nil)
+			} else {
+				mr.On("IsMaster", "1.1.1.2", mock.Anything, mock.Anything).Once().Return(false, test.podErr)
+			}
+
+			checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+			_, err := checker.GetNumberMasters(rf)
+
+			if test.wantErr {
+				assert.Error(err, "a refused credential has to reach the caller, which is the only thing that can fix it")
+			} else {
+				assert.NoError(err)
+			}
+		})
+	}
+}
+
 func TestCheckRedisNumberError(t *testing.T) {
 	assert := assert.New(t)
 
