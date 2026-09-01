@@ -446,12 +446,37 @@ func TestCheckNumberRedisConnectedSlavesGeConnectedSlavesNumberError(t *testing.
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetNumberRedisConnectedSlaves", "1.1.1.1", "0").Once().Return(int32(0), errors.New("expected error"))
+	mr.On("GetNumberRedisConnectedSlaves", "1.1.1.1", "0", "").Once().Return(int32(0), errors.New("expected error"))
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
 	err := checker.CheckNumberRedisConnectedSlaves("1.1.1.1", rf)
 	assert.Error(err)
+}
+
+// The check reads the master's replication state, so it has to authenticate.
+// Without a password it is answered NOAUTH on every reconcile of a failover that
+// has one, which the caller reads as a slave-count mismatch and answers by
+// killing the master's replica connections.
+func TestCheckNumberRedisConnectedSlavesAuthenticates(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+	rf.Spec.Auth.SecretPath = "redis-auth"
+
+	ms := &mK8SService.Services{}
+	ms.On("GetSecret", rf.Namespace, "redis-auth").Once().Return(&corev1.Secret{
+		Data: map[string][]byte{"password": []byte("s3cr3tpass")},
+	}, nil)
+
+	mr := &mRedisService.Client{}
+	mr.On("GetNumberRedisConnectedSlaves", "1.1.1.1", "0", "s3cr3tpass").Once().Return(rf.Spec.Redis.Replicas-1, nil)
+
+	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+
+	err := checker.CheckNumberRedisConnectedSlaves("1.1.1.1", rf)
+	assert.NoError(err)
+	mr.AssertExpectations(t)
 }
 
 func TestCheckNumberRedisConnectedSlavesGeConnectedSlavesNumberMismatch(t *testing.T) {
@@ -461,7 +486,7 @@ func TestCheckNumberRedisConnectedSlavesGeConnectedSlavesNumberMismatch(t *testi
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetNumberRedisConnectedSlaves", "1.1.1.1", "0").Once().Return(int32(rf.Spec.Redis.Replicas+1), nil)
+	mr.On("GetNumberRedisConnectedSlaves", "1.1.1.1", "0", "").Once().Return(int32(rf.Spec.Redis.Replicas+1), nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -475,7 +500,7 @@ func TestCheckNumberRedisConnectedSlaves(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetNumberRedisConnectedSlaves", "1.1.1.1", "0").Once().Return(rf.Spec.Redis.Replicas-1, nil)
+	mr.On("GetNumberRedisConnectedSlaves", "1.1.1.1", "0", "").Once().Return(rf.Spec.Redis.Replicas-1, nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
