@@ -15,6 +15,10 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
   A `RedisFailover` that set both `auth.secretPath` and `haproxy` could not serve traffic through HAProxy. The generated health check did not authenticate, so under `requirepass` every backend failed its check and stayed `DOWN`, leaving the `rfrm-haproxy-<name>` service with nothing to route to. The direct `rfrm-<name>` master service was unaffected. The check now authenticates when the failover has a password, and the HAProxy deployment reads that password from the same secret the Redis pods use.
 
+- [Reject an `auth.secretPath` secret whose `password` field is empty](https://github.com/powerhome/redis-operator/pull/98)
+
+  An empty `password` produced a Redis with neither `requirepass` nor `masterauth` while the `RedisFailover` reported itself healthy, so a failover configured for authentication silently ran without any. The operator now fails the reconcile and reports the secret by name. A `RedisFailover` relying on that to run unauthenticated must remove `auth.secretPath` to keep doing so.
+
   No action is required for a `RedisFailover` without `auth.secretPath`: its generated config and deployment are unchanged, so nothing restarts on upgrade. The minimum HAProxy image is still v3.1.0, as set in v4.0.0.
 
 ## [v4.5.1] - 2026-08-18
