@@ -432,7 +432,7 @@ func (r *RedisFailoverChecker) GetRedisesPodsWithStalePassword(rf *redisfailover
 		return nil, err
 	}
 
-	pods, err := servingRedisPods(r.k8sService, rf)
+	pods, err := redisPodsInService(r.k8sService, rf)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +440,7 @@ func (r *RedisFailoverChecker) GetRedisesPodsWithStalePassword(rf *redisfailover
 	current := redisPasswordChecksum(rf, password)
 	stale := []string{}
 	for _, pod := range pods {
-		if !redisPodServesPassword(pod, current) {
+		if !redisPodBuiltForPassword(pod, current) {
 			stale = append(stale, pod.Name)
 		}
 	}

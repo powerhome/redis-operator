@@ -141,13 +141,13 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterConfigmap(rf *redisfai
 // Being unable to tell is answered with "they disagree", which costs a pass
 // rather than risking a restart onto the wrong password.
 func (r *RedisFailoverKubeClient) redisPodsDisagreeOnPassword(rf *redisfailoverv1.RedisFailover, digest string) bool {
-	pods, err := servingRedisPods(r.K8SService, rf)
+	pods, err := redisPodsInService(r.K8SService, rf)
 	if err != nil {
 		return true
 	}
 
 	for _, pod := range pods {
-		if !redisPodServesPassword(pod, digest) {
+		if !redisPodBuiltForPassword(pod, digest) {
 			return true
 		}
 	}

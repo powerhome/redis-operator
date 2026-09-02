@@ -38,15 +38,15 @@ func redisPasswordChecksum(rf *redisfailoverv1.RedisFailover, password string) s
 	return hex.EncodeToString(sum[:])
 }
 
-// servingRedisPods returns the Redis pods whose password is worth comparing:
-// those that are up and staying up.
+// redisPodsInService returns the Redis pods that are up and staying up: those
+// that have reached Running and are not being deleted.
 //
-// A pod that has not reached Running is not serving a password yet, and one
-// carrying a deletion timestamp is on its way out. Restarting either changes
-// nothing, and waiting on either holds back a change it will never take: a pod
-// stuck terminating on a lost node would otherwise pin HAProxy on a password
-// its backends have already given up.
-func servingRedisPods(s k8s.Services, rf *redisfailoverv1.RedisFailover) ([]corev1.Pod, error) {
+// These are the pods whose password is worth comparing. One that has not
+// started is not serving anything yet, and one carrying a deletion timestamp is
+// on its way out; restarting either changes nothing, and waiting on either
+// holds back a change it will never take. A pod stuck terminating on a lost
+// node would otherwise pin HAProxy on a password its backends have replaced.
+func redisPodsInService(s k8s.Services, rf *redisfailoverv1.RedisFailover) ([]corev1.Pod, error) {
 	pods, err := s.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
 	if err != nil {
 		return nil, err
@@ -55,20 +55,24 @@ func servingRedisPods(s k8s.Services, rf *redisfailoverv1.RedisFailover) ([]core
 		return nil, nil
 	}
 
-	serving := []corev1.Pod{}
+	inService := []corev1.Pod{}
 	for _, pod := range pods.Items {
 		if pod.Status.Phase != corev1.PodRunning || pod.DeletionTimestamp != nil {
 			continue
 		}
-		serving = append(serving, pod)
+		inService = append(inService, pod)
 	}
 
-	return serving, nil
+	return inService, nil
 }
 
-// redisPodServesPassword reports whether a pod was built for the password the
-// digest identifies. An absent annotation means no password, which is what the
-// empty digest stands for.
-func redisPodServesPassword(pod corev1.Pod, digest string) bool {
+// redisPodBuiltForPassword reports whether a pod carries the digest of the
+// password it was generated with. An absent annotation means no password, which
+// is what the empty digest stands for.
+//
+// This reads the annotation stamped when the pod was created, not what Redis
+// loaded. The two agree because the annotation and the config come from the
+// same pod template, and the whole scheme rests on that.
+func redisPodBuiltForPassword(pod corev1.Pod, digest string) bool {
 	return pod.Annotations[redisPasswordChecksumKey] == digest
 }
