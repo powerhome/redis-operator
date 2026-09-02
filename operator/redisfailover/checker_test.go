@@ -315,6 +315,10 @@ func TestCheckAndHeal(t *testing.T) {
 			}
 
 			if bootstrappingTests && continueTests {
+				// Probed for a refused credential before anything that
+				// authenticates. Nothing is refusing here, so the count is
+				// irrelevant and the flow carries on.
+				mrfc.On("GetNumberMasters", rf).Once().Return(0, nil)
 				// once to get ips for config update, once for the UpdateRedisesPods go right
 				mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{"0.0.0.1", "0.0.0.2", "0.0.0.3"}, nil)
 				mrfh.On("SetRedisCustomConfig", "0.0.0.1", rf).Once().Return(nil)
@@ -525,6 +529,67 @@ func nilIfEmpty(s []string) []string {
 		return nil
 	}
 	return s
+}
+
+// A bootstrapping failover never reaches the credential handling in
+// CheckAndHeal, which routes to its own path on the first line, and everything
+// on that path authenticates. Without this a password change wedges there
+// exactly as it used to elsewhere.
+func TestCheckAndHealBootstrapModeAppliesACredentialChange(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantRoll bool
+	}{
+		{
+			name:     "restarts the pods when Redis refuses the configured password",
+			err:      errors.New("WRONGPASS invalid username-password pair or user is disabled."),
+			wantRoll: true,
+		},
+		{
+			// Every pod is a replica of the external node while bootstrapping,
+			// so no masters is the normal state and must not look like a fault.
+			name:     "carries on when there is simply no master among the pods",
+			err:      nil,
+			wantRoll: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			config := generateConfig()
+			rf := generateRF(false, true)
+			mrfs := &mRFService.RedisFailoverClient{}
+			mrfc := &mRFService.RedisFailoverCheck{}
+			mrfh := &mRFService.RedisFailoverHeal{}
+			mk := &mK8SService.Services{}
+
+			mrfc.On("IsRedisRunning", rf).Once().Return(true)
+			mrfc.On("GetNumberMasters", rf).Once().Return(0, test.err)
+
+			if test.wantRoll {
+				mrfc.On("GetRedisesPodsWithStalePassword", rf).Once().Return([]string{"rfr-test-0", "rfr-test-1"}, nil)
+				mrfh.On("DeletePod", "rfr-test-0", rf).Once().Return(nil)
+				mrfh.On("DeletePod", "rfr-test-1", rf).Once().Return(nil)
+			} else {
+				// Reached only if the probe let the flow through.
+				mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{"0.0.0.1"}, nil)
+				mrfc.On("CheckRedisSlavesReady", "0.0.0.1", rf).Once().Return(true, nil)
+				mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+				mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+				mrfh.On("SetRedisCustomConfig", "0.0.0.1", rf).Once().Return(nil)
+				mrfh.On("SetExternalMasterOnAll", "127.0.0.1", "6379", rf).Once().Return(nil)
+			}
+
+			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
+			assert.NoError(handler.CheckAndHeal(rf))
+
+			mrfc.AssertExpectations(t)
+			mrfh.AssertExpectations(t)
+		})
+	}
 }
 
 func TestUpdate(t *testing.T) {

@@ -95,6 +95,11 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 // it. Restarting together costs a short window with no Redis at all, which
 // sentinel and the clients already handle, instead of a split that persists.
 //
+// While bootstrapping the pods replicate from the external node rather than from
+// each other, so that split cannot arise there. They still go together: the
+// authoritative data is on the bootstrap node, which the restart does not touch,
+// so there is nothing to gain from drawing it out.
+//
 // Only pods on a stale template are restarted. If they all carry the current one
 // and Redis still refuses the credential, restarting cannot help -- the secret
 // itself is wrong, or its value never reached the config -- and repeating it
@@ -302,6 +307,20 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 		setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.REDIS_REPLICA_MISMATCH, metrics.NOT_APPLICABLE, errors.New("not all replicas running"))
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Number of redis mismatch, waiting for redis statefulset reconcile")
 		return nil
+	}
+
+	// Bootstrapping never reaches the credential handling in CheckAndHeal, which
+	// returns here on its first line, and UpdateRedisesPods below authenticates.
+	// Without this a password change wedges the failover at that call exactly as
+	// it used to everywhere else.
+	//
+	// GetNumberMasters serves as the probe: it asks every pod and reports a
+	// refusal only when none of them answered, so a pod that is merely
+	// unreachable does not trigger a restart. Its count is meaningless while
+	// bootstrapping, since every pod is a replica of the external node by
+	// design, and is deliberately ignored.
+	if _, err := r.rfChecker.GetNumberMasters(rf); redis.IsAuthError(err) {
+		return r.applyCredentialChange(rf, err)
 	}
 
 	err := r.UpdateRedisesPods(rf)
