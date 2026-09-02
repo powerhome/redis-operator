@@ -76,3 +76,35 @@ func redisPodsInService(s k8s.Services, rf *redisfailoverv1.RedisFailover) ([]co
 func redisPodBuiltForPassword(pod corev1.Pod, digest string) bool {
 	return pod.Annotations[redisPasswordChecksumKey] == digest
 }
+
+// anyRedisPodOnAnotherPassword reports whether some Redis pod in service was
+// built for a password other than the one the digest names.
+//
+// This is what decides when the HAProxy Deployment may be written. HAProxy
+// authenticates its health check and reads the password when its pod starts, so
+// a proxy whose configuration disagrees with a Redis that is up and answering
+// fails that backend for as long as the two differ. Deferring the write leaves
+// the running proxy on the password its backends still have.
+//
+// Pods out of service are not waited for. They come back from the current pod
+// template and carry the current password when they do, so one that is still
+// starting, or one stuck terminating on a lost node, must not hold the proxy
+// back indefinitely. With no pods in service at all there is nothing to
+// disagree with and nothing to protect by waiting.
+//
+// Being unable to tell counts as a disagreement, which costs a pass rather than
+// risking a restart onto the wrong password.
+func anyRedisPodOnAnotherPassword(s k8s.Services, rf *redisfailoverv1.RedisFailover, digest string) bool {
+	pods, err := redisPodsInService(s, rf)
+	if err != nil {
+		return true
+	}
+
+	for _, pod := range pods {
+		if !redisPodBuiltForPassword(pod, digest) {
+			return true
+		}
+	}
+
+	return false
+}

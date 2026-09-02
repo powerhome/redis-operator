@@ -124,37 +124,6 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterConfigmap(rf *redisfai
 	return err
 }
 
-// redisPodsDisagreeOnPassword reports whether any Redis pod that is currently
-// serving was built for a password other than the one the digest names.
-//
-// This is what decides when the HAProxy Deployment may be written. HAProxy
-// authenticates its health check and reads the password when its pod starts, so
-// a proxy whose configuration disagrees with a Redis that is up and answering
-// fails that backend for as long as the two differ. Deferring the write leaves
-// the running proxy on the password its backends still have.
-//
-// Pods that are not serving are not protected by waiting. They are coming back
-// from the current pod template and will carry the current password when they
-// do, so a pod that is still starting, or one stuck terminating on a lost node,
-// must not hold the proxy back indefinitely.
-//
-// Being unable to tell is answered with "they disagree", which costs a pass
-// rather than risking a restart onto the wrong password.
-func (r *RedisFailoverKubeClient) redisPodsDisagreeOnPassword(rf *redisfailoverv1.RedisFailover, digest string) bool {
-	pods, err := redisPodsInService(r.K8SService, rf)
-	if err != nil {
-		return true
-	}
-
-	for _, pod := range pods {
-		if !redisPodBuiltForPassword(pod, digest) {
-			return true
-		}
-	}
-
-	return false
-}
-
 // EnsureHAProxyRedisMasterDeployment makes sure the sentinel deployment exists in the desired state
 func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	// Get the name of the ConfigMap we expect to have already been created
@@ -219,7 +188,7 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterDeployment(rf *redisfa
 		// then authenticates every health check with a password its backends do
 		// not have, and the master Service has nothing to route to until they
 		// catch up.
-		if r.redisPodsDisagreeOnPassword(rf, passwordChecksum) {
+		if anyRedisPodOnAnotherPassword(r.K8SService, rf, passwordChecksum) {
 			r.logger.WithField("redisfailover", rf.Name).WithField("namespace", rf.Namespace).Debugf("Holding the HAProxy deployment while Redis takes the configured password")
 			return nil
 		}
