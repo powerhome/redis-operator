@@ -444,11 +444,12 @@ func TestCheckAndHeal(t *testing.T) {
 // the first one and never reaches anything that could repair it.
 func TestCheckAndHealAppliesACredentialChange(t *testing.T) {
 	tests := []struct {
-		name        string
-		err         error
-		staleRevs   map[string]string
-		wantDeleted []string
-		wantErr     bool
+		name          string
+		err           error
+		staleRevs     map[string]string
+		failRestart   string
+		wantAttempted []string
+		wantErr       bool
 	}{
 		{
 			name:      "restarts every stale pod together",
@@ -457,22 +458,34 @@ func TestCheckAndHealAppliesACredentialChange(t *testing.T) {
 			// Together, not one per pass: a pod that has restarted cannot
 			// replicate with one that has not, so a partial restart leaves a
 			// split that nothing resolves.
-			wantDeleted: []string{"rfr-test-0", "rfr-test-1", "rfr-test-2"},
+			wantAttempted: []string{"rfr-test-0", "rfr-test-1", "rfr-test-2"},
 		},
 		{
-			name:        "restarts only the pods that are stale",
-			err:         errors.New("NOAUTH Authentication required."),
-			staleRevs:   map[string]string{"rfr-test-0": "current", "rfr-test-1": "old", "rfr-test-2": "current"},
-			wantDeleted: []string{"rfr-test-1"},
+			name:          "restarts only the pods that are stale",
+			err:           errors.New("NOAUTH Authentication required."),
+			staleRevs:     map[string]string{"rfr-test-0": "current", "rfr-test-1": "old", "rfr-test-2": "current"},
+			wantAttempted: []string{"rfr-test-1"},
+		},
+		{
+			// Giving up here would leave some pods on the new password and some
+			// on the old, replication between them refused: the split the
+			// together-or-not-at-all rule exists to prevent. The failure is
+			// reported once every pod has been tried.
+			name:          "tries every stale pod even when one restart is refused",
+			err:           errors.New("WRONGPASS invalid username-password pair or user is disabled."),
+			staleRevs:     map[string]string{"rfr-test-0": "old", "rfr-test-1": "old", "rfr-test-2": "old"},
+			failRestart:   "rfr-test-0",
+			wantAttempted: []string{"rfr-test-0", "rfr-test-1", "rfr-test-2"},
+			wantErr:       true,
 		},
 		{
 			// Restarting cannot fix a secret that is simply wrong, and repeating
 			// it would be an endless restart loop.
-			name:        "refuses to restart pods that already carry the current configuration",
-			err:         errors.New("WRONGPASS invalid username-password pair or user is disabled."),
-			staleRevs:   map[string]string{"rfr-test-0": "current", "rfr-test-1": "current"},
-			wantDeleted: nil,
-			wantErr:     true,
+			name:          "refuses to restart pods that already carry the current configuration",
+			err:           errors.New("WRONGPASS invalid username-password pair or user is disabled."),
+			staleRevs:     map[string]string{"rfr-test-0": "current", "rfr-test-1": "current"},
+			wantAttempted: nil,
+			wantErr:       true,
 		},
 	}
 
@@ -504,10 +517,17 @@ func TestCheckAndHealAppliesACredentialChange(t *testing.T) {
 			}
 			mrfc.On("GetRedisesPodsWithStalePassword", rf).Once().Return(stale, nil)
 
-			deleted := []string{}
-			mrfh.On("DeletePod", mock.Anything, rf).Return(nil).Run(func(args mock.Arguments) {
-				deleted = append(deleted, args.Get(0).(string))
-			})
+			attempted := []string{}
+			for _, name := range stale {
+				call := mrfh.On("DeletePod", name, rf).Once().Run(func(args mock.Arguments) {
+					attempted = append(attempted, args.Get(0).(string))
+				})
+				if name == test.failRestart {
+					call.Return(errors.New("pods \"" + name + "\" is forbidden"))
+				} else {
+					call.Return(nil)
+				}
+			}
 
 			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
 			err := handler.CheckAndHeal(rf)
@@ -517,9 +537,10 @@ func TestCheckAndHealAppliesACredentialChange(t *testing.T) {
 			} else {
 				assert.NoError(err)
 			}
-			sort.Strings(deleted)
-			assert.Equal(test.wantDeleted, nilIfEmpty(deleted))
+			sort.Strings(attempted)
+			assert.Equal(test.wantAttempted, nilIfEmpty(attempted))
 			mrfc.AssertExpectations(t)
+			mrfh.AssertExpectations(t)
 		})
 	}
 }

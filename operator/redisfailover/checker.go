@@ -2,6 +2,7 @@ package redisfailover
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
@@ -119,13 +120,18 @@ func (r *RedisFailoverHandler) applyCredentialChange(rf *redisfailoverv1.RedisFa
 
 	logger.Warningf("Redis is not using the password the failover is configured with, restarting %d pod(s) together to apply it: %s", len(stale), authErr.Error())
 
+	// Every stale pod is attempted before anything is reported. Stopping at the
+	// first failure would leave behind exactly the half-restarted failover this
+	// goes to such lengths to avoid: some pods on the new password, some on the
+	// old, and replication between them refused.
+	var errs []error
 	for _, pod := range stale {
 		if err := r.rfHealer.DeletePod(pod, rf); err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("restarting %s: %w", pod, err))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // CheckAndHeal runs verifcation checks to ensure the RedisFailover is in an expected and healthy state.
