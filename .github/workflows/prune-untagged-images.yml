@@ -1,6 +1,10 @@
 name: Prune untagged image versions
 
 on:
+  # TEMPORARY (remove before merge)
+  push:
+    branches:
+      - gog-2032
   schedule:
     - cron: '0 5 * * 0'
   workflow_dispatch:
@@ -29,5 +33,7 @@ jobs:
           package: redis-operator
           delete-untagged: true
           validate: true
-          dry-run: ${{ github.event.inputs.dry_run || 'false' }}
+          # push (branch test) is always dry-run; schedule always deletes;
+          # workflow_dispatch honors the input (defaults to dry-run).
+          dry-run: ${{ github.event_name == 'push' && 'true' || github.event.inputs.dry_run || 'false' }}
           token: ${{ secrets.GITHUB_TOKEN }}
