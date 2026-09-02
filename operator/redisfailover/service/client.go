@@ -154,7 +154,7 @@ func (r *RedisFailoverKubeClient) haproxyPasswordChecksum(rf *redisfailoverv1.Re
 		return "", err
 	}
 
-	current := redisPasswordChecksum(password)
+	current := redisPasswordChecksum(rf, password)
 
 	if r.redisPodsHavePassword(rf, current) {
 		return current, nil

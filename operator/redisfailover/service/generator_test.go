@@ -1,8 +1,6 @@
 package service_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
@@ -1635,8 +1633,7 @@ func TestHaproxyWaitsForRedisBeforeTakingANewPassword(t *testing.T) {
 			// which the test resolves the same way the code does.
 			podDigest := test.podDigest
 			if podDigest == "current" {
-				sum := sha256.Sum256([]byte("s3cr3tpass"))
-				podDigest = hex.EncodeToString(sum[:])
+				podDigest = redisPasswordDigest(namespace, name, "s3cr3tpass")
 			}
 			ms.On("GetStatefulSetPods", namespace, mock.Anything).Return(&corev1.PodList{
 				Items: []corev1.Pod{{
@@ -1762,8 +1759,7 @@ func TestHaproxyIgnoresRedisPodsOnTheirWayOut(t *testing.T) {
 	rf.Spec.Auth.SecretPath = "redis-auth"
 	rf.Spec.Haproxy = &redisfailoverv1.HaproxySettings{Replicas: 2}
 
-	sum := sha256.Sum256([]byte("s3cr3tpass"))
-	current := hex.EncodeToString(sum[:])
+	current := redisPasswordDigest(namespace, name, "s3cr3tpass")
 
 	var got *appsv1.Deployment
 	ms := &mK8SService.Services{}
@@ -3214,22 +3210,24 @@ func TestRedisEnv(t *testing.T) {
 func TestRedisStatefulSetPasswordChecksum(t *testing.T) {
 	const key = "checksum/redis-password"
 
-	stamp := func(t *testing.T, secretPath, password string) *appsv1.StatefulSet {
+	stampIn := func(t *testing.T, ns, nm, secretPath, password string) *appsv1.StatefulSet {
 		t.Helper()
 
 		rf := generateRF()
+		rf.ObjectMeta.Namespace = ns
+		rf.ObjectMeta.Name = nm
 		rf.Spec.Auth.SecretPath = secretPath
 
 		var got *appsv1.StatefulSet
 		ms := &mK8SService.Services{}
 		if secretPath != "" {
-			ms.On("GetSecret", namespace, secretPath).Once().Return(&corev1.Secret{
+			ms.On("GetSecret", ns, secretPath).Once().Return(&corev1.Secret{
 				Data: map[string][]byte{"password": []byte(password)},
 			}, nil)
 		}
-		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdatePodDisruptionBudget", ns, mock.Anything).Once().Return(nil, nil)
+		ms.On("GetStatefulSet", ns, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("CreateOrUpdateStatefulSet", ns, mock.Anything).Once().Run(func(args mock.Arguments) {
 			got = args.Get(1).(*appsv1.StatefulSet)
 		}).Return(nil)
 
@@ -3238,6 +3236,11 @@ func TestRedisStatefulSetPasswordChecksum(t *testing.T) {
 			t.Fatalf("EnsureRedisStatefulset: %v", err)
 		}
 		return got
+	}
+
+	stamp := func(t *testing.T, secretPath, password string) *appsv1.StatefulSet {
+		t.Helper()
+		return stampIn(t, namespace, name, secretPath, password)
 	}
 
 	t.Run("carries no annotation when the failover has no password", func(t *testing.T) {
@@ -3265,6 +3268,18 @@ func TestRedisStatefulSetPasswordChecksum(t *testing.T) {
 	t.Run("does not expose the password", func(t *testing.T) {
 		// The pod template is readable by anything that can get pods.
 		assert.NotContains(t, stamp(t, "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key], "s3cr3tpass")
+	})
+
+	t.Run("differs between failovers sharing a password", func(t *testing.T) {
+		// A digest of the password alone is the same value everywhere, so one
+		// table of precomputed hashes would read it back out of any annotation
+		// in any cluster. Tying it to the failover confines such a table to a
+		// single one.
+		here := stampIn(t, "testns", "test", "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key]
+		there := stampIn(t, "otherns", "other", "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key]
+
+		assert.NotEmpty(t, here)
+		assert.NotEqual(t, here, there)
 	})
 }
 

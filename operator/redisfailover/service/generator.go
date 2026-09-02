@@ -738,7 +738,7 @@ esac`, port)
 // A failover without a password gets no annotation at all, so its template is
 // unchanged and nothing restarts on upgrade. Only the digest is stored; the
 // pod template is readable by anything that can get pods.
-func withRedisPasswordChecksum(annotations map[string]string, password string) map[string]string {
+func withRedisPasswordChecksum(rf *redisfailoverv1.RedisFailover, annotations map[string]string, password string) map[string]string {
 	if password == "" {
 		return annotations
 	}
@@ -748,26 +748,9 @@ func withRedisPasswordChecksum(annotations map[string]string, password string) m
 		withChecksum[k] = v
 	}
 
-	withChecksum[redisPasswordChecksumKey] = redisPasswordChecksum(password)
+	withChecksum[redisPasswordChecksumKey] = redisPasswordChecksum(rf, password)
 
 	return withChecksum
-}
-
-// redisPasswordChecksum identifies a password without disclosing it, so that
-// what a pod was built for can be compared with what the failover is now
-// configured with. Pod templates are readable by anything that can get pods.
-//
-// No password digests to no annotation, which is what a pod built without one
-// carries. Hashing the empty string instead would give every such pod a digest
-// it can never match, and a failover with no auth.secretPath would read as
-// permanently out of date.
-func redisPasswordChecksum(password string) string {
-	if password == "" {
-		return ""
-	}
-
-	sum := sha256.Sum256([]byte(password))
-	return hex.EncodeToString(sum[:])
 }
 
 func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference, password string) *appsv1.StatefulSet {
@@ -806,7 +789,7 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      labels,
-					Annotations: withRedisPasswordChecksum(rf.Spec.Redis.PodAnnotations, password),
+					Annotations: withRedisPasswordChecksum(rf, rf.Spec.Redis.PodAnnotations, password),
 				},
 				Spec: corev1.PodSpec{
 					Affinity:                      getAffinity(rf.Spec.Redis.Affinity, labels),

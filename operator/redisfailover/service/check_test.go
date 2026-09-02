@@ -1,8 +1,6 @@
 package service_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -124,10 +122,7 @@ func TestGetNumberMastersSurfacesRefusedCredentials(t *testing.T) {
 // refusal is reported instead, so the two ends of the comparison have to agree
 // on what "no password" looks like.
 func TestGetRedisesPodsWithStalePassword(t *testing.T) {
-	current := func(password string) string {
-		sum := sha256.Sum256([]byte(password))
-		return hex.EncodeToString(sum[:])
-	}("s3cr3tpass")
+	current := redisPasswordDigest(namespace, name, "s3cr3tpass")
 
 	running := func(name string, annotations map[string]string) corev1.Pod {
 		return corev1.Pod{

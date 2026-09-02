@@ -437,7 +437,7 @@ func (r *RedisFailoverChecker) GetRedisesPodsWithStalePassword(rf *redisfailover
 		return nil, err
 	}
 
-	current := redisPasswordChecksum(password)
+	current := redisPasswordChecksum(rf, password)
 	stale := []string{}
 	for _, pod := range pods {
 		if !redisPodServesPassword(pod, current) {
