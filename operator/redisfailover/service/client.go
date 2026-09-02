@@ -138,6 +138,12 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterConfigmap(rf *redisfai
 // So the digest only advances once every Redis pod is on the StatefulSet's
 // current revision. Until then the value already on the Deployment is carried
 // forward, which leaves HAProxy running on the password its backends still have.
+//
+// Reading that value is therefore load bearing, and a failed read is not the
+// same as a proxy that does not exist yet. Only a NotFound means there is
+// nothing to hold back; any other failure leaves the running password unknown,
+// and guessing at it is what restarts HAProxy ahead of Redis. The pass is
+// abandoned instead and the next one tries again.
 func (r *RedisFailoverKubeClient) haproxyPasswordChecksum(rf *redisfailoverv1.RedisFailover) (string, error) {
 	password, err := k8s.GetRedisPassword(r.K8SService, rf)
 	if err != nil {
@@ -154,8 +160,14 @@ func (r *RedisFailoverKubeClient) haproxyPasswordChecksum(rf *redisfailoverv1.Re
 	}
 
 	existing, getErr := r.K8SService.GetDeployment(rf.Namespace, GetHaproxyMasterName(rf))
-	if getErr != nil || existing == nil {
+	if errors.IsNotFound(getErr) {
 		// No proxy running yet, so there is nothing to hold back.
+		return current, nil
+	}
+	if getErr != nil {
+		return "", getErr
+	}
+	if existing == nil {
 		return current, nil
 	}
 

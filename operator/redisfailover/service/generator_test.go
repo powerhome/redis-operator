@@ -14,6 +14,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -1520,8 +1521,10 @@ func TestHaproxyDeploymentRedisPassword(t *testing.T) {
 			}, nil)
 			// No existing Deployment, so the spec-checksum short circuit is
 			// skipped. It is also read a second time, by the check that holds
-			// HAProxy on its current password until Redis has taken the new one.
-			ms.On("GetDeployment", namespace, mock.Anything).Return(nil, errors.New("not found"))
+			// HAProxy on its current password until Redis has taken the new one,
+			// which distinguishes an absent proxy from a failed read and so
+			// needs a real NotFound rather than any error saying "not found".
+			ms.On("GetDeployment", namespace, mock.Anything).Return(nil, apierrors.NewNotFound(appsv1.Resource("deployments"), rfservice.GetHaproxyMasterName(rf)))
 			if test.secretPath != "" {
 				ms.On("GetSecret", namespace, test.secretPath).Return(&corev1.Secret{
 					Data: map[string][]byte{"password": []byte("s3cr3tpass")},
@@ -1566,7 +1569,9 @@ func TestHaproxyWaitsForRedisBeforeTakingANewPassword(t *testing.T) {
 		name        string
 		podDigest   string
 		carried     string
+		getErr      error
 		wantCarried bool
+		wantErr     bool
 	}{
 		{
 			// The pods carry the digest they were built for, so matching it is
@@ -1592,6 +1597,15 @@ func TestHaproxyWaitsForRedisBeforeTakingANewPassword(t *testing.T) {
 			podDigest:   "",
 			carried:     "stale-digest",
 			wantCarried: true,
+		},
+		{
+			// A failed read is not "no proxy running yet". Guessing at the
+			// current digest here restarts HAProxy ahead of Redis, which is the
+			// ordering this guard exists to prevent, so the pass is abandoned.
+			name:      "abandons the pass when the running Deployment cannot be read",
+			podDigest: "older-digest",
+			getErr:    errors.New("etcdserver: request timed out"),
+			wantErr:   true,
 		},
 	}
 
@@ -1625,17 +1639,28 @@ func TestHaproxyWaitsForRedisBeforeTakingANewPassword(t *testing.T) {
 					Annotations: map[string]string{key: podDigest},
 				}}},
 			}, nil)
-			ms.On("GetDeployment", namespace, mock.Anything).Return(&appsv1.Deployment{
-				Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{key: test.carried}},
-				}},
-			}, nil)
+			if test.getErr != nil {
+				ms.On("GetDeployment", namespace, mock.Anything).Return(nil, test.getErr)
+			} else {
+				ms.On("GetDeployment", namespace, mock.Anything).Return(&appsv1.Deployment{
+					Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{key: test.carried}},
+					}},
+				}, nil)
+			}
 			ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 				got = args.Get(1).(*appsv1.Deployment)
 			}).Return(nil)
 
 			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-			assert.NoError(client.EnsureHAProxyRedisMasterDeployment(rf, nil, []metav1.OwnerReference{}))
+			err := client.EnsureHAProxyRedisMasterDeployment(rf, nil, []metav1.OwnerReference{})
+
+			if test.wantErr {
+				assert.Error(err, "a failed read is not a reason to guess at the digest")
+				assert.Nil(got, "nothing should be written while the running state is unknown")
+				return
+			}
+			assert.NoError(err)
 
 			stamped := got.Spec.Template.Annotations[key]
 			if test.wantCarried {
