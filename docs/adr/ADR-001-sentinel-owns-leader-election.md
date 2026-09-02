@@ -51,10 +51,21 @@ rules:
 1. **It acts only on a topology it has fully established.** Every running Redis
    node must answer before the operator concludes there is no master. A node it
    could not reach may be the master, and may hold the newest data.
-2. **It selects on the same evidence Sentinel would**, the highest replication
-   offset, never on pod age. This removes the need to tell a cold start from a
-   restart: on a genuinely empty cluster every offset is zero and any tie-break
-   is correct, and on a restart the offsets order themselves.
+2. **It selects on the same evidence Sentinel would**, replication position,
+   never on pod age. This removes the need to tell a cold start from a restart:
+   on a genuinely empty cluster every offset is zero and any tie-break is
+   correct, and on a restart the offsets order themselves.
+
+   Replication position means `master_replid` and `master_repl_offset` together,
+   not the offset alone. Offsets are only comparable between nodes that share a
+   replication history. Sentinel never has to think about this because it ranks
+   replicas of one known master, so the replid is the same across every
+   candidate it considers. The operator arriving after a partition has no such
+   guarantee: if two nodes accepted writes as masters their replids differ and
+   their offsets are independent counters, so the larger number does not hold
+   more of the writes anyone cares about. Where the replids agree the highest
+   offset wins. Where they diverge the histories have forked, no automatic
+   choice is safe, and rule 3 applies.
 3. **It fails closed and says so.** When it cannot establish the topology it
    changes nothing and reports a condition on the resource naming the cause,
    rather than acting on a partial picture.
@@ -77,10 +88,18 @@ guessing. The `MasterUnknown` condition exists so it is visible rather than
 silent, and it surfaces in `kubectl get redisfailover` through the existing
 printer column.
 
-**Selecting on offset needs something that does not exist yet.** The Redis client
-exposes `IsMaster`, `GetSlaveOf` and `SlaveIsReady`, but nothing reads
-`master_repl_offset`. Until that is added, selection remains by pod age and rule
-2 is unmet. Rules 1 and 3 are implemented; rule 2 is not.
+**Selecting on replication position needs something that does not exist yet.**
+The Redis client exposes `IsMaster`, `GetSlaveOf` and `SlaveIsReady`, but nothing
+reads `master_replid` or `master_repl_offset`. Until that is added, selection
+remains by pod age and rule 2 is unmet. Rules 1 and 3 are implemented; rule 2 is
+not.
+
+Reading the offset alone would be worse than it looks. It would produce a
+selector that appears principled, ranks nodes by a number, and still discards
+writes whenever the histories have diverged, which is the case that motivates
+this decision in the first place. The replid is what makes the comparison mean
+anything, and its absence is what turns a forked history into a refusal rather
+than a guess.
 
 **`CheckIfMasterLocalhost` loses its role as a safety check.** It was the guard
 distinguishing a cold start from a live cluster, and it cannot make that
