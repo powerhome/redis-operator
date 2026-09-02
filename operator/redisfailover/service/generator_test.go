@@ -13,7 +13,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -534,7 +533,7 @@ func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			generatedStatefulSet = *ss
@@ -589,7 +588,7 @@ func TestRedisStatefulSetCommands(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			gotCommands = ss.Spec.Template.Spec.Containers[0].Command
@@ -642,7 +641,7 @@ func TestSentinelDeploymentCommands(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			gotCommands = d.Spec.Template.Spec.Containers[0].Command
@@ -691,7 +690,7 @@ func TestRedisStatefulSetPodAnnotations(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			gotPodAnnotations = ss.Spec.Template.ObjectMeta.Annotations
@@ -740,7 +739,7 @@ func TestSentinelDeploymentPodAnnotations(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			gotPodAnnotations = d.Spec.Template.ObjectMeta.Annotations
@@ -783,7 +782,7 @@ func TestRedisStatefulSetServiceAccountName(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			gotServiceAccountName = ss.Spec.Template.Spec.ServiceAccountName
@@ -826,7 +825,7 @@ func TestSentinelDeploymentServiceAccountName(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			gotServiceAccountName = d.Spec.Template.Spec.ServiceAccountName
@@ -1523,11 +1522,11 @@ func TestHaproxyDeploymentRedisPassword(t *testing.T) {
 			// HAProxy on its current password until Redis has taken the new one,
 			// which distinguishes an absent proxy from a failed read and so
 			// needs a real NotFound rather than any error saying "not found".
-			ms.On("GetDeployment", namespace, mock.Anything).Return(nil, apierrors.NewNotFound(appsv1.Resource("deployments"), rfservice.GetHaproxyMasterName(rf)))
+			ms.On("GetDeployment", namespace, mock.Anything).Return(nil, notFound("deployments", rfservice.GetHaproxyMasterName(rf)))
 			// The ordering check reads the Redis pods whether or not there is a
 			// password, since giving one up has to wait on Redis just as taking
 			// one does.
-			ms.On("GetStatefulSetPods", namespace, mock.Anything).Return(nil, errors.New("not found"))
+			ms.On("GetStatefulSetPods", namespace, mock.Anything).Return(&corev1.PodList{}, nil)
 			if test.secretPath != "" {
 				ms.On("GetSecret", namespace, test.secretPath).Return(&corev1.Secret{
 					Data: map[string][]byte{"password": []byte("s3cr3tpass")},
@@ -2741,7 +2740,7 @@ func TestRedisHostNetworkAndDnsPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			actualHostNetwork = ss.Spec.Template.Spec.HostNetwork
@@ -2791,7 +2790,7 @@ func TestSentinelHostNetworkAndDnsPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			actualHostNetwork = d.Spec.Template.Spec.HostNetwork
@@ -2842,7 +2841,7 @@ func TestRedisImagePullPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			policy = ss.Spec.Template.Spec.Containers[0].ImagePullPolicy
@@ -2889,7 +2888,7 @@ func TestSentinelImagePullPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			policy = d.Spec.Template.Spec.Containers[0].ImagePullPolicy
@@ -2965,7 +2964,7 @@ func TestRedisExtraVolumeMounts(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			extraVolume = s.Spec.Template.Spec.Volumes[3]
@@ -3041,7 +3040,7 @@ func TestSentinelExtraVolumeMounts(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			extraVolume = d.Spec.Template.Spec.Volumes[2]
@@ -3099,7 +3098,7 @@ func TestCustomPort(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			port = s.Spec.Template.Spec.Containers[0].Ports[0]
@@ -3189,7 +3188,7 @@ func TestRedisEnv(t *testing.T) {
 			}, nil)
 		}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			env = s.Spec.Template.Spec.Containers[0].Env
@@ -3226,7 +3225,7 @@ func TestRedisStatefulSetPasswordChecksum(t *testing.T) {
 			}, nil)
 		}
 		ms.On("CreateOrUpdatePodDisruptionBudget", ns, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", ns, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", ns, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", ns, mock.Anything).Once().Run(func(args mock.Arguments) {
 			got = args.Get(1).(*appsv1.StatefulSet)
 		}).Return(nil)
@@ -3321,7 +3320,7 @@ func TestRedisStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			startupVolumes = s.Spec.Template.Spec.Volumes
@@ -3375,7 +3374,7 @@ func TestSentinelStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			startupVolumes = d.Spec.Template.Spec.Volumes
@@ -3460,7 +3459,7 @@ func TestRedisCustomLivenessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			livenessProbe = s.Spec.Template.Spec.Containers[0].LivenessProbe
@@ -3540,7 +3539,7 @@ func TestSentinelCustomLivenessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			livenessProbe = d.Spec.Template.Spec.Containers[0].LivenessProbe
@@ -3608,7 +3607,7 @@ func TestRedisCustomReadinessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			readinessProbe = s.Spec.Template.Spec.Containers[0].ReadinessProbe
@@ -3688,7 +3687,7 @@ func TestSentinelCustomReadinessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			readinessProbe = d.Spec.Template.Spec.Containers[0].ReadinessProbe
@@ -3748,7 +3747,7 @@ func TestRedisCustomStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			startupProbe = s.Spec.Template.Spec.Containers[0].StartupProbe
@@ -3816,7 +3815,7 @@ func TestSentinelCustomStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			startupProbe = d.Spec.Template.Spec.Containers[0].StartupProbe
@@ -3843,7 +3842,7 @@ func TestEnsureRedisStatefulSetSkipsUpdateWhenDigestUnchanged(t *testing.T) {
 	var firstSS *appsv1.StatefulSet
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 	ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		firstSS = args.Get(1).(*appsv1.StatefulSet).DeepCopy()
 	}).Return(nil)
@@ -3880,7 +3879,7 @@ func TestEnsureRedisStatefulSetUpdatesWhenSpecChanges(t *testing.T) {
 	var firstSS *appsv1.StatefulSet
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 	ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		firstSS = args.Get(1).(*appsv1.StatefulSet).DeepCopy()
 	}).Return(nil)
@@ -3932,7 +3931,7 @@ func TestEnsureRedisStatefulSetWritesDigestAnnotation(t *testing.T) {
 	var createdSS *appsv1.StatefulSet
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 	ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		createdSS = args.Get(1).(*appsv1.StatefulSet).DeepCopy()
 	}).Return(nil)
@@ -3984,7 +3983,7 @@ func TestEnsureSentinelDeploymentSkipsUpdateWhenDigestUnchanged(t *testing.T) {
 	var firstDeployment *appsv1.Deployment
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		firstDeployment = args.Get(1).(*appsv1.Deployment).DeepCopy()
 	}).Return(nil)
@@ -4021,7 +4020,7 @@ func TestEnsureSentinelDeploymentUpdatesWhenSpecChanges(t *testing.T) {
 	var firstDeployment *appsv1.Deployment
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		firstDeployment = args.Get(1).(*appsv1.Deployment).DeepCopy()
 	}).Return(nil)
@@ -4073,7 +4072,7 @@ func TestEnsureSentinelDeploymentWritesDigestAnnotation(t *testing.T) {
 	var createdDeployment *appsv1.Deployment
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		createdDeployment = args.Get(1).(*appsv1.Deployment).DeepCopy()
 	}).Return(nil)
