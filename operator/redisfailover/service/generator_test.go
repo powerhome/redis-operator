@@ -13,6 +13,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -23,6 +24,17 @@ import (
 	mK8SService "github.com/spotahome/redis-operator/mocks/service/k8s"
 	rfservice "github.com/spotahome/redis-operator/operator/redisfailover/service"
 )
+
+// notFound builds the error the Kubernetes API returns for an object that does
+// not exist.
+//
+// A test standing in for "nothing deployed yet" needs this rather than an error
+// that merely reads like it. The operator tells an absent object apart from one
+// it could not read, and acts differently on each, so a plain error saying "not
+// found" stands for the wrong one of the two.
+func notFound(resource, name string) error {
+	return apierrors.NewNotFound(appsv1.Resource(resource), name)
+}
 
 func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 	configMapName := rfservice.GetRedisName(generateRF())
