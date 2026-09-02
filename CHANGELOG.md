@@ -9,6 +9,16 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Fixed
+
+- [Do not promote a Redis node when the current master could not be inspected]()
+
+  `GetNumberMasters` skipped past any node it could not query and counted only the ones that answered as a master, so a running master the operator could not reach was reported as absent. Reaching zero masters is what drives recovery, and recovery promotes a node, so an unreachable master could be replaced by an arbitrary replica while it was still running and writable. A count of zero now means every node answered and none of them was the master; anything else is reported as the unknown it is, and recovery does not run.
+
+  `SetOldestAsMaster` logged a failure to demote a node and carried on to report success. Promoting one node while failing to demote another leaves the failover with two masters and nothing looking for it, until a later reconcile stops with "more than one master, fix manually" and divergent writes are already possible. The remaining nodes are still demoted, so the failover ends with as few masters as it can, and the failure is now returned.
+
+  Neither changes how a master is chosen when recovery does run. Selection is still by pod age rather than replication offset, which is tracked separately in [issue 100](https://github.com/powerhome/redis-operator/issues/100).
+
 ### Added
 
 - [Apply a password change to a running `RedisFailover` without manual intervention](https://github.com/powerhome/redis-operator/pull/104)
