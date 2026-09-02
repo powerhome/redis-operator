@@ -331,8 +331,9 @@ all.
 
 #### Changing the password of a running RedisFailover
 
-Adding `auth.secretPath` to a running failover, and changing the value in the
-secret it names, are both applied by the operator. No manual step is needed.
+Adding `auth.secretPath` to a running failover, changing the value in the secret
+it names, and removing `auth.secretPath` again are all applied by the operator.
+No manual step is needed.
 
 Redis reads `requirepass` from its configuration only at startup, so a running
 pod keeps the password it began with however many times the secret changes.
@@ -354,8 +355,9 @@ stops working as soon as the pods restart. Roll the new password out to the
 applications and to the secret close together.
 
 `haproxy`, when configured, is restarted after Redis rather than alongside it.
-It authenticates its health check, so restarting it first would leave it offering
-a password its backends do not have yet and every backend would fail its check.
+It authenticates its health check, so every backend fails while the proxy and
+Redis disagree about the password. HAProxy therefore moves second in both
+directions, taking a password and giving one up only after Redis has.
 
 Two cases the operator will not act on, both reported in its logs:
 

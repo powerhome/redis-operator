@@ -1,6 +1,8 @@
 package service_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -112,6 +114,128 @@ func TestGetNumberMastersSurfacesRefusedCredentials(t *testing.T) {
 			} else {
 				assert.NoError(err)
 			}
+		})
+	}
+}
+
+// A pod is stale when the password it was built for is not the one the failover
+// is configured with, which is what says a restart would change something. The
+// answer decides both whether the pods are restarted at all and whether a
+// refusal is reported instead, so the two ends of the comparison have to agree
+// on what "no password" looks like.
+func TestGetRedisesPodsWithStalePassword(t *testing.T) {
+	current := func(password string) string {
+		sum := sha256.Sum256([]byte(password))
+		return hex.EncodeToString(sum[:])
+	}("s3cr3tpass")
+
+	running := func(name string, annotations map[string]string) corev1.Pod {
+		return corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Annotations: annotations},
+			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		}
+	}
+
+	deleting := time.Now()
+
+	tests := []struct {
+		name       string
+		secretPath string
+		pods       []corev1.Pod
+		want       []string
+	}{
+		{
+			name:       "none when every pod carries the configured password",
+			secretPath: "redis-auth",
+			pods: []corev1.Pod{
+				running("rfr-test-0", map[string]string{"checksum/redis-password": current}),
+				running("rfr-test-1", map[string]string{"checksum/redis-password": current}),
+			},
+			want: []string{},
+		},
+		{
+			name:       "the pods built for a different password",
+			secretPath: "redis-auth",
+			pods: []corev1.Pod{
+				running("rfr-test-0", map[string]string{"checksum/redis-password": current}),
+				running("rfr-test-1", map[string]string{"checksum/redis-password": "older-digest"}),
+			},
+			want: []string{"rfr-test-1"},
+		},
+		{
+			name:       "a pod built before the failover had a password",
+			secretPath: "redis-auth",
+			pods:       []corev1.Pod{running("rfr-test-0", nil)},
+			want:       []string{"rfr-test-0"},
+		},
+		{
+			// A failover with no auth.secretPath builds its pods without the
+			// annotation, so nothing about them is out of date. Reporting them
+			// stale would restart every pod on every pass, and would disarm the
+			// guard that stops the operator restarting in a loop when Redis
+			// refuses a password a restart cannot fix.
+			name:       "none when the failover has no password and neither do its pods",
+			secretPath: "",
+			pods: []corev1.Pod{
+				running("rfr-test-0", nil),
+				running("rfr-test-1", map[string]string{"other/annotation": "kept"}),
+			},
+			want: []string{},
+		},
+		{
+			// Giving up a password is a change like any other: the pods still
+			// carrying one have to restart without it.
+			name:       "the pods still carrying a password the failover has given up",
+			secretPath: "",
+			pods: []corev1.Pod{
+				running("rfr-test-0", map[string]string{"checksum/redis-password": current}),
+				running("rfr-test-1", nil),
+			},
+			want: []string{"rfr-test-0"},
+		},
+		{
+			// Restarting either is meaningless: one is not serving yet and the
+			// other is already on its way out.
+			name:       "pods that are not running or are already being deleted",
+			secretPath: "redis-auth",
+			pods: []corev1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0"},
+					Status:     corev1.PodStatus{Phase: corev1.PodPending},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "rfr-test-1",
+						DeletionTimestamp: &metav1.Time{Time: deleting},
+					},
+					Status: corev1.PodStatus{Phase: corev1.PodRunning},
+				},
+				running("rfr-test-2", map[string]string{"checksum/redis-password": "older-digest"}),
+			},
+			want: []string{"rfr-test-2"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+			rf.Spec.Auth.SecretPath = test.secretPath
+
+			ms := &mK8SService.Services{}
+			if test.secretPath != "" {
+				ms.On("GetSecret", rf.Namespace, test.secretPath).Once().Return(&corev1.Secret{
+					Data: map[string][]byte{"password": []byte("s3cr3tpass")},
+				}, nil)
+			}
+			ms.On("GetStatefulSetPods", rf.Namespace, mock.Anything).Once().Return(&corev1.PodList{Items: test.pods}, nil)
+
+			checker := rfservice.NewRedisFailoverChecker(ms, &mRedisService.Client{}, log.DummyLogger{}, metrics.Dummy)
+			stale, err := checker.GetRedisesPodsWithStalePassword(rf)
+
+			assert.NoError(err)
+			assert.Equal(test.want, stale)
 		})
 	}
 }

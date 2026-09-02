@@ -144,13 +144,14 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterConfigmap(rf *redisfai
 // nothing to hold back; any other failure leaves the running password unknown,
 // and guessing at it is what restarts HAProxy ahead of Redis. The pass is
 // abandoned instead and the next one tries again.
+//
+// Removing auth.secretPath needs the same ordering as adding it. The digest it
+// settles on is the empty one, and until Redis has restarted without a password
+// the proxy has to keep offering the one its backends still demand.
 func (r *RedisFailoverKubeClient) haproxyPasswordChecksum(rf *redisfailoverv1.RedisFailover) (string, error) {
 	password, err := k8s.GetRedisPassword(r.K8SService, rf)
 	if err != nil {
 		return "", err
-	}
-	if password == "" {
-		return "", nil
 	}
 
 	current := redisPasswordChecksum(password)

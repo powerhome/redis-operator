@@ -756,7 +756,16 @@ func withRedisPasswordChecksum(annotations map[string]string, password string) m
 // redisPasswordChecksum identifies a password without disclosing it, so that
 // what a pod was built for can be compared with what the failover is now
 // configured with. Pod templates are readable by anything that can get pods.
+//
+// No password digests to no annotation, which is what a pod built without one
+// carries. Hashing the empty string instead would give every such pod a digest
+// it can never match, and a failover with no auth.secretPath would read as
+// permanently out of date.
 func redisPasswordChecksum(password string) string {
+	if password == "" {
+		return ""
+	}
+
 	sum := sha256.Sum256([]byte(password))
 	return hex.EncodeToString(sum[:])
 }

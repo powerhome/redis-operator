@@ -1525,11 +1525,14 @@ func TestHaproxyDeploymentRedisPassword(t *testing.T) {
 			// which distinguishes an absent proxy from a failed read and so
 			// needs a real NotFound rather than any error saying "not found".
 			ms.On("GetDeployment", namespace, mock.Anything).Return(nil, apierrors.NewNotFound(appsv1.Resource("deployments"), rfservice.GetHaproxyMasterName(rf)))
+			// The ordering check reads the Redis pods whether or not there is a
+			// password, since giving one up has to wait on Redis just as taking
+			// one does.
+			ms.On("GetStatefulSetPods", namespace, mock.Anything).Return(nil, errors.New("not found"))
 			if test.secretPath != "" {
 				ms.On("GetSecret", namespace, test.secretPath).Return(&corev1.Secret{
 					Data: map[string][]byte{"password": []byte("s3cr3tpass")},
 				}, nil)
-				ms.On("GetStatefulSetPods", namespace, mock.Anything).Return(nil, errors.New("not found"))
 			}
 			ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 				got = args.Get(1).(*appsv1.Deployment)
@@ -1669,6 +1672,74 @@ func TestHaproxyWaitsForRedisBeforeTakingANewPassword(t *testing.T) {
 				assert.NotEqual(test.carried, stamped)
 				assert.NotEmpty(stamped)
 			}
+		})
+	}
+}
+
+// Giving up a password needs the same ordering as taking one. Until Redis has
+// restarted without requirepass its backends still demand the old password, so
+// a proxy that has already dropped it fails every health check.
+func TestHaproxyWaitsForRedisBeforeGivingUpAPassword(t *testing.T) {
+	const key = "checksum/redis-password"
+
+	tests := []struct {
+		name        string
+		podDigest   string
+		wantStamped string
+	}{
+		{
+			// Mid-change. The proxy keeps offering what its backends still want.
+			name:        "holds while a Redis pod still carries a password",
+			podDigest:   "older-digest",
+			wantStamped: "older-digest",
+		},
+		{
+			// Redis has restarted without one, so the proxy can follow.
+			name:        "gives it up once no Redis pod carries one",
+			podDigest:   "",
+			wantStamped: "",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			// No auth.secretPath: the failover has given up its password and
+			// the pods have yet to catch up.
+			rf := generateRF()
+			rf.Spec.Auth.SecretPath = ""
+			rf.Spec.Haproxy = &redisfailoverv1.HaproxySettings{Replicas: 2}
+
+			var annotations map[string]string
+			if test.podDigest != "" {
+				annotations = map[string]string{key: test.podDigest}
+			}
+
+			var got *appsv1.Deployment
+			ms := &mK8SService.Services{}
+			ms.On("GetConfigMap", namespace, mock.Anything).Once().Return(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"checksum/haproxy-cfg": "deadbeef"},
+				},
+			}, nil)
+			ms.On("GetStatefulSetPods", namespace, mock.Anything).Return(&corev1.PodList{
+				Items: []corev1.Pod{{ObjectMeta: metav1.ObjectMeta{Annotations: annotations}}},
+			}, nil)
+			ms.On("GetDeployment", namespace, mock.Anything).Return(&appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{key: "older-digest"}},
+				}},
+			}, nil)
+			ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+				got = args.Get(1).(*appsv1.Deployment)
+			}).Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			assert.NoError(client.EnsureHAProxyRedisMasterDeployment(rf, nil, []metav1.OwnerReference{}))
+
+			assert.Equal(test.wantStamped, got.Spec.Template.Annotations[key],
+				"HAProxy must keep the password its backends still demand")
 		})
 	}
 }
