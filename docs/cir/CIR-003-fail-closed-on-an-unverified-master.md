@@ -7,8 +7,12 @@ reporting success when it left two.
 
 Implements rules 1 and 3 of [ADR-001](../adr/ADR-001-sentinel-owns-leader-election.md),
 which decides that the operator acts only on a topology it has fully
-established, and otherwise changes nothing and says so. Rule 2, selecting on
-replication offset, is not implemented here.
+established, and otherwise changes nothing and says so.
+
+Rule 2, that the operator does not choose among nodes which may hold data, is
+partly met: it no longer promotes over a node it could not inspect. It still
+selects by pod age when it does act, and still cannot tell an empty cluster from
+a restarted one, both recorded in the ADR as open.
 
 Two faults, both reported in
 [issue 100](https://github.com/powerhome/redis-operator/issues/100) and both
@@ -91,8 +95,13 @@ and divergent writes are already possible.
   to tell a cold start from a live cluster, so the operator could seed freely in
   the first case. It cannot make that distinction: a full restart reloads
   `slaveof 127.0.0.1` from the generated config while keeping persisted data, so
-  a cluster with divergent offsets looks identical to an empty one. This is what
-  moved ADR-001 to offset-based selection instead.
+  a cluster with data looks identical to an empty one.
+- **Rejected: selecting by replication offset.** Pursued as far as a working
+  accessor before measurement against `redis:8.10.1` showed the fields do not
+  support it. Replication IDs are regenerated on restart, `master_replid2`
+  records ancestry rather than absence of divergence, and a master with no
+  replica attached reports offset zero after writes. ADR-001 carries the detail;
+  the outcome is that the operator does not rank nodes at all.
 - **Accepted: three existing unit tests were changed.** They asserted the
   behaviour removed here, including one asserting that a failed demotion reports
   success. They encoded the defect as the contract rather than describing an
@@ -105,9 +114,23 @@ Both changes were mutation-tested rather than assumed. Removing the error
 collection fails two tests, and the collection behaviour is asserted with two
 distinct errors rather than inferred.
 
-No integration coverage. The harness cannot induce selective inspection failures
-or partitions, which is what these paths need, and issue 100 asks for exactly
-that as part of the larger fix.
+Exercised on a live cluster, which is the only place the behaviour can be seen,
+by blocking every Redis with `CLIENT PAUSE` while the pods stayed `Running`:
+
+- A healthy failover reconciled with no errors and no change to its conditions.
+- With no node answering, the reconcile stopped with `i/o timeout`, promoted
+  nothing, and recorded `MasterUnknown` naming the cause.
+- When the pause expired the operator resumed, the failover returned to one
+  master with a replica linked up, and the condition returned to `Ready`. The
+  hold releases rather than wedging.
+
+`DEBUG SLEEP` was the first attempt at blocking and does nothing: Redis 8
+disables `DEBUG` unless `enable-debug-command` is set, so the run proved nothing
+until `CLIENT PAUSE` replaced it.
+
+No coverage in the automated integration suite. It cannot induce selective
+inspection failures or partitions, and issue 100 asks for exactly that as part of
+the larger fix.
 
 ## Date
 
