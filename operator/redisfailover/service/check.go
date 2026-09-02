@@ -427,25 +427,21 @@ func (r *RedisFailoverChecker) GetMaxRedisPodTime(rf *redisfailoverv1.RedisFailo
 // Redis is refusing the operator's credential, and comparing pod revisions
 // instead would depend on the StatefulSet having already been updated this pass.
 func (r *RedisFailoverChecker) GetRedisesPodsWithStalePassword(rf *redisfailoverv1.RedisFailover) ([]string, error) {
-	stale := []string{}
-
 	password, err := k8s.GetRedisPassword(r.k8sService, rf)
 	if err != nil {
 		return nil, err
 	}
 
-	rps, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
+	pods, err := servingRedisPods(r.k8sService, rf)
 	if err != nil {
 		return nil, err
 	}
 
 	current := redisPasswordChecksum(password)
-	for _, rp := range rps.Items {
-		if rp.Status.Phase != corev1.PodRunning || rp.DeletionTimestamp != nil {
-			continue
-		}
-		if rp.ObjectMeta.Annotations[redisPasswordChecksumKey] != current {
-			stale = append(stale, rp.ObjectMeta.Name)
+	stale := []string{}
+	for _, pod := range pods {
+		if !redisPodServesPassword(pod, current) {
+			stale = append(stale, pod.Name)
 		}
 	}
 

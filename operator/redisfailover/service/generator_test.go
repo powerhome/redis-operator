@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -1638,9 +1639,10 @@ func TestHaproxyWaitsForRedisBeforeTakingANewPassword(t *testing.T) {
 				podDigest = hex.EncodeToString(sum[:])
 			}
 			ms.On("GetStatefulSetPods", namespace, mock.Anything).Return(&corev1.PodList{
-				Items: []corev1.Pod{{ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{key: podDigest},
-				}}},
+				Items: []corev1.Pod{{
+					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{key: podDigest}},
+					Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+				}},
 			}, nil)
 			if test.getErr != nil {
 				ms.On("GetDeployment", namespace, mock.Anything).Return(nil, test.getErr)
@@ -1724,7 +1726,10 @@ func TestHaproxyWaitsForRedisBeforeGivingUpAPassword(t *testing.T) {
 				},
 			}, nil)
 			ms.On("GetStatefulSetPods", namespace, mock.Anything).Return(&corev1.PodList{
-				Items: []corev1.Pod{{ObjectMeta: metav1.ObjectMeta{Annotations: annotations}}},
+				Items: []corev1.Pod{{
+					ObjectMeta: metav1.ObjectMeta{Annotations: annotations},
+					Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+				}},
 			}, nil)
 			ms.On("GetDeployment", namespace, mock.Anything).Return(&appsv1.Deployment{
 				Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
@@ -1742,6 +1747,63 @@ func TestHaproxyWaitsForRedisBeforeGivingUpAPassword(t *testing.T) {
 				"HAProxy must keep the password its backends still demand")
 		})
 	}
+}
+
+// A pod on its way out is not going to take a new password, so waiting for it to
+// carry one waits forever. A node failure can leave a pod terminating
+// indefinitely, and holding HAProxy back that whole time leaves it authenticating
+// with a password its backends have already replaced.
+func TestHaproxyIgnoresRedisPodsOnTheirWayOut(t *testing.T) {
+	const key = "checksum/redis-password"
+
+	assert := assert.New(t)
+
+	rf := generateRF()
+	rf.Spec.Auth.SecretPath = "redis-auth"
+	rf.Spec.Haproxy = &redisfailoverv1.HaproxySettings{Replicas: 2}
+
+	sum := sha256.Sum256([]byte("s3cr3tpass"))
+	current := hex.EncodeToString(sum[:])
+
+	var got *appsv1.Deployment
+	ms := &mK8SService.Services{}
+	ms.On("GetConfigMap", namespace, mock.Anything).Once().Return(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{"checksum/haproxy-cfg": "deadbeef"},
+		},
+	}, nil)
+	ms.On("GetSecret", namespace, "redis-auth").Return(&corev1.Secret{
+		Data: map[string][]byte{"password": []byte("s3cr3tpass")},
+	}, nil)
+	ms.On("GetStatefulSetPods", namespace, mock.Anything).Return(&corev1.PodList{
+		Items: []corev1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{key: current}},
+				Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations:       map[string]string{key: "older-digest"},
+					DeletionTimestamp: &metav1.Time{Time: time.Unix(0, 0)},
+				},
+				Status: corev1.PodStatus{Phase: corev1.PodRunning},
+			},
+		},
+	}, nil)
+	ms.On("GetDeployment", namespace, mock.Anything).Return(&appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{key: "older-digest"}},
+		}},
+	}, nil)
+	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		got = args.Get(1).(*appsv1.Deployment)
+	}).Return(nil)
+
+	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+	assert.NoError(client.EnsureHAProxyRedisMasterDeployment(rf, nil, []metav1.OwnerReference{}))
+
+	assert.Equal(current, got.Spec.Template.Annotations[key],
+		"a terminating pod must not hold HAProxy on a password its backends have replaced")
 }
 
 func TestGenerateHaproxyConfig(t *testing.T) {

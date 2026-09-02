@@ -192,17 +192,18 @@ func (r *RedisFailoverKubeClient) haproxyPasswordChecksum(rf *redisfailoverv1.Re
 //
 // Only the ordering of a restart depends on this, so being unable to tell is not
 // a reason to fail the reconcile. Not knowing is answered with "not yet", which
-// holds HAProxy on the password it is running with. That is the safe direction:
-// restarting it early is what breaks the backends, and restarting it late costs
-// only that the proxy keeps working for another pass.
+// keeps the proxy aligned with backends that have yet to move. That costs a pass
+// when Redis has in fact already moved, and it is the cheaper of the two
+// mistakes: getting ahead of Redis fails every backend until Redis catches up,
+// and Redis only catches up once its own pods have been restarted.
 func (r *RedisFailoverKubeClient) redisPodsHavePassword(rf *redisfailoverv1.RedisFailover, digest string) bool {
-	pods, err := r.K8SService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
-	if err != nil || pods == nil || len(pods.Items) == 0 {
+	pods, err := servingRedisPods(r.K8SService, rf)
+	if err != nil || len(pods) == 0 {
 		return false
 	}
 
-	for _, pod := range pods.Items {
-		if pod.Annotations[redisPasswordChecksumKey] != digest {
+	for _, pod := range pods {
+		if !redisPodServesPassword(pod, digest) {
 			return false
 		}
 	}
