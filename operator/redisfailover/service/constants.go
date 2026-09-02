@@ -44,4 +44,9 @@ const (
 	haproxyDeploymentSpecChecksumKey   = "checksum/haproxy-deployment-spec"
 	sentinelDeploymentSpecChecksumKey  = "checksum/sentinel-deployment-spec"
 	redisStatefulSetSpecChecksumKey    = "checksum/redis-statefulset-spec"
+	// Changes when the failover's password does, which the pod spec
+	// otherwise never reflects: the secret is mounted by reference, so
+	// rotating its value leaves the template identical and gives the
+	// rolling update nothing to act on.
+	redisPasswordChecksumKey = "checksum/redis-password"
 )

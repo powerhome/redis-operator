@@ -9,6 +9,16 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Added
+
+- [Apply a password change to a running `RedisFailover` without manual intervention](https://github.com/powerhome/redis-operator/pull/104)
+
+  Adding `auth.secretPath` to a running failover, or changing the value in the secret it names, left Redis using the password it started with: it reads `requirepass` only at startup, and the Redis StatefulSet uses the `OnDelete` update strategy, so nothing restarted the pods. The operator meanwhile had taken the new password, so every one of its checks was refused and the reconcile failed on the first of them, never reaching the rolling update that would have applied it. Recovering meant deleting the Redis pods by hand.
+
+  The operator now recognises that Redis is refusing the configured password and restarts the pods to apply it. **This means a short interruption:** the pods go together, because a restarted pod cannot replicate with one that has not restarted yet, so restarting them singly leaves the failover split rather than shortening the window. Expect a minute or two for the change, a few tens of seconds of it without a master, and plan a password change alongside the applications that hold it. `haproxy`, when configured, is restarted after Redis, since restarting it first would leave it authenticating with a password its backends do not have. The operator leaves the running proxy alone until every Redis pod that is up and answering agrees with the configured password, which holds whether a password is being taken or given up. Removing `auth.secretPath` is applied the same way.
+
+  A `RedisFailover` with no `auth.secretPath` is unaffected and nothing restarts on upgrade. One with a password gets a single restart when the operator is upgraded, as its pod template gains a record of which password it was built for. Two cases are reported rather than acted on: a secret with an empty `password`, and a refusal while the pods already carry the current configuration, which means the secret itself is wrong and restarting cannot fix it.
+
 ### Fixed
 
 - [HAProxy: authenticate the health check so `auth.secretPath` is usable](https://github.com/powerhome/redis-operator/pull/98)

@@ -3,10 +3,12 @@ package redisfailover_test
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -313,6 +315,10 @@ func TestCheckAndHeal(t *testing.T) {
 			}
 
 			if bootstrappingTests && continueTests {
+				// Probed for a refused credential before anything that
+				// authenticates. Nothing is refusing here, so the count is
+				// irrelevant and the flow carries on.
+				mrfc.On("GetNumberMasters", rf).Once().Return(0, nil)
 				// once to get ips for config update, once for the UpdateRedisesPods go right
 				mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{"0.0.0.1", "0.0.0.2", "0.0.0.3"}, nil)
 				mrfh.On("SetRedisCustomConfig", "0.0.0.1", rf).Once().Return(nil)
@@ -426,6 +432,181 @@ func TestCheckAndHeal(t *testing.T) {
 			} else {
 				assert.NoError(err)
 			}
+			mrfc.AssertExpectations(t)
+			mrfh.AssertExpectations(t)
+		})
+	}
+}
+
+// Adding auth.secretPath to a running failover, or rotating the secret it names,
+// leaves the running Redis using a password the operator no longer has. Every
+// check in CheckAndHeal authenticates, so without this the failover wedges at
+// the first one and never reaches anything that could repair it.
+func TestCheckAndHealAppliesACredentialChange(t *testing.T) {
+	tests := []struct {
+		name          string
+		err           error
+		staleRevs     map[string]string
+		failRestart   string
+		wantAttempted []string
+		wantErr       bool
+	}{
+		{
+			name:      "restarts every stale pod together",
+			err:       errors.New("WRONGPASS invalid username-password pair or user is disabled."),
+			staleRevs: map[string]string{"rfr-test-0": "old", "rfr-test-1": "old", "rfr-test-2": "old"},
+			// Together, not one per pass: a pod that has restarted cannot
+			// replicate with one that has not, so a partial restart leaves a
+			// split that nothing resolves.
+			wantAttempted: []string{"rfr-test-0", "rfr-test-1", "rfr-test-2"},
+		},
+		{
+			name:          "restarts only the pods that are stale",
+			err:           errors.New("NOAUTH Authentication required."),
+			staleRevs:     map[string]string{"rfr-test-0": "current", "rfr-test-1": "old", "rfr-test-2": "current"},
+			wantAttempted: []string{"rfr-test-1"},
+		},
+		{
+			// Giving up here would leave some pods on the new password and some
+			// on the old, replication between them refused: the split the
+			// together-or-not-at-all rule exists to prevent. The failure is
+			// reported once every pod has been tried.
+			name:          "tries every stale pod even when one restart is refused",
+			err:           errors.New("WRONGPASS invalid username-password pair or user is disabled."),
+			staleRevs:     map[string]string{"rfr-test-0": "old", "rfr-test-1": "old", "rfr-test-2": "old"},
+			failRestart:   "rfr-test-0",
+			wantAttempted: []string{"rfr-test-0", "rfr-test-1", "rfr-test-2"},
+			wantErr:       true,
+		},
+		{
+			// Restarting cannot fix a secret that is simply wrong, and repeating
+			// it would be an endless restart loop.
+			name:          "refuses to restart pods that already carry the current configuration",
+			err:           errors.New("WRONGPASS invalid username-password pair or user is disabled."),
+			staleRevs:     map[string]string{"rfr-test-0": "current", "rfr-test-1": "current"},
+			wantAttempted: nil,
+			wantErr:       true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			config := generateConfig()
+			rf := generateRF(false, false)
+			mrfs := &mRFService.RedisFailoverClient{}
+			mrfc := &mRFService.RedisFailoverCheck{}
+			mrfh := &mRFService.RedisFailoverHeal{}
+			mk := &mK8SService.Services{}
+
+			names := []string{}
+			for name := range test.staleRevs {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+
+			mrfc.On("IsRedisRunning", rf).Once().Return(true)
+			mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+			mrfc.On("GetNumberMasters", rf).Once().Return(0, test.err)
+			stale := []string{}
+			for _, name := range names {
+				if test.staleRevs[name] != "current" {
+					stale = append(stale, name)
+				}
+			}
+			mrfc.On("GetRedisesPodsWithStalePassword", rf).Once().Return(stale, nil)
+
+			attempted := []string{}
+			for _, name := range stale {
+				call := mrfh.On("DeletePod", name, rf).Once().Run(func(args mock.Arguments) {
+					attempted = append(attempted, args.Get(0).(string))
+				})
+				if name == test.failRestart {
+					call.Return(errors.New("pods \"" + name + "\" is forbidden"))
+				} else {
+					call.Return(nil)
+				}
+			}
+
+			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
+			err := handler.CheckAndHeal(rf)
+
+			if test.wantErr {
+				assert.Error(err)
+			} else {
+				assert.NoError(err)
+			}
+			sort.Strings(attempted)
+			assert.Equal(test.wantAttempted, nilIfEmpty(attempted))
+			mrfc.AssertExpectations(t)
+			mrfh.AssertExpectations(t)
+		})
+	}
+}
+
+func nilIfEmpty(s []string) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	return s
+}
+
+// A bootstrapping failover never reaches the credential handling in
+// CheckAndHeal, which routes to its own path on the first line, and everything
+// on that path authenticates. Without this a password change wedges there
+// exactly as it used to elsewhere.
+func TestCheckAndHealBootstrapModeAppliesACredentialChange(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantRoll bool
+	}{
+		{
+			name:     "restarts the pods when Redis refuses the configured password",
+			err:      errors.New("WRONGPASS invalid username-password pair or user is disabled."),
+			wantRoll: true,
+		},
+		{
+			// Every pod is a replica of the external node while bootstrapping,
+			// so no masters is the normal state and must not look like a fault.
+			name:     "carries on when there is simply no master among the pods",
+			err:      nil,
+			wantRoll: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			config := generateConfig()
+			rf := generateRF(false, true)
+			mrfs := &mRFService.RedisFailoverClient{}
+			mrfc := &mRFService.RedisFailoverCheck{}
+			mrfh := &mRFService.RedisFailoverHeal{}
+			mk := &mK8SService.Services{}
+
+			mrfc.On("IsRedisRunning", rf).Once().Return(true)
+			mrfc.On("GetNumberMasters", rf).Once().Return(0, test.err)
+
+			if test.wantRoll {
+				mrfc.On("GetRedisesPodsWithStalePassword", rf).Once().Return([]string{"rfr-test-0", "rfr-test-1"}, nil)
+				mrfh.On("DeletePod", "rfr-test-0", rf).Once().Return(nil)
+				mrfh.On("DeletePod", "rfr-test-1", rf).Once().Return(nil)
+			} else {
+				// Reached only if the probe let the flow through.
+				mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{"0.0.0.1"}, nil)
+				mrfc.On("CheckRedisSlavesReady", "0.0.0.1", rf).Once().Return(true, nil)
+				mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+				mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+				mrfh.On("SetRedisCustomConfig", "0.0.0.1", rf).Once().Return(nil)
+				mrfh.On("SetExternalMasterOnAll", "127.0.0.1", "6379", rf).Once().Return(nil)
+			}
+
+			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
+			assert.NoError(handler.CheckAndHeal(rf))
+
 			mrfc.AssertExpectations(t)
 			mrfh.AssertExpectations(t)
 		})
