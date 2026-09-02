@@ -325,8 +325,14 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 	// unreachable does not trigger a restart. Its count is meaningless while
 	// bootstrapping, since every pod is a replica of the external node by
 	// design, and is deliberately ignored.
-	if _, err := r.rfChecker.GetNumberMasters(rf); redis.IsAuthError(err) {
-		return r.applyCredentialChange(rf, err)
+	if _, err := r.rfChecker.GetNumberMasters(rf); err != nil {
+		if redis.IsAuthError(err) {
+			return r.applyCredentialChange(rf, err)
+		}
+		// Any other failure belongs to the calls below, which report what they
+		// cannot do. Recording it keeps a probe that failed from reading like
+		// one that found nothing wrong.
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Could not probe for a refused credential, carrying on: %v", err)
 	}
 
 	err := r.UpdateRedisesPods(rf)
