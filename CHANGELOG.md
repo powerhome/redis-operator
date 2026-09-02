@@ -11,7 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Fixed
 
-- [Do not promote a Redis node when the current master could not be inspected]()
+- [Do not promote a Redis node when the current master could not be inspected](https://github.com/powerhome/redis-operator/pull/106)
 
   `GetNumberMasters` skipped past any node it could not query and counted only the ones that answered as a master, so a running master the operator could not reach was reported as absent. Reaching zero masters is what drives recovery, and recovery promotes a node, so an unreachable master could be replaced by an arbitrary replica while it was still running and writable. A count of zero now means every node answered and none of them was the master; anything else is reported as the unknown it is, and recovery does not run.
 
