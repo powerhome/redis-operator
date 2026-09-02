@@ -46,8 +46,14 @@ management, no sentinel reconfiguration, for as long as it lasted.
 
 - GIVEN a `RedisFailover` with `haproxy` configured
 - WHEN a credential change is applied
-- THEN HAProxy restarts only after every Redis pod carries the new password, in
-  both directions
+- THEN the running HAProxy Deployment is left alone until every Redis pod that is
+  up and answering agrees with the configured password, whether that password is
+  being taken or given up
+
+- GIVEN a Redis pod that is shutting down, or one that has yet to start
+- WHEN the operator decides whether HAProxy may restart
+- THEN that pod is not waited for, since it is being replaced by one built for
+  the current password and waiting would hold the proxy away from its replacement
 
 - GIVEN a `RedisFailover` with no `auth.secretPath`
 - WHEN the operator is upgraded
@@ -131,6 +137,25 @@ management, no sentinel reconfiguration, for as long as it lasted.
   proxy exists, and answering with the current digest restarts HAProxy ahead of
   Redis, which is the ordering the guard exists to prevent. Only a `NotFound`
   means absent; any other failure abandons the pass.
+- **Rejected: ordering HAProxy by holding back its password digest.** This was
+  the first approach and it only ever covered a rotation, where the pod spec is
+  genuinely unchanged because the secret is referenced. Adding or removing
+  `auth.secretPath` puts `REDIS_PASSWORD` into the HAProxy pod spec or takes it
+  out, so the Deployment differs whatever the digest says. A cluster run caught
+  the proxy being rewritten with the password env removed while the digest was
+  still correctly held at the old value: the guard worked and was bypassed. The
+  rewrite landed in the same second the `RedisFailover` was patched, with nothing
+  tying it to Redis at all.
+- **Chosen: gating the write.** Writing the Deployment is what restarts the
+  proxy, so that is what waits. This covers every way the Deployment can differ,
+  including ones not yet thought of, rather than the one the digest happens to
+  describe. It makes the ordering defined rather than incidental; it is not a
+  latency improvement, since a normal change has the Redis pods entering
+  termination within about a second and the proxy follows them.
+- **Rejected: waiting for pods that are shutting down.** They are being replaced
+  by pods built for the current password. Holding the proxy on the old password
+  for a pod in graceful shutdown keeps it misaligned with the new pods that have
+  already started, which is worse than being misaligned with one that is leaving.
 - **Rejected: an empty password as a special case.** Found on review. The
   guard originally returned early when no password was configured, which skipped
   the ordering entirely and restarted HAProxy ahead of Redis whenever
@@ -152,10 +177,19 @@ management, no sentinel reconfiguration, for as long as it lasted.
 
 ## Verification
 
-Measured on a kind cluster by sampling the transition every five seconds rather
-than checking the end state. That distinction is load bearing: the HAProxy
-ordering bug above passed its unit tests, stamped the right annotation and ended
-healthy while restarting the proxy in the same second as Redis.
+Measured on a kind cluster with the operator deployed in it, driving all three
+directions and reading pod annotations, pod start times and ReplicaSet history
+through the API server. Sampling the transition rather than checking the end
+state is load bearing: an earlier version of the ordering passed its unit tests,
+stamped the right annotation and ended healthy while restarting the proxy in the
+same second as Redis.
+
+Second-resolution timestamps cannot settle ordering between events that land in
+the same second, which is the usual case here. The evidence for the gate is
+therefore the operator's own log: with debug logging on, it reports holding the
+HAProxy deployment exactly once per transition, and for adding and removing a
+password that hold lands in the same second as the spec change, which is the
+pass that previously rewrote the Deployment.
 
 A full rotation completes in a minute or two with no intervention, and the
 failover returns with one master, replication up, correct role labels and the

@@ -356,8 +356,14 @@ applications and to the secret close together.
 
 `haproxy`, when configured, is restarted after Redis rather than alongside it.
 It authenticates its health check, so every backend fails while the proxy and
-Redis disagree about the password. HAProxy therefore moves second in both
-directions, taking a password and giving one up only after Redis has.
+Redis disagree about the password. The operator leaves the running proxy alone
+until every Redis pod that is up and answering agrees with the password the
+failover is configured with, which holds whether a password is being taken or
+given up.
+
+A Redis pod that is shutting down is not waited for. It is being replaced by one
+built for the current password, and holding the proxy back for it would keep the
+proxy away from the pods that are replacing it.
 
 Two cases the operator will not act on, both reported in its logs:
 
