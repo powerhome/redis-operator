@@ -124,91 +124,35 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterConfigmap(rf *redisfai
 	return err
 }
 
-// haproxyPasswordChecksum returns the password digest to record on the HAProxy
-// pod template, which is what decides when HAProxy restarts onto a rotated
-// password.
+// redisPodsDisagreeOnPassword reports whether any Redis pod that is currently
+// serving was built for a password other than the one the digest names.
 //
-// HAProxy reads REDIS_PASSWORD from the secret when its pod starts, so a running
-// pod keeps the password it began with and restarting it is what moves it onto a
-// new one. That restart has to come after Redis, not before: HAProxy
-// authenticates its health check, so a proxy holding the new password while
-// Redis still holds the old fails every backend and leaves the master Service
-// with nothing to route to.
+// This is what decides when the HAProxy Deployment may be written. HAProxy
+// authenticates its health check and reads the password when its pod starts, so
+// a proxy whose configuration disagrees with a Redis that is up and answering
+// fails that backend for as long as the two differ. Deferring the write leaves
+// the running proxy on the password its backends still have.
 //
-// So the digest only advances once every Redis pod is on the StatefulSet's
-// current revision. Until then the value already on the Deployment is carried
-// forward, which leaves HAProxy running on the password its backends still have.
+// Pods that are not serving are not protected by waiting. They are coming back
+// from the current pod template and will carry the current password when they
+// do, so a pod that is still starting, or one stuck terminating on a lost node,
+// must not hold the proxy back indefinitely.
 //
-// Reading that value is therefore load bearing, and a failed read is not the
-// same as a proxy that does not exist yet. Only a NotFound means there is
-// nothing to hold back; any other failure leaves the running password unknown,
-// and guessing at it is what restarts HAProxy ahead of Redis. The pass is
-// abandoned instead and the next one tries again.
-//
-// Removing auth.secretPath needs the same ordering as adding it. The digest it
-// settles on is the empty one, and until Redis has restarted without a password
-// the proxy has to keep offering the one its backends still demand.
-func (r *RedisFailoverKubeClient) haproxyPasswordChecksum(rf *redisfailoverv1.RedisFailover) (string, error) {
-	password, err := k8s.GetRedisPassword(r.K8SService, rf)
-	if err != nil {
-		return "", err
-	}
-
-	current := redisPasswordChecksum(rf, password)
-
-	if r.redisPodsHavePassword(rf, current) {
-		return current, nil
-	}
-
-	existing, getErr := r.K8SService.GetDeployment(rf.Namespace, GetHaproxyMasterName(rf))
-	if errors.IsNotFound(getErr) {
-		// No proxy running yet, so there is nothing to hold back.
-		return current, nil
-	}
-	if getErr != nil {
-		return "", getErr
-	}
-	if existing == nil {
-		return current, nil
-	}
-
-	if carried := existing.Spec.Template.Annotations[redisPasswordChecksumKey]; carried != "" {
-		return carried, nil
-	}
-
-	return current, nil
-}
-
-// redisPodsHavePassword reports whether every Redis pod was built for the given
-// password, which is how the operator knows a credential change has finished
-// being applied to Redis.
-//
-// The pods carry the digest themselves, inherited from the StatefulSet's pod
-// template. Asking them directly rather than comparing revisions matters,
-// because HAProxy is ensured before the Redis StatefulSet: at that point the
-// StatefulSet still records the revision from before the password changed, and
-// the pods match it, so a revision comparison reports the rotation finished
-// before it has started.
-//
-// Only the ordering of a restart depends on this, so being unable to tell is not
-// a reason to fail the reconcile. Not knowing is answered with "not yet", which
-// keeps the proxy aligned with backends that have yet to move. That costs a pass
-// when Redis has in fact already moved, and it is the cheaper of the two
-// mistakes: getting ahead of Redis fails every backend until Redis catches up,
-// and Redis only catches up once its own pods have been restarted.
-func (r *RedisFailoverKubeClient) redisPodsHavePassword(rf *redisfailoverv1.RedisFailover, digest string) bool {
+// Being unable to tell is answered with "they disagree", which costs a pass
+// rather than risking a restart onto the wrong password.
+func (r *RedisFailoverKubeClient) redisPodsDisagreeOnPassword(rf *redisfailoverv1.RedisFailover, digest string) bool {
 	pods, err := servingRedisPods(r.K8SService, rf)
-	if err != nil || len(pods) == 0 {
-		return false
+	if err != nil {
+		return true
 	}
 
 	for _, pod := range pods {
 		if !redisPodServesPassword(pod, digest) {
-			return false
+			return true
 		}
 	}
 
-	return true
+	return false
 }
 
 // EnsureHAProxyRedisMasterDeployment makes sure the sentinel deployment exists in the desired state
@@ -235,10 +179,14 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterDeployment(rf *redisfa
 	}
 	d.Spec.Template.Annotations[haproxyConfigChecksumAnnotationKey] = digest
 
-	passwordChecksum, err := r.haproxyPasswordChecksum(rf)
+	// Record which password this proxy is built for, so the pod template moves
+	// when the password does. The secret is mounted by reference, so a rotation
+	// leaves the rest of the template identical.
+	password, err := k8s.GetRedisPassword(r.K8SService, rf)
 	if err != nil {
 		return err
 	}
+	passwordChecksum := redisPasswordChecksum(rf, password)
 	if passwordChecksum != "" {
 		d.Spec.Template.Annotations[redisPasswordChecksumKey] = passwordChecksum
 	}
@@ -254,7 +202,28 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterDeployment(rf *redisfa
 	if specErr != nil {
 		return fmt.Errorf("EnsureHAProxyRedisMasterDeployment failed to compute spec digest: %w", specErr)
 	}
-	if existing, getErr := r.K8SService.GetDeployment(rf.Namespace, d.Name); getErr == nil {
+	existing, getErr := r.K8SService.GetDeployment(rf.Namespace, d.Name)
+	if getErr != nil && !errors.IsNotFound(getErr) {
+		// Whether a proxy is running, and what it is running with, is what the
+		// ordering below rests on. Guessing at it is what restarts HAProxy onto
+		// a password its backends do not have.
+		return fmt.Errorf("EnsureHAProxyRedisMasterDeployment failed to read the running Deployment %s: %w", d.Name, getErr)
+	}
+
+	if existing != nil {
+		// A running proxy is left exactly as it is until Redis agrees with the
+		// password this would give it. Adding or removing auth.secretPath
+		// changes the pod spec itself, not just the digest above, so without
+		// this the proxy is rewritten and restarted the moment the spec changes,
+		// well before the Redis pods have restarted onto the new credential. It
+		// then authenticates every health check with a password its backends do
+		// not have, and the master Service has nothing to route to until they
+		// catch up.
+		if r.redisPodsDisagreeOnPassword(rf, passwordChecksum) {
+			r.logger.WithField("redisfailover", rf.Name).WithField("namespace", rf.Namespace).Debugf("Holding the HAProxy deployment while Redis takes the configured password")
+			return nil
+		}
+
 		if existing.Annotations[haproxyDeploymentSpecChecksumKey] == specDigest {
 			return nil
 		}
