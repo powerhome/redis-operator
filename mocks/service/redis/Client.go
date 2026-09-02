@@ -10,8 +10,8 @@ type Client struct {
 }
 
 // GetNumberRedisConnectedSlaves provides a mock function with given fields: ip, port
-func (_m *Client) GetNumberRedisConnectedSlaves(ip string, port string) (int32, error) {
-	ret := _m.Called(ip, port)
+func (_m *Client) GetNumberRedisConnectedSlaves(ip string, port string, password string) (int32, error) {
+	ret := _m.Called(ip, port, password)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetNumberRedisConnectedSlaves")
@@ -19,17 +19,17 @@ func (_m *Client) GetNumberRedisConnectedSlaves(ip string, port string) (int32, 
 
 	var r0 int32
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (int32, error)); ok {
-		return rf(ip, port)
+	if rf, ok := ret.Get(0).(func(string, string, string) (int32, error)); ok {
+		return rf(ip, port, password)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) int32); ok {
-		r0 = rf(ip, port)
+	if rf, ok := ret.Get(0).(func(string, string, string) int32); ok {
+		r0 = rf(ip, port, password)
 	} else {
 		r0 = ret.Get(0).(int32)
 	}
 
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(ip, port)
+	if rf, ok := ret.Get(1).(func(string, string, string) error); ok {
+		r1 = rf(ip, port, password)
 	} else {
 		r1 = ret.Error(1)
 	}

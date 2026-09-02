@@ -252,8 +252,13 @@ func (r *RedisFailoverChecker) CheckSentinelSlavesNumberInMemory(sentinel string
 }
 
 func (r *RedisFailoverChecker) CheckNumberRedisConnectedSlaves(masterIP string, rf *redisfailoverv1.RedisFailover) error {
+	password, err := k8s.GetRedisPassword(r.k8sService, rf)
+	if err != nil {
+		return fmt.Errorf("resolving redis password: %w", err)
+	}
+
 	portString := rf.Spec.Redis.Port.ToString()
-	nSlaves, err := r.redisClient.GetNumberRedisConnectedSlaves(masterIP, portString)
+	nSlaves, err := r.redisClient.GetNumberRedisConnectedSlaves(masterIP, portString, password)
 	if err != nil {
 		return err
 	} else {
