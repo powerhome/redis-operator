@@ -16,7 +16,12 @@ ARG VERSION
 RUN TARGETOS=$TARGETOS TARGETARCH=$TARGETARCH VERSION=$VERSION ./scripts/build.sh
 
 FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
-RUN apk --no-cache add \
+# The pinned base is a point-in-time snapshot, so packages patched after it was
+# built are still at their old versions inside it. Upgrading brings them
+# forward. The base stays pinned, so what changes between builds is only the
+# set of package updates Alpine has published, not the starting image.
+RUN apk --no-cache upgrade && \
+  apk --no-cache add \
   ca-certificates
 COPY --from=build /src/bin/redis-operator /usr/local/bin
 RUN addgroup -g 1000 rf && \

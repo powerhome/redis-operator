@@ -21,7 +21,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
   `golangci-lint` moves to v2.13.2, because a linter built with an older Go refuses to load a module targeting a newer one. Version 2 merged several linters into `staticcheck` and dropped the default exclusions, which would have changed what is enforced as a side effect of the toolchain bump; a new `.golangci.yml` holds the enforced set where it was, so that change can be made deliberately and on its own.
 
-  The Alpine OpenSSL packages a scanner reports against the image are not reachable from the operator. `scripts/build.sh` sets `CGO_ENABLED=0` with `-extldflags '-static'`, so the binary is statically linked and never loads them; `ldd` inside the image reports it is not a dynamic program at all. No Alpine release currently ships the fixed OpenSSL those reports ask for, and the pinned base is the same release `alpine:latest` resolved to.
+  The runtime image upgrades its Alpine packages, which moves OpenSSL to `3.5.8-r0`. A pinned base is a point-in-time snapshot, so anything patched after it was built stays at the old version inside it until it is upgraded. These packages are not reachable from the operator in any case: `scripts/build.sh` sets `CGO_ENABLED=0` with `-extldflags '-static'`, so the binary is statically linked and never loads them, and `ldd` inside the image reports it is not a dynamic program at all.
 
 ### Fixed
 
