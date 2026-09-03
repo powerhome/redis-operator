@@ -11,7 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Fixed
 
-- [Remove the HAProxy resources when the `haproxy` block is taken out of a `RedisFailover`]()
+- [Remove the HAProxy resources when the `haproxy` block is taken out of a `RedisFailover`](https://github.com/powerhome/redis-operator/pull/107)
 
   The operator ensured HAProxy when the block was present and removed it when the failover was bootstrapping, but did neither when the block was removed, because both branches sat inside a check that the block existed. The resources carry owner references to the `RedisFailover`, so nothing collected them while the failover itself lived on: a proxy kept accepting and routing traffic from a configuration that would never be updated again, with no event or condition recording that it was now unmanaged. Removing `haproxy:` now removes what it created.
 
