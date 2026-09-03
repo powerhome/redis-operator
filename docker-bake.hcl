@@ -18,6 +18,18 @@ target "build-local" {
 
 target "build" {
   inherits = ["operator"]
+  // Published alongside the image so a consumer can answer "what is in this,
+  // and where did it come from" from the registry, without pulling the image
+  // and inferring its contents by scanning. The SBOM lists the Alpine packages
+  // and the Go modules compiled into the binary; max-mode provenance records
+  // the source revision and the resolved base image digests.
+  //
+  // Only on this target: the local and development targets are not published,
+  // and attesting them would slow every local build for no reader.
+  attest = [
+    "type=provenance,mode=max",
+    "type=sbom",
+  ]
   platforms = [
     "linux/amd64",
     "linux/arm/v6",

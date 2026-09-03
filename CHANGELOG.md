@@ -9,6 +9,22 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Added
+
+- [Publish a bill of materials and build provenance with the image](https://github.com/powerhome/redis-operator/pull/PLACEHOLDER)
+
+  The published image now carries a Software Bill of Materials, listing the Alpine packages and the Go modules compiled into the binary at their exact versions. Reading it needs no pull:
+
+  ```
+  docker buildx imagetools inspect powerhome/redis-operator:<tag> --format '{{ json .SBOM }}'
+  ```
+
+  Without one, answering "does this image contain an affected version" means pulling it and letting a scanner infer the contents by inspecting files, which is where reports mixing reachable and unreachable findings come from. The bill of materials makes it a lookup against a published document.
+
+  Build provenance was already published and moves to `max`, which records the source revision and the resolved base image digests. Together with the digest-pinned bases, an image can now be traced to the commit and the exact bases it was built from.
+
+  Attestations are attached to the image index as entries with an `unknown/unknown` platform. This is how the registry represents them and the published images already carried provenance this way, so no consumer sees a new shape.
+
 ### Changed
 
 - [Build with Go 1.25 and pin the base images by digest](https://github.com/powerhome/redis-operator/pull/108)
