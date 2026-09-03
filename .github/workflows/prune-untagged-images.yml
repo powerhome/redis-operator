@@ -1,10 +1,6 @@
 name: Prune untagged image versions
 
 on:
-  # TEMPORARY (remove before merge)
-  push:
-    branches:
-      - gog-2032
   schedule:
     - cron: '0 5 * * 0'
   workflow_dispatch:
