@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	"github.com/spotahome/redis-operator/log"
 	"github.com/spotahome/redis-operator/metrics"
 	mRFService "github.com/spotahome/redis-operator/mocks/operator/redisfailover/service"
@@ -611,6 +612,68 @@ func TestCheckAndHealBootstrapModeAppliesACredentialChange(t *testing.T) {
 			mrfh.AssertExpectations(t)
 		})
 	}
+}
+
+// Holding off has no time limit: a node that never answers keeps the failover
+// here until someone intervenes. Saying so on the resource is the difference
+// between a cluster visibly waiting on a named node and one that is merely down.
+func TestCheckAndHealReportsThatTheMasterCouldNotBeDetermined(t *testing.T) {
+	unreachable := errors.New("dial tcp 10.0.0.1:6379: connect: connection refused")
+
+	t.Run("records the condition and says why", func(t *testing.T) {
+		assert := assert.New(t)
+
+		config := generateConfig()
+		rf := generateRF(false, false)
+		mrfs := &mRFService.RedisFailoverClient{}
+		mrfc := &mRFService.RedisFailoverCheck{}
+		mrfh := &mRFService.RedisFailoverHeal{}
+		mk := &mK8SService.Services{}
+
+		mrfc.On("IsRedisRunning", rf).Once().Return(true)
+		mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+		mrfc.On("GetNumberMasters", rf).Once().Return(0, unreachable)
+		mrfs.On("UpdateStatus", rf).Once().Return(rf, nil)
+
+		handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
+		assert.Error(handler.CheckAndHeal(rf))
+
+		if assert.NotEmpty(rf.Status.Conditions) {
+			last := rf.Status.Conditions[len(rf.Status.Conditions)-1]
+			assert.Equal(redisfailoverv1.AppStateMasterUnknown, last.Type)
+			// The message is a printer column, so it has to name the cause.
+			assert.Contains(last.Message, "could not be inspected")
+			assert.Contains(last.Message, "connection refused")
+		}
+		mrfs.AssertExpectations(t)
+	})
+
+	t.Run("does not rewrite the status on every pass", func(t *testing.T) {
+		assert := assert.New(t)
+
+		config := generateConfig()
+		rf := generateRF(false, false)
+		rf.Status.AddCondition(redisfailoverv1.ClusterCondition{
+			Status:  redisfailoverv1.ConditionTrue,
+			Type:    redisfailoverv1.AppStateMasterUnknown,
+			Message: "already reported",
+		})
+
+		mrfs := &mRFService.RedisFailoverClient{}
+		mrfc := &mRFService.RedisFailoverCheck{}
+		mrfh := &mRFService.RedisFailoverHeal{}
+		mk := &mK8SService.Services{}
+
+		mrfc.On("IsRedisRunning", rf).Once().Return(true)
+		mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+		mrfc.On("GetNumberMasters", rf).Once().Return(0, unreachable)
+
+		handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
+		assert.Error(handler.CheckAndHeal(rf))
+
+		// The hold can last indefinitely, so writing it once is the point.
+		mrfs.AssertNotCalled(t, "UpdateStatus", rf)
+	})
 }
 
 func TestUpdate(t *testing.T) {
