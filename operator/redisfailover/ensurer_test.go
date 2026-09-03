@@ -140,17 +140,17 @@ func TestEnsure(t *testing.T) {
 				mrfs.On("DestroySentinelResources", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			}
 
-			if test.haproxy {
-				if !test.bootstrapping {
-					mrfs.On("EnsureHAProxyRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)
-					mrfs.On("EnsureRedisHeadlessService", rf, mock.Anything, mock.Anything).Once().Return(nil)
-					mrfs.On("EnsureHAProxyRedisMasterConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
-					mrfs.On("EnsureHAProxyRedisMasterDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
+			if test.haproxy && !test.bootstrapping {
+				mrfs.On("EnsureHAProxyRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureRedisHeadlessService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureHAProxyRedisMasterConfigmap", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureHAProxyRedisMasterDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
 
-					mrfs.On("DestroyOrphanedRedisSlaveHaProxy", rf, mock.Anything, mock.Anything).Once().Return(nil)
-				} else {
-					mrfs.On("DestroyHaproxyMasterResources", rf, mock.Anything, mock.Anything).Once().Return(nil)
-				}
+				mrfs.On("DestroyOrphanedRedisSlaveHaProxy", rf, mock.Anything, mock.Anything).Once().Return(nil)
+			} else {
+				// Also when the haproxy block is absent, which previously reached
+				// neither branch and left a running proxy behind.
+				mrfs.On("DestroyHaproxyMasterResources", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			}
 
 			mrfs.On("EnsureRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)
