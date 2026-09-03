@@ -9,6 +9,24 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Fixed
+
+- [Remove the HAProxy resources when the `haproxy` block is taken out of a `RedisFailover`](https://github.com/powerhome/redis-operator/pull/107)
+
+  The operator ensured HAProxy when the block was present and removed it when the failover was bootstrapping, but did neither when the block was removed, because both branches sat inside a check that the block existed. The resources carry owner references to the `RedisFailover`, so nothing collected them while the failover itself lived on: a proxy kept accepting and routing traffic from a configuration that would never be updated again, with no event or condition recording that it was now unmanaged. Removing `haproxy:` now removes what it created.
+
+  The Redis headless service backing HAProxy's SRV discovery is removed with it. It is created alongside the HAProxy resources but under a different name, so every removal had left it behind, including the bootstrapping one that otherwise worked.
+
+  Cleanup no longer depends on the Deployment existing, so a partly created set is still removed, and a failure to remove something is reported rather than treated as permission to carry on.
+
+- [Do not promote a Redis node when the current master could not be inspected](https://github.com/powerhome/redis-operator/pull/106)
+
+  `GetNumberMasters` skipped past any node it could not query and counted only the ones that answered as a master, so a running master the operator could not reach was reported as absent. Reaching zero masters is what drives recovery, and recovery promotes a node, so an unreachable master could be replaced by an arbitrary replica while it was still running and writable. A count of zero now means every node answered and none of them was the master; anything else is reported as the unknown it is, and recovery does not run.
+
+  `SetOldestAsMaster` logged a failure to demote a node and carried on to report success. Promoting one node while failing to demote another leaves the failover with two masters and nothing looking for it, until a later reconcile stops with "more than one master, fix manually" and divergent writes are already possible. The remaining nodes are still demoted, so the failover ends with as few masters as it can, and the failure is now returned.
+
+  Neither changes how a master is chosen when recovery does run. Selection is still by pod age rather than replication offset, which is tracked separately in [issue 100](https://github.com/powerhome/redis-operator/issues/100).
+
 ### Added
 
 - [Apply a password change to a running `RedisFailover` without manual intervention](https://github.com/powerhome/redis-operator/pull/104)

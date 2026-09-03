@@ -32,6 +32,11 @@ type AppState string
 const (
 	AppStatePending AppState = "Pending"
 	AppStateReady   AppState = "Ready"
+	// AppStateMasterUnknown means the operator could not establish which node
+	// is the master and is holding off rather than acting on a guess. It is
+	// reported because that hold has no time limit: a node that never answers
+	// keeps the failover in this state until someone looks at it.
+	AppStateMasterUnknown AppState = "MasterUnknown"
 )
 
 type ConditionStatus string

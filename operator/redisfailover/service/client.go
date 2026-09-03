@@ -312,23 +312,28 @@ func (r *RedisFailoverKubeClient) DestroySentinelResources(rf *redisfailoverv1.R
 func (r *RedisFailoverKubeClient) DestroyHaproxyMasterResources(rf *redisfailoverv1.RedisFailover) error {
 	name := GetHaproxyMasterName(rf)
 
-	if _, err := r.K8SService.GetDeployment(rf.Namespace, name); err != nil {
-		// If no resource, do nothing
-		if errors.IsNotFound(err) {
-			return nil
+	// Each resource is removed on its own terms, tolerating one that has already
+	// gone. Reading the Deployment first and stopping when it was absent left
+	// the rest behind whenever a set was only partly created, and treated a read
+	// that failed for any other reason as permission to carry on deleting.
+	//
+	// The headless service is here because it is created alongside these, by
+	// EnsureRedisHeadlessService, and under a different name. It outlived every
+	// removal until now.
+	deletions := []func() error{
+		func() error { return r.K8SService.DeleteService(rf.Namespace, name) },
+		func() error { return r.K8SService.DeleteConfigMap(rf.Namespace, name) },
+		func() error { return r.K8SService.DeleteDeployment(rf.Namespace, name) },
+		func() error { return r.K8SService.DeleteService(rf.Namespace, GetRedisHeadlessName(rf)) },
+	}
+
+	for _, remove := range deletions {
+		if err := remove(); err != nil && !errors.IsNotFound(err) {
+			return err
 		}
 	}
 
-	if err := r.K8SService.DeleteService(rf.Namespace, name); err != nil {
-		return err
-	}
-
-	if err := r.K8SService.DeleteConfigMap(rf.Namespace, name); err != nil {
-		return err
-	}
-
-	err := r.K8SService.DeleteDeployment(rf.Namespace, name)
-	return err
+	return nil
 }
 
 func (r *RedisFailoverKubeClient) DestroydOrphanedRedisNetworkPolicy(rf *redisfailoverv1.RedisFailover) error {
