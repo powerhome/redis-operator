@@ -32,6 +32,7 @@ jobs:
           owner: powerhome
           package: redis-operator
           delete-untagged: true
+          older-than: '1 day'
           validate: true
           # push (branch test) is always dry-run; schedule always deletes;
           # workflow_dispatch honors the input (defaults to dry-run).
