@@ -6,12 +6,14 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -22,6 +24,17 @@ import (
 	mK8SService "github.com/spotahome/redis-operator/mocks/service/k8s"
 	rfservice "github.com/spotahome/redis-operator/operator/redisfailover/service"
 )
+
+// notFound builds the error the Kubernetes API returns for an object that does
+// not exist.
+//
+// A test standing in for "nothing deployed yet" needs this rather than an error
+// that merely reads like it. The operator tells an absent object apart from one
+// it could not read, and acts differently on each, so a plain error saying "not
+// found" stands for the wrong one of the two.
+func notFound(resource, name string) error {
+	return apierrors.NewNotFound(appsv1.Resource(resource), name)
+}
 
 func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 	configMapName := rfservice.GetRedisName(generateRF())
@@ -532,7 +545,7 @@ func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			generatedStatefulSet = *ss
@@ -587,7 +600,7 @@ func TestRedisStatefulSetCommands(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			gotCommands = ss.Spec.Template.Spec.Containers[0].Command
@@ -640,7 +653,7 @@ func TestSentinelDeploymentCommands(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			gotCommands = d.Spec.Template.Spec.Containers[0].Command
@@ -689,7 +702,7 @@ func TestRedisStatefulSetPodAnnotations(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			gotPodAnnotations = ss.Spec.Template.ObjectMeta.Annotations
@@ -738,7 +751,7 @@ func TestSentinelDeploymentPodAnnotations(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			gotPodAnnotations = d.Spec.Template.ObjectMeta.Annotations
@@ -781,7 +794,7 @@ func TestRedisStatefulSetServiceAccountName(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			gotServiceAccountName = ss.Spec.Template.Spec.ServiceAccountName
@@ -824,7 +837,7 @@ func TestSentinelDeploymentServiceAccountName(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			gotServiceAccountName = d.Spec.Template.Spec.ServiceAccountName
@@ -1516,8 +1529,21 @@ func TestHaproxyDeploymentRedisPassword(t *testing.T) {
 					Annotations: map[string]string{"checksum/haproxy-cfg": "deadbeef"},
 				},
 			}, nil)
-			// No existing Deployment, so the spec-checksum short circuit is skipped.
-			ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, errors.New("not found"))
+			// No existing Deployment, so the spec-checksum short circuit is
+			// skipped. It is also read a second time, by the check that holds
+			// HAProxy on its current password until Redis has taken the new one,
+			// which distinguishes an absent proxy from a failed read and so
+			// needs a real NotFound rather than any error saying "not found".
+			ms.On("GetDeployment", namespace, mock.Anything).Return(nil, notFound("deployments", rfservice.GetHaproxyMasterName(rf)))
+			// The ordering check reads the Redis pods whether or not there is a
+			// password, since giving one up has to wait on Redis just as taking
+			// one does.
+			ms.On("GetStatefulSetPods", namespace, mock.Anything).Return(&corev1.PodList{}, nil)
+			if test.secretPath != "" {
+				ms.On("GetSecret", namespace, test.secretPath).Return(&corev1.Secret{
+					Data: map[string][]byte{"password": []byte("s3cr3tpass")},
+				}, nil)
+			}
 			ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 				got = args.Get(1).(*appsv1.Deployment)
 			}).Return(nil)
@@ -1541,6 +1567,181 @@ func TestHaproxyDeploymentRedisPassword(t *testing.T) {
 			assert.Equal(test.secretPath, env[0].ValueFrom.SecretKeyRef.Name)
 			assert.Equal("password", env[0].ValueFrom.SecretKeyRef.Key)
 		})
+	}
+}
+
+const passwordKey = "checksum/redis-password"
+
+func redisPodWith(name, digest string) corev1.Pod {
+	annotations := map[string]string{}
+	if digest != "" {
+		annotations[passwordKey] = digest
+	}
+	return corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Annotations: annotations},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+}
+
+func haproxyDeploymentWith(digest string) *appsv1.Deployment {
+	annotations := map[string]string{}
+	if digest != "" {
+		annotations[passwordKey] = digest
+	}
+	return &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{Annotations: annotations},
+		}},
+	}
+}
+
+// ensureHaproxy runs the HAProxy deployment ensure against a failover with the
+// given Redis pods and running Deployment, and returns the Deployment it wrote,
+// or nil when it wrote none.
+//
+// Whether it writes is the question these tests ask. Writing the Deployment is
+// what restarts the proxy, and restarting it is what moves it onto a different
+// password. Asserting on the digest it stamps instead would miss a proxy that
+// is restarted for some other reason, which is how adding auth.secretPath used
+// to get past this: it changes the pod spec, not just the digest.
+func ensureHaproxy(t *testing.T, secretPath string, pods []corev1.Pod, running *appsv1.Deployment, getErr error) (*appsv1.Deployment, error) {
+	t.Helper()
+
+	rf := generateRF()
+	rf.Spec.Auth.SecretPath = secretPath
+	rf.Spec.Haproxy = &redisfailoverv1.HaproxySettings{Replicas: 2}
+
+	var got *appsv1.Deployment
+	ms := &mK8SService.Services{}
+	ms.On("GetConfigMap", namespace, mock.Anything).Once().Return(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{"checksum/haproxy-cfg": "deadbeef"},
+		},
+	}, nil)
+	if secretPath != "" {
+		ms.On("GetSecret", namespace, secretPath).Return(&corev1.Secret{
+			Data: map[string][]byte{"password": []byte("s3cr3tpass")},
+		}, nil)
+	}
+	ms.On("GetStatefulSetPods", namespace, mock.Anything).Return(&corev1.PodList{Items: pods}, nil)
+	if getErr != nil {
+		ms.On("GetDeployment", namespace, mock.Anything).Return(nil, getErr)
+	} else {
+		ms.On("GetDeployment", namespace, mock.Anything).Return(running, nil)
+	}
+	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Run(func(args mock.Arguments) {
+		got = args.Get(1).(*appsv1.Deployment)
+	}).Return(nil)
+
+	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+	err := client.EnsureHAProxyRedisMasterDeployment(rf, nil, []metav1.OwnerReference{})
+	return got, err
+}
+
+// HAProxy reads REDIS_PASSWORD when its pod starts, so rewriting its Deployment
+// is what moves it onto a different password. That has to come after Redis:
+// HAProxy authenticates its health check, so a proxy whose configuration
+// disagrees with a Redis that is up and answering fails every backend and
+// leaves the master Service with nothing to route to.
+func TestHaproxyWaitsForRedisBeforeTakingANewPassword(t *testing.T) {
+	current := redisPasswordDigest(namespace, name, "s3cr3tpass")
+
+	t.Run("writes once every Redis pod carries the current password", func(t *testing.T) {
+		got, err := ensureHaproxy(t, "redis-auth",
+			[]corev1.Pod{redisPodWith("rfr-test-0", current), redisPodWith("rfr-test-1", current)},
+			haproxyDeploymentWith("older-digest"), nil)
+
+		assert.NoError(t, err)
+		if assert.NotNil(t, got, "the proxy has to follow Redis onto the new password") {
+			assert.Equal(t, current, got.Spec.Template.Annotations[passwordKey])
+		}
+	})
+
+	t.Run("holds while a Redis pod still carries the old password", func(t *testing.T) {
+		got, err := ensureHaproxy(t, "redis-auth",
+			[]corev1.Pod{redisPodWith("rfr-test-0", current), redisPodWith("rfr-test-1", "older-digest")},
+			haproxyDeploymentWith("older-digest"), nil)
+
+		assert.NoError(t, err)
+		assert.Nil(t, got, "restarting here would authenticate against a backend still on the old password")
+	})
+
+	t.Run("holds when the failover gains a password its pods do not have", func(t *testing.T) {
+		// Adding auth.secretPath puts REDIS_PASSWORD into the HAProxy pod spec,
+		// so the Deployment differs whether or not the digest moves. Nothing
+		// about the digest can hold this back on its own.
+		got, err := ensureHaproxy(t, "redis-auth",
+			[]corev1.Pod{redisPodWith("rfr-test-0", ""), redisPodWith("rfr-test-1", "")},
+			haproxyDeploymentWith(""), nil)
+
+		assert.NoError(t, err)
+		assert.Nil(t, got, "the proxy must not authenticate against a Redis that wants no password")
+	})
+
+	t.Run("creates the proxy when none is running", func(t *testing.T) {
+		// Nothing to hold back, and holding would mean never creating it.
+		got, err := ensureHaproxy(t, "redis-auth",
+			[]corev1.Pod{redisPodWith("rfr-test-0", "older-digest")},
+			nil, notFound("deployments", "rfrm-haproxy-test"))
+
+		assert.NoError(t, err)
+		assert.NotNil(t, got)
+	})
+
+	t.Run("abandons the pass when the running Deployment cannot be read", func(t *testing.T) {
+		// A failed read is not "no proxy running yet", and guessing is what
+		// restarts HAProxy ahead of Redis.
+		got, err := ensureHaproxy(t, "redis-auth",
+			[]corev1.Pod{redisPodWith("rfr-test-0", current)},
+			nil, errors.New("etcdserver: request timed out"))
+
+		assert.Error(t, err)
+		assert.Nil(t, got)
+	})
+}
+
+// Giving up a password needs the same ordering. Until Redis has restarted
+// without requirepass its backends still demand one, so a proxy that has
+// already dropped it fails every health check.
+func TestHaproxyWaitsForRedisBeforeGivingUpAPassword(t *testing.T) {
+	t.Run("holds while a Redis pod still requires a password", func(t *testing.T) {
+		got, err := ensureHaproxy(t, "",
+			[]corev1.Pod{redisPodWith("rfr-test-0", "older-digest"), redisPodWith("rfr-test-1", "")},
+			haproxyDeploymentWith("older-digest"), nil)
+
+		assert.NoError(t, err)
+		assert.Nil(t, got, "the proxy must keep the password its backends still demand")
+	})
+
+	t.Run("writes once no Redis pod requires one", func(t *testing.T) {
+		got, err := ensureHaproxy(t, "",
+			[]corev1.Pod{redisPodWith("rfr-test-0", ""), redisPodWith("rfr-test-1", "")},
+			haproxyDeploymentWith("older-digest"), nil)
+
+		assert.NoError(t, err)
+		if assert.NotNil(t, got) {
+			assert.NotContains(t, got.Spec.Template.Annotations, passwordKey)
+		}
+	})
+}
+
+// A pod on its way out is not going to take a new password, so waiting for it
+// waits forever. A node failure can leave a pod terminating indefinitely, and
+// holding the proxy back that whole time leaves it authenticating with a
+// password its backends have already replaced.
+func TestHaproxyIgnoresRedisPodsOnTheirWayOut(t *testing.T) {
+	current := redisPasswordDigest(namespace, name, "s3cr3tpass")
+
+	leaving := redisPodWith("rfr-test-1", "older-digest")
+	leaving.ObjectMeta.DeletionTimestamp = &metav1.Time{Time: time.Unix(0, 0)}
+
+	got, err := ensureHaproxy(t, "redis-auth",
+		[]corev1.Pod{redisPodWith("rfr-test-0", current), leaving},
+		haproxyDeploymentWith("older-digest"), nil)
+
+	assert.NoError(t, err)
+	if assert.NotNil(t, got, "a terminating pod must not hold the proxy back") {
+		assert.Equal(t, current, got.Spec.Template.Annotations[passwordKey])
 	}
 }
 
@@ -2483,7 +2684,7 @@ func TestRedisHostNetworkAndDnsPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			actualHostNetwork = ss.Spec.Template.Spec.HostNetwork
@@ -2533,7 +2734,7 @@ func TestSentinelHostNetworkAndDnsPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			actualHostNetwork = d.Spec.Template.Spec.HostNetwork
@@ -2584,7 +2785,7 @@ func TestRedisImagePullPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			policy = ss.Spec.Template.Spec.Containers[0].ImagePullPolicy
@@ -2631,7 +2832,7 @@ func TestSentinelImagePullPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			policy = d.Spec.Template.Spec.Containers[0].ImagePullPolicy
@@ -2707,7 +2908,7 @@ func TestRedisExtraVolumeMounts(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			extraVolume = s.Spec.Template.Spec.Volumes[3]
@@ -2783,7 +2984,7 @@ func TestSentinelExtraVolumeMounts(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			extraVolume = d.Spec.Template.Spec.Volumes[2]
@@ -2841,7 +3042,7 @@ func TestCustomPort(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			port = s.Spec.Template.Spec.Containers[0].Ports[0]
@@ -2923,8 +3124,15 @@ func TestRedisEnv(t *testing.T) {
 		}
 
 		ms := &mK8SService.Services{}
+		// The pod template records a digest of the password, so the statefulset
+		// ensurer reads the secret.
+		if test.auth != "" {
+			ms.On("GetSecret", namespace, test.auth).Once().Return(&corev1.Secret{
+				Data: map[string][]byte{"password": []byte("s3cr3tpass")},
+			}, nil)
+		}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			env = s.Spec.Template.Spec.Containers[0].Env
@@ -2936,6 +3144,86 @@ func TestRedisEnv(t *testing.T) {
 		assert.NoError(err)
 		assert.Equal(test.expectedRedisEnv, env)
 	}
+}
+
+// Redis reads requirepass at startup, so a pod keeps the password it began
+// with. The secret reaches it by reference, which leaves the pod template
+// identical across a rotation and gives the rolling update no new revision to
+// apply. A digest of the password is what makes the rotation visible.
+func TestRedisStatefulSetPasswordChecksum(t *testing.T) {
+	const key = "checksum/redis-password"
+
+	stampIn := func(t *testing.T, ns, nm, secretPath, password string) *appsv1.StatefulSet {
+		t.Helper()
+
+		rf := generateRF()
+		rf.ObjectMeta.Namespace = ns
+		rf.ObjectMeta.Name = nm
+		rf.Spec.Auth.SecretPath = secretPath
+
+		var got *appsv1.StatefulSet
+		ms := &mK8SService.Services{}
+		if secretPath != "" {
+			ms.On("GetSecret", ns, secretPath).Once().Return(&corev1.Secret{
+				Data: map[string][]byte{"password": []byte(password)},
+			}, nil)
+		}
+		ms.On("CreateOrUpdatePodDisruptionBudget", ns, mock.Anything).Once().Return(nil, nil)
+		ms.On("GetStatefulSet", ns, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+		ms.On("CreateOrUpdateStatefulSet", ns, mock.Anything).Once().Run(func(args mock.Arguments) {
+			got = args.Get(1).(*appsv1.StatefulSet)
+		}).Return(nil)
+
+		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+		if err := client.EnsureRedisStatefulset(rf, nil, []metav1.OwnerReference{}); err != nil {
+			t.Fatalf("EnsureRedisStatefulset: %v", err)
+		}
+		return got
+	}
+
+	stamp := func(t *testing.T, secretPath, password string) *appsv1.StatefulSet {
+		t.Helper()
+		return stampIn(t, namespace, name, secretPath, password)
+	}
+
+	t.Run("carries no annotation when the failover has no password", func(t *testing.T) {
+		// Every failover in the estate is in this state, so the template has to
+		// come out unchanged or upgrading the operator restarts all of them.
+		assert.NotContains(t, stamp(t, "", "").Spec.Template.Annotations, key)
+	})
+
+	t.Run("changes when the password changes", func(t *testing.T) {
+		before := stamp(t, "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key]
+		after := stamp(t, "redis-auth", "rotated-pass").Spec.Template.Annotations[key]
+
+		assert.NotEmpty(t, before)
+		assert.NotEqual(t, before, after, "a rotation must produce a new revision to roll to")
+	})
+
+	t.Run("is stable for an unchanged password", func(t *testing.T) {
+		// Otherwise every reconcile would look like a rotation and roll the pods.
+		first := stamp(t, "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key]
+		second := stamp(t, "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key]
+
+		assert.Equal(t, first, second)
+	})
+
+	t.Run("does not expose the password", func(t *testing.T) {
+		// The pod template is readable by anything that can get pods.
+		assert.NotContains(t, stamp(t, "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key], "s3cr3tpass")
+	})
+
+	t.Run("differs between failovers sharing a password", func(t *testing.T) {
+		// A digest of the password alone is the same value everywhere, so one
+		// table of precomputed hashes would read it back out of any annotation
+		// in any cluster. Tying it to the failover confines such a table to a
+		// single one.
+		here := stampIn(t, "testns", "test", "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key]
+		there := stampIn(t, "otherns", "other", "redis-auth", "s3cr3tpass").Spec.Template.Annotations[key]
+
+		assert.NotEmpty(t, here)
+		assert.NotEqual(t, here, there)
+	})
 }
 
 func TestRedisStartupProbe(t *testing.T) {
@@ -2976,7 +3264,7 @@ func TestRedisStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			startupVolumes = s.Spec.Template.Spec.Volumes
@@ -3030,7 +3318,7 @@ func TestSentinelStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			startupVolumes = d.Spec.Template.Spec.Volumes
@@ -3115,7 +3403,7 @@ func TestRedisCustomLivenessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			livenessProbe = s.Spec.Template.Spec.Containers[0].LivenessProbe
@@ -3195,7 +3483,7 @@ func TestSentinelCustomLivenessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			livenessProbe = d.Spec.Template.Spec.Containers[0].LivenessProbe
@@ -3263,7 +3551,7 @@ func TestRedisCustomReadinessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			readinessProbe = s.Spec.Template.Spec.Containers[0].ReadinessProbe
@@ -3343,7 +3631,7 @@ func TestSentinelCustomReadinessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			readinessProbe = d.Spec.Template.Spec.Containers[0].ReadinessProbe
@@ -3403,7 +3691,7 @@ func TestRedisCustomStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			startupProbe = s.Spec.Template.Spec.Containers[0].StartupProbe
@@ -3471,7 +3759,7 @@ func TestSentinelCustomStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 			d := args.Get(1).(*appsv1.Deployment)
 			startupProbe = d.Spec.Template.Spec.Containers[0].StartupProbe
@@ -3498,7 +3786,7 @@ func TestEnsureRedisStatefulSetSkipsUpdateWhenDigestUnchanged(t *testing.T) {
 	var firstSS *appsv1.StatefulSet
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 	ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		firstSS = args.Get(1).(*appsv1.StatefulSet).DeepCopy()
 	}).Return(nil)
@@ -3535,7 +3823,7 @@ func TestEnsureRedisStatefulSetUpdatesWhenSpecChanges(t *testing.T) {
 	var firstSS *appsv1.StatefulSet
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 	ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		firstSS = args.Get(1).(*appsv1.StatefulSet).DeepCopy()
 	}).Return(nil)
@@ -3587,7 +3875,7 @@ func TestEnsureRedisStatefulSetWritesDigestAnnotation(t *testing.T) {
 	var createdSS *appsv1.StatefulSet
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
 	ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		createdSS = args.Get(1).(*appsv1.StatefulSet).DeepCopy()
 	}).Return(nil)
@@ -3639,7 +3927,7 @@ func TestEnsureSentinelDeploymentSkipsUpdateWhenDigestUnchanged(t *testing.T) {
 	var firstDeployment *appsv1.Deployment
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		firstDeployment = args.Get(1).(*appsv1.Deployment).DeepCopy()
 	}).Return(nil)
@@ -3676,7 +3964,7 @@ func TestEnsureSentinelDeploymentUpdatesWhenSpecChanges(t *testing.T) {
 	var firstDeployment *appsv1.Deployment
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		firstDeployment = args.Get(1).(*appsv1.Deployment).DeepCopy()
 	}).Return(nil)
@@ -3728,7 +4016,7 @@ func TestEnsureSentinelDeploymentWritesDigestAnnotation(t *testing.T) {
 	var createdDeployment *appsv1.Deployment
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, fmt.Errorf("not found"))
+	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
 	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
 		createdDeployment = args.Get(1).(*appsv1.Deployment).DeepCopy()
 	}).Return(nil)

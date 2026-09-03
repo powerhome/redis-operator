@@ -329,39 +329,50 @@ secret's `password` field must not be empty: a `RedisFailover` naming a secret
 with an empty password is refused, rather than started with no authentication at
 all.
 
-#### Enabling auth on a RedisFailover that is already running
+#### Changing the password of a running RedisFailover
 
-Adding `auth.secretPath` to a running failover needs one manual step. The Redis
-StatefulSet uses the `OnDelete` update strategy, so it prepares a new revision
-carrying the password but does not restart any pod. Until the pods restart they
-keep serving without a password while the operator, HAProxy and the sentinels
-have already picked one up, and every component that authenticates against them
-is answered with:
+Adding `auth.secretPath` to a running failover, changing the value in the secret
+it names, and removing `auth.secretPath` again are all applied by the operator.
+No manual step is needed.
 
-```
-ERR AUTH <password> called without any password configured for the default user.
-```
+Redis reads `requirepass` from its configuration only at startup, so a running
+pod keeps the password it began with however many times the secret changes.
+The operator notices that Redis is refusing the password the failover is
+configured with and restarts the pods to apply it.
 
-The operator logs that on each reconcile, the HAProxy backends stay `DOWN`, and
-nothing recovers on its own. Delete the Redis pods so they restart with the new
-configuration:
+**The pods are restarted together, which means a short window with no Redis.**
+That window is inherent: a pod that has restarted has the new `requirepass` and
+`masterauth` while one that has not has the old, so replication between them
+fails for as long as they disagree, and restarting them one at a time would
+leave the failover split rather than shorten the interruption. Sentinel elects a
+master once they are back, and the operator restores the role labels and the
+sentinels' `auth-pass` on its next pass. On a small failover the whole change
+takes a minute or two, of which a few tens of seconds have no master.
 
-```
-kubectl delete pod -n <namespace> \
-  -l redisfailovers.databases.spotahome.com/name=<failover-name>,redisfailovers.databases.spotahome.com/component=redis
-```
+Plan a password change accordingly: clients see refused connections during the
+window and need to reconnect, and any client still holding the previous password
+stops working as soon as the pods restart. Roll the new password out to the
+applications and to the secret close together.
 
-Both labels are needed. `app.kubernetes.io/component=redis` alone selects the
-Redis pods of every `RedisFailover` in the namespace, not just the one being
-changed.
+`haproxy`, when configured, is restarted after Redis rather than alongside it.
+It authenticates its health check, so every backend fails while the proxy and
+Redis disagree about the password. The operator leaves the running proxy alone
+until every Redis pod that is up and answering agrees with the password the
+failover is configured with, which holds whether a password is being taken or
+given up.
 
-Delete them together rather than one at a time. A restarted pod has
-`requirepass` and `masterauth` while any pod still awaiting restart has neither,
-so replication between them fails with the same error until every pod carries
-the password. Sentinel re-establishes monitoring afterwards, and the operator
-sets the sentinels' `auth-pass` on its next pass.
+A Redis pod that is shutting down is not waited for. It is being replaced by one
+built for the current password, and holding the proxy back for it would keep the
+proxy away from the pods that are replacing it.
 
-The same applies in reverse when removing `auth.secretPath`.
+Two cases the operator will not act on, both reported in its logs:
+
+- A secret whose `password` field is empty is refused outright, since a failover
+  asking for authentication and running without any is worse than one that fails
+  to reconcile.
+- If Redis refuses the password while the pods already carry the current
+  configuration, the secret itself is wrong and restarting cannot help, so the
+  operator reports the refusal instead of restarting in a loop.
 
 ### Bootstrapping from pre-existing Redis Instance(s)
 If you are wanting to migrate off of a pre-existing Redis instance, you can provide a `bootstrapNode` to your `RedisFailover` resource spec.

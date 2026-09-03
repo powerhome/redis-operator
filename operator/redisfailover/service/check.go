@@ -33,6 +33,7 @@ type RedisFailoverCheck interface {
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetSentinelsIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetMaxRedisPodTime(rFailover *redisfailoverv1.RedisFailover) (time.Duration, error)
+	GetRedisesPodsWithStalePassword(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesSlavesPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesMasterPod(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetStatefulSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error)
@@ -334,9 +335,19 @@ func (r *RedisFailoverChecker) GetNumberMasters(rf *redisfailoverv1.RedisFailove
 	}
 
 	rport := rf.Spec.Redis.Port.ToString()
+	// A node that is merely not ready yet is worth skipping past, since another
+	// may still answer and the condition clears on its own. A node that refuses
+	// our credential is not: it will keep refusing until its pod restarts onto
+	// the password the failover is configured with. Reporting that as "not
+	// ready" and returning zero masters hides the one fault the caller could
+	// actually repair.
+	var authErr error
 	for _, rip := range rips {
 		master, err := r.redisClient.IsMaster(rip, rport, password)
 		if err != nil {
+			if redis.IsAuthError(err) {
+				authErr = err
+			}
 			r.logger.Errorf("Get redis info failed, maybe this node is not ready, pod ip: %s", rip)
 			continue
 		}
@@ -344,6 +355,14 @@ func (r *RedisFailoverChecker) GetNumberMasters(rf *redisfailoverv1.RedisFailove
 			nMasters++
 		}
 	}
+
+	// Only when nothing answered at all: while a rotation is being applied some
+	// pods hold the new password and some the old, and if one of them is still
+	// a reachable master there is nothing to repair here.
+	if nMasters == 0 && authErr != nil {
+		return nMasters, authErr
+	}
+
 	return nMasters, nil
 }
 
@@ -396,6 +415,37 @@ func (r *RedisFailoverChecker) GetMaxRedisPodTime(rf *redisfailoverv1.RedisFailo
 		}
 	}
 	return maxTime, nil
+}
+
+// GetRedisesPodsWithStalePassword returns the names of the running Redis pods
+// that were built for a different password than the failover is now configured
+// with, and so are still serving the old one.
+//
+// The pods carry a digest of their password, inherited from the StatefulSet's
+// pod template. Asking them directly is deliberate: every other pod lookup here
+// decides what it needs by querying Redis, which is unavailable precisely when
+// Redis is refusing the operator's credential, and comparing pod revisions
+// instead would depend on the StatefulSet having already been updated this pass.
+func (r *RedisFailoverChecker) GetRedisesPodsWithStalePassword(rf *redisfailoverv1.RedisFailover) ([]string, error) {
+	password, err := k8s.GetRedisPassword(r.k8sService, rf)
+	if err != nil {
+		return nil, err
+	}
+
+	pods, err := redisPodsInService(r.k8sService, rf)
+	if err != nil {
+		return nil, err
+	}
+
+	current := redisPasswordChecksum(rf, password)
+	stale := []string{}
+	for _, pod := range pods {
+		if !redisPodBuiltForPassword(pod, current) {
+			stale = append(stale, pod.Name)
+		}
+	}
+
+	return stale, nil
 }
 
 // GetRedisesSlavesPods returns pods names of the Redis slave nodes

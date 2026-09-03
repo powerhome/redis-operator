@@ -498,10 +498,47 @@ func (c *client) SlaveIsReady(ip, port, password string) (bool, error) {
 	return ok, nil
 }
 
+// How Redis says it is unhappy with the credential it was offered. Matching on
+// the reply text is the only signal available, so the operator's ability to
+// recover from a password change rests on these strings.
+const (
+	// It wants a password and got none.
+	noAuthReply = "NOAUTH"
+	// It got the wrong one.
+	wrongPassReply = "WRONGPASS"
+	// It wants none and got one, which is what adding auth.secretPath to a
+	// failover whose pods are already running produces.
+	noPasswordSetReply       = "without any password configured"
+	noPasswordSetLegacyReply = "but no password is set"
+)
+
+// IsAuthError reports whether Redis refused the credential we offered, rather
+// than failing for some other reason.
+//
+// All three answers mean the same thing to the operator: the running Redis is
+// not using the password the RedisFailover's secret currently holds. Redis
+// answers NOAUTH when it wants a password and got none, WRONGPASS when it got
+// the wrong one, and complains that no password is configured when it wants
+// none and got one. That last case is the one an operator hits first, by adding
+// auth.secretPath to a failover whose pods are already running.
+//
+// Waiting cannot resolve any of them. The pods have to restart to pick up the
+// credential the spec now describes.
+func IsAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, noAuthReply) ||
+		strings.Contains(msg, wrongPassReply) ||
+		strings.Contains(msg, noPasswordSetReply) ||
+		strings.Contains(msg, noPasswordSetLegacyReply)
+}
+
 func getRedisError(err error) string {
-	if strings.Contains(err.Error(), "NOAUTH") {
+	if strings.Contains(err.Error(), noAuthReply) {
 		return metrics.NOAUTH
-	} else if strings.Contains(err.Error(), "WRONGPASS") {
+	} else if strings.Contains(err.Error(), wrongPassReply) {
 		return metrics.WRONG_PASSWORD_USED
 	} else if strings.Contains(err.Error(), "NOPERM") {
 		return metrics.NOPERM

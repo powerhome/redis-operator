@@ -2,10 +2,12 @@ package redisfailover
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	"github.com/spotahome/redis-operator/metrics"
+	"github.com/spotahome/redis-operator/service/redis"
 )
 
 // UpdateRedisesPods if the running version of pods are equal to the statefulset one
@@ -81,6 +83,57 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 	return nil
 }
 
+// applyCredentialChange restarts the Redis pods that are not yet running the
+// current pod template, so they pick up the password the failover is configured
+// with.
+//
+// They go together, not one at a time. A pod that has restarted has the new
+// requirepass and masterauth while one that has not has the old, so replication
+// between them fails for as long as they disagree. Rolling them singly leaves
+// the failover in that split for a whole reconcile at least: the pod that
+// already restarted cannot sync, so it never reports ready, and the wait for it
+// to become ready is what would drive the next restart. Nothing arrives to end
+// it. Restarting together costs a short window with no Redis at all, which
+// sentinel and the clients already handle, instead of a split that persists.
+//
+// While bootstrapping the pods replicate from the external node rather than from
+// each other, so that split cannot arise there. They still go together: the
+// authoritative data is on the bootstrap node, which the restart does not touch,
+// so there is nothing to gain from drawing it out.
+//
+// Only pods on a stale template are restarted. If they all carry the current one
+// and Redis still refuses the credential, restarting cannot help -- the secret
+// itself is wrong, or its value never reached the config -- and repeating it
+// would be an endless restart loop, so the refusal is returned instead.
+func (r *RedisFailoverHandler) applyCredentialChange(rf *redisfailoverv1.RedisFailover, authErr error) error {
+	logger := r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace)
+
+	stale, err := r.rfChecker.GetRedisesPodsWithStalePassword(rf)
+	if err != nil {
+		return err
+	}
+
+	if len(stale) == 0 {
+		logger.Errorf("Redis refuses the configured password on pods that already carry the current configuration, so restarting them will not help: %s", authErr.Error())
+		return authErr
+	}
+
+	logger.Warningf("Redis is not using the password the failover is configured with, restarting %d pod(s) together to apply it: %s", len(stale), authErr.Error())
+
+	// Every stale pod is attempted before anything is reported. Stopping at the
+	// first failure would leave behind exactly the half-restarted failover this
+	// goes to such lengths to avoid: some pods on the new password, some on the
+	// old, and replication between them refused.
+	var errs []error
+	for _, pod := range stale {
+		if err := r.rfHealer.DeletePod(pod, rf); err != nil {
+			errs = append(errs, fmt.Errorf("restarting %s: %w", pod, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
 // CheckAndHeal runs verifcation checks to ensure the RedisFailover is in an expected and healthy state.
 // If the checks do not match up to expectations, an attempt will be made to "heal" the RedisFailover into a healthy state.
 func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) error {
@@ -110,6 +163,21 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 	}
 
 	nMasters, err := r.rfChecker.GetNumberMasters(rf)
+	if redis.IsAuthError(err) {
+		// The running Redis is not using the password the failover is
+		// configured with. Two ordinary actions leave it that way: adding
+		// auth.secretPath to a running failover, and rotating the value in the
+		// secret it names. In both the generated config carries the new
+		// password and the running Redis does not, because it reads that config
+		// only at startup.
+		//
+		// Nothing below can see past this. Every check authenticates, and the
+		// rolling update that applies the new password sits behind all of them,
+		// so the failover would wedge here and never reach its own repair.
+		// Waiting does not help either, since the pods keep whatever they
+		// started with.
+		return r.applyCredentialChange(rf, err)
+	}
 	if err != nil {
 		return err
 	}
@@ -245,6 +313,26 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 		setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.REDIS_REPLICA_MISMATCH, metrics.NOT_APPLICABLE, errors.New("not all replicas running"))
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Number of redis mismatch, waiting for redis statefulset reconcile")
 		return nil
+	}
+
+	// Bootstrapping never reaches the credential handling in CheckAndHeal, which
+	// returns here on its first line, and UpdateRedisesPods below authenticates.
+	// Without this a password change wedges the failover at that call exactly as
+	// it used to everywhere else.
+	//
+	// GetNumberMasters serves as the probe: it asks every pod and reports a
+	// refusal only when none of them answered, so a pod that is merely
+	// unreachable does not trigger a restart. Its count is meaningless while
+	// bootstrapping, since every pod is a replica of the external node by
+	// design, and is deliberately ignored.
+	if _, err := r.rfChecker.GetNumberMasters(rf); err != nil {
+		if redis.IsAuthError(err) {
+			return r.applyCredentialChange(rf, err)
+		}
+		// Any other failure belongs to the calls below, which report what they
+		// cannot do. Recording it keeps a probe that failed from reading like
+		// one that found nothing wrong.
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Could not probe for a refused credential, carrying on: %v", err)
 	}
 
 	err := r.UpdateRedisesPods(rf)

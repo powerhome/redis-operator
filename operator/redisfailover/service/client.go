@@ -148,6 +148,18 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterDeployment(rf *redisfa
 	}
 	d.Spec.Template.Annotations[haproxyConfigChecksumAnnotationKey] = digest
 
+	// Record which password this proxy is built for, so the pod template moves
+	// when the password does. The secret is mounted by reference, so a rotation
+	// leaves the rest of the template identical.
+	password, err := k8s.GetRedisPassword(r.K8SService, rf)
+	if err != nil {
+		return err
+	}
+	passwordChecksum := redisPasswordChecksum(rf, password)
+	if passwordChecksum != "" {
+		d.Spec.Template.Annotations[redisPasswordChecksumKey] = passwordChecksum
+	}
+
 	// Compute a digest of the desired spec and store it on the
 	// deployment's metadata annotations. On each reconcile we
 	// re-generate the desired spec, re-hash it, and compare
@@ -159,7 +171,28 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterDeployment(rf *redisfa
 	if specErr != nil {
 		return fmt.Errorf("EnsureHAProxyRedisMasterDeployment failed to compute spec digest: %w", specErr)
 	}
-	if existing, getErr := r.K8SService.GetDeployment(rf.Namespace, d.Name); getErr == nil {
+	existing, getErr := r.K8SService.GetDeployment(rf.Namespace, d.Name)
+	if getErr != nil && !errors.IsNotFound(getErr) {
+		// Whether a proxy is running, and what it is running with, is what the
+		// ordering below rests on. Guessing at it is what restarts HAProxy onto
+		// a password its backends do not have.
+		return fmt.Errorf("EnsureHAProxyRedisMasterDeployment failed to read the running Deployment %s: %w", d.Name, getErr)
+	}
+
+	if existing != nil {
+		// A running proxy is left exactly as it is until Redis agrees with the
+		// password this would give it. Adding or removing auth.secretPath
+		// changes the pod spec itself, not just the digest above, so without
+		// this the proxy is rewritten and restarted the moment the spec changes,
+		// well before the Redis pods have restarted onto the new credential. It
+		// then authenticates every health check with a password its backends do
+		// not have, and the master Service has nothing to route to until they
+		// catch up.
+		if anyRedisPodOnAnotherPassword(r.K8SService, rf, passwordChecksum) {
+			r.logger.WithField("redisfailover", rf.Name).WithField("namespace", rf.Namespace).Debugf("Holding the HAProxy deployment while Redis takes the configured password")
+			return nil
+		}
+
 		if existing.Annotations[haproxyDeploymentSpecChecksumKey] == specDigest {
 			return nil
 		}
@@ -183,11 +216,11 @@ func (r *RedisFailoverKubeClient) EnsureHAProxyRedisMasterDeployment(rf *redisfa
 // the operator tracks. Listing types expelicitly here means:
 //
 //   - the compiler rejects any accidental wrong-type call site - nil
-//   can never be passed (struct types are not nilable)
+//     can never be passed (struct types are not nilable)
 //
 //   - adding a new Ensure* method for a new resource type requires
-//   updating this list, which serves as a forcing function to
-//   remember to add the skip-update guard too
+//     updating this list, which serves as a forcing function to
+//     remember to add the skip-update guard too
 type managedSpec interface {
 	appsv1.DeploymentSpec | appsv1.StatefulSetSpec
 }
@@ -365,7 +398,16 @@ func (r *RedisFailoverKubeClient) EnsureRedisStatefulset(rf *redisfailoverv1.Red
 			return err
 		}
 	}
-	ss := generateRedisStatefulSet(rf, labels, ownerRefs)
+	// The pod template records which password it was built for, so that
+	// rotating the secret produces a new revision for the rolling update to
+	// apply. Without it the template is identical across a rotation and the
+	// pods keep the password they started with.
+	password, err := k8s.GetRedisPassword(r.K8SService, rf)
+	if err != nil {
+		return err
+	}
+
+	ss := generateRedisStatefulSet(rf, labels, ownerRefs, password)
 
 	digest, err := specDigest(ss.Spec)
 	if err != nil {

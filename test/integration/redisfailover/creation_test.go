@@ -45,6 +45,7 @@ const (
 	haproxySize    = int32(1)
 	authSecretPath = "redis-auth"
 	testPass       = "test-pass"
+	rotatedPass    = "rotated-pass"
 	redisAddr      = "redis://127.0.0.1:6379"
 )
 
@@ -170,6 +171,14 @@ func TestRedisFailover(t *testing.T) {
 	// Reach the master through HAProxy, which only routes once its health check
 	// has authenticated against a password-protected Redis.
 	t.Run("Check HAProxy Routing To The Redis Master", clients.testHaproxyMaster)
+
+	// Change the password and check the operator applies it without help. These
+	// run last because each one restarts every Redis pod, and they run in
+	// sequence because each starts from where the previous one left the
+	// failover.
+	t.Run("Check Rotating The Password Is Applied", clients.testPasswordRotation)
+	t.Run("Check Removing The Password Is Applied", clients.testPasswordRemoval)
+	t.Run("Check Adding The Password Back Is Applied", clients.testPasswordAddition)
 }
 
 const sentinelPort = 26379
@@ -338,6 +347,123 @@ func (c *clients) testHaproxyMaster(t *testing.T) {
 
 	assert.NoError(lastErr, "HAProxy should have a Redis backend to route to; without an authenticated health check every backend stays DOWN")
 	assert.True(isMaster, "HAProxy should route to the Redis master")
+}
+
+// waitForFailoverPassword polls until every Redis pod answers on the given
+// password and one of them is the master. An empty password means the failover
+// is expected to be running without authentication.
+//
+// It samples the whole transition rather than the end state, which matters: the
+// operator restarts the pods, sentinel elects a master, and the operator
+// restores the role labels. An assertion over the generated resources passes
+// just as well while the pods are still serving the previous password.
+func (c *clients) waitForFailoverPassword(t *testing.T, password string) {
+	t.Helper()
+	assert := assert.New(t)
+
+	redisSS, err := c.k8sClient.AppsV1().StatefulSets(namespace).Get(context.Background(), fmt.Sprintf("rfr-%s", name), metav1.GetOptions{})
+	if !assert.NoError(err) {
+		return
+	}
+	listOptions := metav1.ListOptions{LabelSelector: labels.FormatLabels(redisSS.Spec.Selector.MatchLabels)}
+
+	var master string
+	var lastErr error
+	for deadline := time.Now().Add(5 * time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Second) {
+		pods, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		master, lastErr = "", nil
+		ready := 0
+		for _, pod := range pods.Items {
+			if pod.Status.PodIP == "" {
+				continue
+			}
+			isMaster, err := c.redisClient.IsMaster(pod.Status.PodIP, "6379", password)
+			if err != nil {
+				lastErr = err
+				break
+			}
+			ready++
+			if isMaster {
+				master = pod.Status.PodIP
+			}
+		}
+
+		if lastErr == nil && master != "" && ready == int(redisSize) {
+			return
+		}
+	}
+
+	assert.NoError(lastErr, "every Redis pod should accept the configured password once the operator has applied it")
+	assert.NotEmpty(master, "the failover should have a master again after the change")
+}
+
+// setSecretPassword writes a new value into the secret the failover names.
+func (c *clients) setSecretPassword(t *testing.T, password string) bool {
+	t.Helper()
+	assert := assert.New(t)
+
+	secret, err := c.k8sClient.CoreV1().Secrets(namespace).Get(context.Background(), authSecretPath, metav1.GetOptions{})
+	if !assert.NoError(err) {
+		return false
+	}
+	secret.Data = map[string][]byte{"password": []byte(password)}
+	_, err = c.k8sClient.CoreV1().Secrets(namespace).Update(context.Background(), secret, metav1.UpdateOptions{})
+	return assert.NoError(err)
+}
+
+// setAuthSecretPath points the failover at a secret, or at none.
+func (c *clients) setAuthSecretPath(t *testing.T, secretPath string) bool {
+	t.Helper()
+	assert := assert.New(t)
+
+	rf, err := c.rfClient.DatabasesV1().RedisFailovers(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	if !assert.NoError(err) {
+		return false
+	}
+	rf.Spec.Auth.SecretPath = secretPath
+	_, err = c.rfClient.DatabasesV1().RedisFailovers(namespace).Update(context.Background(), rf, metav1.UpdateOptions{})
+	return assert.NoError(err)
+}
+
+// testPasswordRotation changes the value in the secret the failover names.
+//
+// Redis reads requirepass only at startup and the StatefulSet uses the OnDelete
+// update strategy, so nothing restarts the pods on their own; the operator has
+// to notice that Redis is refusing the configured password and restart them.
+func (c *clients) testPasswordRotation(t *testing.T) {
+	if !c.setSecretPassword(t, rotatedPass) {
+		return
+	}
+	c.waitForFailoverPassword(t, rotatedPass)
+}
+
+// testPasswordRemoval takes auth.secretPath away from a running failover.
+//
+// The pods keep requirepass until they restart, so the operator has to apply
+// this exactly as it applies a rotation. HAProxy has to follow Redis rather
+// than lead it here too: a proxy that has given up the password while its
+// backends still demand one fails every health check.
+func (c *clients) testPasswordRemoval(t *testing.T) {
+	if !c.setAuthSecretPath(t, "") {
+		return
+	}
+	c.waitForFailoverPassword(t, "")
+}
+
+// testPasswordAddition points a running failover at a secret again.
+//
+// This is the case an operator hits first, and the one Redis answers with a
+// complaint that no password is configured rather than with WRONGPASS.
+func (c *clients) testPasswordAddition(t *testing.T) {
+	if !c.setAuthSecretPath(t, authSecretPath) {
+		return
+	}
+	c.waitForFailoverPassword(t, rotatedPass)
 }
 
 func (c *clients) testAuth(t *testing.T) {
