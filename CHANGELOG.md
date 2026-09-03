@@ -11,7 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Added
 
-- [Publish a bill of materials and build provenance with the image](https://github.com/powerhome/redis-operator/pull/PLACEHOLDER)
+- [Publish a bill of materials and build provenance with the image](https://github.com/powerhome/redis-operator/pull/109)
 
   The published image now carries a Software Bill of Materials, listing the Alpine packages and the Go modules compiled into the binary at their exact versions. Reading it needs no pull:
 
