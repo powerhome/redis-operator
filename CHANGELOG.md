@@ -9,6 +9,18 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Changed
+
+- [Build with Go 1.25 and pin the base images by digest]()
+
+  The published image carried vulnerable versions of the Go standard library and `golang.org/x/net`. `govulncheck`, which reports whether the vulnerable symbols are actually reachable rather than merely present, found 16 with call paths into the operator. Building with Go 1.25.14 and moving `golang.org/x/net` to v0.58.0 brings that to zero.
+
+  **This raises the Go toolchain required to build the operator to 1.25.** Continuous integration takes its version from `go.mod`, so it follows automatically.
+
+  The build, runtime and development images are now pinned by digest rather than the mutable `golang:1.24-alpine` and `alpine:latest`. The development image `make test` runs in moves to the same toolchain: these images set `GOTOOLCHAIN=local`, so an older one cannot fetch a newer one to satisfy the `go` directive. Building from a moving tag meant the image was not reproducible and there was no way to say what a given release contained. The tags the digests resolved to are kept in comments for readability.
+
+  The Alpine OpenSSL packages a scanner reports against the image are not reachable from the operator. `scripts/build.sh` sets `CGO_ENABLED=0` with `-extldflags '-static'`, so the binary is statically linked and never loads them; `ldd` inside the image reports it is not a dynamic program at all. No Alpine release currently ships the fixed OpenSSL those reports ask for, and the pinned base is the same release `alpine:latest` resolved to.
+
 ### Fixed
 
 - [Do not promote a Redis node when the current master could not be inspected](https://github.com/powerhome/redis-operator/pull/106)
