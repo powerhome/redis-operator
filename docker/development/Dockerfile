@@ -1,4 +1,7 @@
-FROM golang:1.24-alpine
+# Pinned by digest, like the release image, and kept on the same toolchain: the
+# go directive in go.mod requires it, and these images set GOTOOLCHAIN=local so
+# an older one cannot fetch a newer one to compensate.
+FROM golang:1.25.14-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59
 
 ARG TARGETOS
 ARG TARGETARCH
