@@ -23,6 +23,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
   Build provenance was already published and moves to `max`, which records the source revision and the resolved base image digests. Together with the digest-pinned bases, an image can now be traced to the commit and the exact bases it was built from.
 
+  The scanner that produces the bill of materials is pinned by digest along with the base images, so the build has no unpinned inputs. A stale scanner degrades quietly, under-reporting rather than failing, so this pin needs bumping on a schedule.
+
   Attestations are attached to the image index as entries with an `unknown/unknown` platform. This is how the registry represents them and the published images already carried provenance this way, so no consumer sees a new shape.
 
 ### Changed
