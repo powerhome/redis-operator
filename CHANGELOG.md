@@ -17,7 +17,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
   **This raises the Go toolchain required to build the operator to 1.25.** Continuous integration takes its version from `go.mod`, so it follows automatically.
 
-  The build, runtime and development images are now pinned by digest rather than the mutable `golang:1.24-alpine` and `alpine:latest`. The development image `make test` runs in moves to the same toolchain: these images set `GOTOOLCHAIN=local`, so an older one cannot fetch a newer one to satisfy the `go` directive. Building from a moving tag meant the image was not reproducible and there was no way to say what a given release contained. The tags the digests resolved to are kept in comments for readability.
+  The build, runtime and development images are now pinned by digest rather than the mutable `golang:1.24-alpine` and `alpine:latest`. The development image `make test` runs in moves to the same toolchain: these images set `GOTOOLCHAIN=local`, so an older one cannot fetch a newer one to satisfy the `go` directive. Building from a moving tag meant the image was not reproducible and there was no way to say what a given release contained. Each reference carries both its tag and its digest, so the version is readable in the reference itself; the digest is what resolves.
 
   `golangci-lint` moves to v2.13.2, because a linter built with an older Go refuses to load a module targeting a newer one. Version 2 merged several linters into `staticcheck` and dropped the default exclusions, which would have changed what is enforced as a side effect of the toolchain bump; a new `.golangci.yml` holds the enforced set where it was, so that change can be made deliberately and on its own.
 
