@@ -35,5 +35,5 @@ jobs:
           validate: true
           # push (branch test) is always dry-run; schedule always deletes;
           # workflow_dispatch honors the input (defaults to dry-run).
-          dry-run: ${{ github.event_name == 'push' && 'true' || github.event.inputs.dry_run || 'false' }}
+          ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           token: ${{ secrets.GITHUB_TOKEN }}
