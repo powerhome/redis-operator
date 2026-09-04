@@ -1,0 +1,8 @@
+apiVersion: v2
+name: redisfailover-bundle
+description: |
+  Compatibility chart for operator-managed RedisFailover clusters that preserves the
+  values layout currently used by application deploys such as example-rails-app.
+type: application
+version: 0.1.0
+appVersion: "4.4.1"

@@ -1,0 +1,206 @@
+{{- if .Values.redis }}
+{{- $root := . -}}
+{{- $ns := printf "%s-%s" .Values.applicationName .Values.environment -}}
+{{- range $instance, $cfg := .Values.redis }}
+{{- if and (ne $instance "defaultInstance") (kindIs "map" $cfg) }}
+{{- if ($cfg.enabled | default true) }}
+{{- $redisPort := $cfg.port | default "6379" -}}
+{{- $repl := eq ($cfg.replication | default "disabled") "enabled" -}}
+{{- $isReplicaCluster := and $repl (eq $.Values.cluster.name $.Values.cluster.replicaCluster) -}}
+{{- $haproxyReplicas := dig "replicaCount" "haproxy" 2 $cfg -}}
+{{- $sentinelReplicas := dig "replicaCount" "sentinel" 3 $cfg -}}
+{{- $redisReplicas := dig "replicaCount" "redis" 3 $cfg -}}
+{{- $keepAfter := include "redisfailover-bundle.storageKeepAfterDeletion" $cfg -}}
+{{- $sc := dig "storage" "storageClass" "block" $cfg -}}
+{{- $vol := dig "storage" "volumeSize" "2Gi" $cfg -}}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rfr-metrics-{{ $instance }}
+  labels:
+    {{- include "redisfailover-bundle.priorityLabels" (dict "root" $ "component" "redis") | nindent 4 }}
+    prometheus: {{ $.Values.serviceMonitor.prometheus | quote }}
+spec:
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - {{ $.Release.Namespace }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: redis
+      redisfailovers.databases.spotahome.com/instance: {{ $ns }}
+      redisfailovers.databases.spotahome.com/name: {{ $instance }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rfrm-haproxy-metrics-{{ $instance }}
+  labels:
+    {{- include "redisfailover-bundle.priorityLabels" (dict "root" $ "component" "haproxy") | nindent 4 }}
+    prometheus: {{ $.Values.serviceMonitor.prometheus | quote }}
+spec:
+  endpoints:
+    - port: metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - {{ $.Release.Namespace }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: haproxy
+      redisfailovers.databases.spotahome.com/instance: {{ $ns }}
+      redisfailovers.databases.spotahome.com/name: {{ $instance }}
+---
+apiVersion: databases.spotahome.com/v1
+kind: RedisFailover
+metadata:
+  name: {{ $instance }}
+  labels:
+    {{- include "redisfailover-bundle.priorityLabels" (dict "root" $ "component" "redis") | nindent 4 }}
+    redisfailovers.databases.spotahome.com/instance: {{ $ns }}
+    redisfailovers.databases.spotahome.com/name: {{ $instance }}
+spec:
+  {{- if $repl }}
+  bootstrapNode:
+    host: bootstrap-{{ $instance }}.{{ $ns }}.svc
+    enabled: {{ $isReplicaCluster }}
+  {{- end }}
+  haproxy:
+    exporter:
+      enabled: true
+    replicas: {{ $haproxyReplicas }}
+    resources:
+      requests:
+        cpu: 100m
+        memory: 100Mi
+        ephemeral-storage: 100Mi
+      limits:
+        memory: 500Mi
+        ephemeral-storage: 100Mi
+    image: "haproxy:3.3@sha256:686e3fdeee32531066a42569a6d8d0c024bcd1c1720b9e34da00ab80de4a56e4"
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: redisfailovers.databases.spotahome.com/component
+                  operator: In
+                  values:
+                    - haproxy
+                - key: redisfailovers.databases.spotahome.com/instance
+                  operator: In
+                  values:
+                    - {{ $ns }}
+            topologyKey: kubernetes.io/hostname
+  networkPolicyNsList:
+    - matchLabelKey: "name"
+      matchLabelValue: "monitoring"
+    - matchLabelKey: "app.kubernetes.io/instance"
+      matchLabelValue: {{ $ns | quote }}
+  labelWhitelist:
+    - ^redisfailovers.databases.spotahome.com.*
+  sentinel:
+    replicas: {{ $sentinelReplicas }}
+    image: redis:8.6.1-alpine@sha256:2afba59292f25f5d1af200496db41bea2c6c816b059f57ae74703a50a03a27d0
+    exporter:
+      enabled: true
+      image: "docker.io/leominov/redis_sentinel_exporter:1.7.1@sha256:812e617d2201d0ee8ba51d60b9fe9590a46bed84abc95746f554e1ca04e5478a"
+    resources:
+      limits:
+        memory: 500Mi
+        ephemeral-storage: 50Mi
+      requests:
+        cpu: 100m
+        memory: 500Mi
+        ephemeral-storage: 50Mi
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: redisfailovers.databases.spotahome.com/component
+                  operator: In
+                  values:
+                    - sentinel
+                - key: redisfailovers.databases.spotahome.com/instance
+                  operator: In
+                  values:
+                    - {{ $ns }}
+            topologyKey: kubernetes.io/hostname
+  redis:
+    replicas: {{ $redisReplicas }}
+    image: redis:8.6.1-alpine@sha256:2afba59292f25f5d1af200496db41bea2c6c816b059f57ae74703a50a03a27d0
+    customConfig:
+      - appendonly yes
+    exporter:
+      enabled: true
+      image: "docker.io/oliver006/redis_exporter:v1.82.0-alpine@sha256:da9e89ee4e755bfa1b6a6b2ed345c2de63ca3976f95c9f1e9538882bc1414cb8"
+      args:
+        - --web.telemetry-path
+        - /metrics
+      env:
+        - name: REDIS_EXPORTER_LOG_FORMAT
+          value: txt
+    port: {{ $redisPort | int }}
+    resources:
+      {{- $rDefaults := dict "limits" (dict "memory" "500Mi" "ephemeral-storage" "50Mi") "requests" (dict "cpu" "100m" "memory" "500Mi" "ephemeral-storage" "50Mi") -}}
+      {{- mergeOverwrite $rDefaults ($cfg.resources | default dict) | toYaml | nindent 6 }}
+    storage:
+      keepAfterDeletion: {{ $keepAfter }}
+      persistentVolumeClaim:
+        metadata:
+          name: redis-data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: {{ $vol }}
+          storageClassName: {{ $sc }}
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: redisfailovers.databases.spotahome.com/component
+                  operator: In
+                  values:
+                    - redis
+                - key: redisfailovers.databases.spotahome.com/instance
+                  operator: In
+                  values:
+                    - {{ $ns }}
+            topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    service.cilium.io/global: "true"
+  labels:
+    {{- include "redisfailover-bundle.priorityLabels" (dict "root" $ "component" "redis") | nindent 4 }}
+  name: bootstrap-{{ $instance }}
+spec:
+  ports:
+    - name: redis
+      port: 6379
+      protocol: TCP
+      targetPort: redis
+  selector:
+    {{- if $isReplicaCluster }}
+    {}
+    {{- else }}
+    app.kubernetes.io/component: redis
+    app.kubernetes.io/name: {{ $instance }}
+    app.kubernetes.io/part-of: redis-failover
+    redisfailovers-role: slave
+    {{- end }}
+  type: ClusterIP
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

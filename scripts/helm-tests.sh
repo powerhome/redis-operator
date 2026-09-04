@@ -2,11 +2,14 @@
 
 set -eu
 
-chart=charts/redisoperator
+charts=(
+  charts/redisoperator
+  charts/redisfailover-bundle
+)
 
-echo ">> Testing chart ${chart}"
-
-helm lint ${chart}
-helm template ${chart}
-
-echo "> Chart OK"
+for chart in "${charts[@]}"; do
+  echo ">> Testing chart ${chart}"
+  helm lint "${chart}"
+  helm template "${chart}"
+  echo "> Chart OK"
+done
