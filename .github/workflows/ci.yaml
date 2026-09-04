@@ -125,9 +125,15 @@ jobs:
           images: |
             powerhome/redis-operator
             ghcr.io/powerhome/redis-operator
+          # A pull request build carries a tag that moves to its newest image,
+          # so the image it replaces keeps no tag and the scheduled prune
+          # collects it. A build of master or of a release tag keeps a unique
+          # commit-sha tag, which stays addressable for as long as the package
+          # holds it.
           tags: |
             type=semver,pattern={{raw}}
-            type=sha,prefix=,suffix=,format=long
+            type=sha,prefix=,suffix=,format=long,enable=${{ github.event_name != 'pull_request' }}
+            type=ref,event=pr
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
