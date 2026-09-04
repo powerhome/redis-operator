@@ -22,19 +22,44 @@ jobs:
   prune:
     runs-on: ubuntu-latest
     steps:
-      - name: Prune untagged manifests not referenced by any tag
+      # This step runs first so that any manifest it leaves unreachable is
+      # collected by the step below in the same run rather than a week later.
+      - name: Remove the images of pull requests that have finished
         uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
         with:
           owner: powerhome
           package: redis-operator
           # Release versions are held whatever else is configured. The action
           # gives this list priority over every other rule, so no retention
-          # count and no age setting can reach a semantic version tag.
+          # count and no age setting can reach a semantic version tag. It is
+          # set on every step so that no rule in this workflow can reach a
+          # release, whatever that step's own rules say.
+          exclude-tags: 'v*'
+          # A pull request tag moves to the branch's newest image, so the age
+          # of the image a tag points at is the time since that branch last
+          # built. Seven days of that is a pull request that has merged, been
+          # closed, or gone dormant; the last 56 closed pull requests here
+          # closed in a median of 0.4 days and all within 13.
+          delete-tags: 'pr-*'
+          older-than: '7 days'
+          # Untagged manifests are the step below's work, at its own interval.
+          # `older-than` restricts every rule in a step, so the two intervals
+          # cannot share one.
+          delete-untagged: false
+          # The scheduled run deletes; a manual run honors its input, which
+          # defaults to a dry run.
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prune untagged manifests not referenced by any tag
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          owner: powerhome
+          package: redis-operator
           exclude-tags: 'v*'
           delete-untagged: true
           older-than: '1 day'
+          # Checks the whole package once both steps have run.
           validate: true
-          # The scheduled run deletes; a manual run honors its input, which
-          # defaults to a dry run.
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           token: ${{ secrets.GITHUB_TOKEN }}
