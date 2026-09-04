@@ -30,7 +30,7 @@ jobs:
           delete-untagged: true
           older-than: '1 day'
           validate: true
-          # push (branch test) is always dry-run; schedule always deletes;
-          # workflow_dispatch honors the input (defaults to dry-run).
-          ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          # The scheduled run deletes; a manual run honors its input, which
+          # defaults to a dry run.
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           token: ${{ secrets.GITHUB_TOKEN }}
