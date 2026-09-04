@@ -98,6 +98,12 @@ rule held in the decision record and not in the operator.
   availability behavior and record that the operator might have just lost
   writes, which is the outcome ADR-001 exists to prevent.
 
+- **Named for the affirmative case.** The check began as
+  `CheckIfAllRedisHoldNoData`, which states the safe outcome as the absence of
+  something and reads as a double negative wherever it is used. Asking whether
+  any node has data names the condition being detected, and the call site reads
+  `if hasData` rather than `if !holdsNoData`.
+
 - **Rejected: keeping the message template in `reportMasterUnknown`.** It
   hardcoded "a Redis node could not be inspected, so one of them may still be
   the master", which is one cause of holding off and is now not the only one.

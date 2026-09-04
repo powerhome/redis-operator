@@ -383,7 +383,7 @@ func TestCheckAndHeal(t *testing.T) {
 					mrfc.On("GetMaxRedisPodTime", rf).Once().Return(1*time.Hour, nil)
 					if test.forceNewMasterNoQrm {
 						mrfc.On("CheckSentinelQuorum", rf).Once().Return(1, errors.New(""))
-						mrfc.On("CheckIfAllRedisHoldNoData", rf).Once().Return(!test.redisHoldData, nil)
+						mrfc.On("CheckIfAnyRedisHasData", rf).Once().Return(test.redisHoldData, nil)
 						if test.redisHoldData {
 							// The operator refuses to choose among nodes that
 							// may hold writes, records why on the resource, and
@@ -397,7 +397,7 @@ func TestCheckAndHeal(t *testing.T) {
 					} else if test.forceNewMasterFirstBoot {
 						mrfc.On("CheckSentinelQuorum", rf).Once().Return(3, nil)
 						mrfc.On("CheckIfMasterLocalhost", rf).Once().Return(true, nil)
-						mrfc.On("CheckIfAllRedisHoldNoData", rf).Once().Return(!test.redisHoldData, nil)
+						mrfc.On("CheckIfAnyRedisHasData", rf).Once().Return(test.redisHoldData, nil)
 						if test.redisHoldData {
 							mrfs.On("UpdateStatus", rf).Once().Return(rf, nil)
 							expErr = true

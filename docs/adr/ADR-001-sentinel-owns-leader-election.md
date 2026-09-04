@@ -113,10 +113,11 @@ about how little the ordering means; renaming it is worth doing.
 answers it.** Rule 2 says the operator may seed an empty cluster but must not
 choose among nodes holding data, which requires telling those two apart.
 `CheckIfMasterLocalhost` cannot: a restarted pod reloads `slaveof 127.0.0.1`
-while keeping its dataset. `CheckIfAllRedisHoldNoData` asks each node for the
+while keeping its dataset. `CheckIfAnyRedisHasData` asks each node for the
 keyspace section of `INFO` instead, and every path that selects a master is
-behind it. A node that holds keys, or that cannot be reached to be asked, makes
-it false, so the operator reports `MasterUnknown` and changes nothing.
+behind it. A node that holds keys stops the operator, as does one that cannot
+be reached to be asked or that is still reading its dataset from disk; it
+reports `MasterUnknown` and changes nothing.
 
 **`replica-priority` is still ignored.** Bootstrapping sets `replica-priority 0`
 to keep a node from being promoted, and Sentinel honours it. Seeding an empty

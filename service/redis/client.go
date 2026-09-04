@@ -22,7 +22,7 @@ type Client interface {
 	ResetSentinel(ip string, port string) error
 	GetSlaveOf(ip, port, password string) (string, error)
 	IsMaster(ip, port, password string) (bool, error)
-	HoldsNoData(ip, port, password string) (bool, error)
+	HasData(ip, port, password string) (bool, error)
 	MonitorRedis(ip, monitor, quorum, password string, port string) error
 	MonitorRedisWithPort(ip, monitor, port, quorum, password string, sentinelPort string) error
 	MakeMaster(ip, port, password string) error
@@ -245,7 +245,7 @@ func (c *client) IsMaster(ip, port, password string) (bool, error) {
 // what it holds cannot be established yet.
 var ErrRedisLoading = errors.New("redis is loading its dataset")
 
-// HoldsNoData reports whether this Redis holds no keys in any database.
+// HasData reports whether this Redis holds keys in any database.
 //
 // The question it exists to answer is whether the operator may choose a
 // master. Seeding one is safe only where every candidate is empty, because
@@ -258,14 +258,14 @@ var ErrRedisLoading = errors.New("redis is loading its dataset")
 // A Redis part-way through reading an RDB is the case this has to be careful
 // about. INFO is served while `loading:1`, and the keyspace section fills in
 // as keys are inserted, so a node holding a full dataset on disk reports an
-// empty keyspace until enough of it is in memory. Answering "empty" there
+// empty keyspace until enough of it is in memory. Answering "no data" there
 // would let the operator seed over a restarting cluster, which is what asking
 // the keyspace exists to prevent. Loading is therefore an error, not a false:
 // the answer is not available yet and a later reconcile can ask again.
 //
 // An instance that cannot be reached is an error for the same reason. "No
 // data" and "no answer" lead to opposite decisions.
-func (c *client) HoldsNoData(ip, port, password string) (bool, error) {
+func (c *client) HasData(ip, port, password string) (bool, error) {
 	options := &rediscli.Options{
 		Addr:     net.JoinHostPort(ip, port),
 		Password: password,
@@ -278,25 +278,25 @@ func (c *client) HoldsNoData(ip, port, password string) (bool, error) {
 	// one INFO is only supported from Redis 7.
 	info, err := rClient.Info(context.TODO()).Result()
 	if err != nil {
-		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HOLDS_NO_DATA, metrics.FAIL, getRedisError(err))
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HAS_DATA, metrics.FAIL, getRedisError(err))
 		return false, err
 	}
-	empty, err := holdsNoDataFromInfo(info)
+	hasData, err := hasDataFromInfo(info)
 	if err != nil {
-		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HOLDS_NO_DATA, metrics.FAIL, metrics.NOT_APPLICABLE)
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HAS_DATA, metrics.FAIL, metrics.NOT_APPLICABLE)
 		return false, err
 	}
-	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HOLDS_NO_DATA, metrics.SUCCESS, metrics.NOT_APPLICABLE)
-	return empty, nil
+	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HAS_DATA, metrics.SUCCESS, metrics.NOT_APPLICABLE)
+	return hasData, nil
 }
 
-// holdsNoDataFromInfo reads the answer out of an INFO payload. Split out from
-// the call so the interpretation can be tested without a running Redis.
-func holdsNoDataFromInfo(info string) (bool, error) {
+// hasDataFromInfo reads the answer out of an INFO payload. Split out from the
+// call so the interpretation can be tested without a running Redis.
+func hasDataFromInfo(info string) (bool, error) {
 	if redisLoadingRE.MatchString(info) {
 		return false, ErrRedisLoading
 	}
-	return !redisDBKeysRE.MatchString(info), nil
+	return redisDBKeysRE.MatchString(info), nil
 }
 
 func (c *client) MonitorRedis(ip, monitor, quorum, password string, sentinelPort string) error {
