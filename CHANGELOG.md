@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.6.0] - 2026-09-04
+
 ### Added
 
 - [Publish a bill of materials and build provenance with the image](https://github.com/powerhome/redis-operator/pull/109)
@@ -27,6 +29,14 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
   Attestations are attached to the image index as entries with an `unknown/unknown` platform. This is how the registry represents them and the published images already carried provenance this way, so no consumer sees a new shape.
 
+- [Apply a password change to a running `RedisFailover` without manual intervention](https://github.com/powerhome/redis-operator/pull/104)
+
+  Adding `auth.secretPath` to a running failover, or changing the value in the secret it names, left Redis using the password it started with: it reads `requirepass` only at startup, and the Redis StatefulSet uses the `OnDelete` update strategy, so nothing restarted the pods. The operator meanwhile had taken the new password, so every one of its checks was refused and the reconcile failed on the first of them, never reaching the rolling update that would have applied it. Recovering meant deleting the Redis pods by hand.
+
+  The operator now recognises that Redis is refusing the configured password and restarts the pods to apply it. **This means a short interruption:** the pods go together, because a restarted pod cannot replicate with one that has not restarted yet, so restarting them singly leaves the failover split rather than shortening the window. Expect a minute or two for the change, a few tens of seconds of it without a master, and plan a password change alongside the applications that hold it. `haproxy`, when configured, is restarted after Redis, since restarting it first would leave it authenticating with a password its backends do not have. The operator leaves the running proxy alone until every Redis pod that is up and answering agrees with the configured password, which holds whether a password is being taken or given up. Removing `auth.secretPath` is applied the same way.
+
+  A `RedisFailover` with no `auth.secretPath` is unaffected and nothing restarts on upgrade. One with a password gets a single restart when the operator is upgraded, as its pod template gains a record of which password it was built for. Two cases are reported rather than acted on: a secret with an empty `password`, and a refusal while the pods already carry the current configuration, which means the secret itself is wrong and restarting cannot fix it.
+
 ### Changed
 
 - [Build with Go 1.25 and pin the base images by digest](https://github.com/powerhome/redis-operator/pull/108)
@@ -40,6 +50,10 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
   `golangci-lint` moves to v2.13.2, because a linter built with an older Go refuses to load a module targeting a newer one. Version 2 merged several linters into `staticcheck` and dropped the default exclusions, which would have changed what is enforced as a side effect of the toolchain bump; a new `.golangci.yml` holds the enforced set where it was, so that change can be made deliberately and on its own.
 
   The Alpine OpenSSL packages a scanner reports against the image are not reachable from the operator. `scripts/build.sh` sets `CGO_ENABLED=0` with `-extldflags '-static'`, so the binary is statically linked and never loads them; `ldd` inside the image reports it is not a dynamic program at all. No Alpine release currently ships the fixed OpenSSL those reports ask for, and the pinned base is the same release `alpine:latest` resolved to.
+
+  Reported as [#101](https://github.com/powerhome/redis-operator/issues/101), against the released `v4.5.0` image.
+
+- [Publish the operator image to ghcr.io/powerhome in addition to Docker Hub](https://github.com/powerhome/redis-operator/pull/93)
 
 ### Fixed
 
@@ -59,17 +73,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
   Neither changes how a master is chosen when recovery does run. Selection is still by pod age rather than replication offset, which is tracked separately in [issue 100](https://github.com/powerhome/redis-operator/issues/100).
 
-### Added
-
-- [Apply a password change to a running `RedisFailover` without manual intervention](https://github.com/powerhome/redis-operator/pull/104)
-
-  Adding `auth.secretPath` to a running failover, or changing the value in the secret it names, left Redis using the password it started with: it reads `requirepass` only at startup, and the Redis StatefulSet uses the `OnDelete` update strategy, so nothing restarted the pods. The operator meanwhile had taken the new password, so every one of its checks was refused and the reconcile failed on the first of them, never reaching the rolling update that would have applied it. Recovering meant deleting the Redis pods by hand.
-
-  The operator now recognises that Redis is refusing the configured password and restarts the pods to apply it. **This means a short interruption:** the pods go together, because a restarted pod cannot replicate with one that has not restarted yet, so restarting them singly leaves the failover split rather than shortening the window. Expect a minute or two for the change, a few tens of seconds of it without a master, and plan a password change alongside the applications that hold it. `haproxy`, when configured, is restarted after Redis, since restarting it first would leave it authenticating with a password its backends do not have. The operator leaves the running proxy alone until every Redis pod that is up and answering agrees with the configured password, which holds whether a password is being taken or given up. Removing `auth.secretPath` is applied the same way.
-
-  A `RedisFailover` with no `auth.secretPath` is unaffected and nothing restarts on upgrade. One with a password gets a single restart when the operator is upgraded, as its pod template gains a record of which password it was built for. Two cases are reported rather than acted on: a secret with an empty `password`, and a refusal while the pods already carry the current configuration, which means the secret itself is wrong and restarting cannot fix it.
-
-### Fixed
+  Reported as [#100](https://github.com/powerhome/redis-operator/issues/100). The automated integration coverage that issue also asks for is not part of this change: the test harness cannot induce selective inspection failures.
 
 - [HAProxy: authenticate the health check so `auth.secretPath` is usable](https://github.com/powerhome/redis-operator/pull/98)
 
@@ -87,15 +91,11 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
   A `RedisFailover` without `auth.secretPath` is unaffected: the resolved password is empty, which is what the check already sent.
 
-## [v4.5.1] - 2026-08-18
-
-### Changed
-
-- [Publish the operator image to ghcr.io/powerhome in addition to Docker Hub](https://github.com/powerhome/redis-operator/pull/93)
-
-### Fixed as a temporary workaround to have checks green. Will be removed when [fix: create /etc/cni/net.d before chmod in none driver](https://github.com/medyagh/setup-minikube/pull/836) merges
+  Reported as [#99](https://github.com/powerhome/redis-operator/issues/99).
 
 - [Create /etc/cni/net.d before setup-minikube so the integration-test none driver works on current runner images](https://github.com/powerhome/redis-operator/pull/93)
+
+  A temporary workaround to keep the checks green, removed once [fix: create /etc/cni/net.d before chmod in none driver](https://github.com/medyagh/setup-minikube/pull/836) merges.
 
 ## [v4.5.0] - 2026-08-06
 
