@@ -105,18 +105,18 @@ So the operator does not rank nodes at all. Where a cluster has data and no
 master can be established, rule 3 applies and a person decides.
 
 **Pod age survives only where it cannot matter.** `SetOldestAsMaster` still
-sorts on `CreationTimestamp`, which is now reached only when seeding, where every
-candidate is empty and equivalent. Its name is misleading about how little the
-ordering means; renaming it is worth doing.
+sorts on `CreationTimestamp`, and it is reached only where every candidate is
+empty and equivalent, so the ordering decides nothing. Its name is misleading
+about how little the ordering means; renaming it is worth doing.
 
-**Distinguishing a cold start from a restart is now load-bearing, and nothing
-does it yet.** Rule 2 says the operator may seed an empty cluster but must not
+**Distinguishing a cold start from a restart is load-bearing, and the keyspace
+answers it.** Rule 2 says the operator may seed an empty cluster but must not
 choose among nodes holding data, which requires telling those two apart.
 `CheckIfMasterLocalhost` cannot: a restarted pod reloads `slaveof 127.0.0.1`
-while keeping its dataset. Something like "no node holds any keys" would serve,
-and is not implemented. Until it is, the operator still seeds on a signal that
-cannot tell the difference, which is the largest remaining gap against this
-decision.
+while keeping its dataset. `CheckIfAllRedisHoldNoData` asks each node for the
+keyspace section of `INFO` instead, and every path that selects a master is
+behind it. A node that holds keys, or that cannot be reached to be asked, makes
+it false, so the operator reports `MasterUnknown` and changes nothing.
 
 **`replica-priority` is still ignored.** Bootstrapping sets `replica-priority 0`
 to keep a node from being promoted, and Sentinel honours it. Seeding an empty

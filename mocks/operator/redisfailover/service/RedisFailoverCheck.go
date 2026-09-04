@@ -33,6 +33,34 @@ func (_m *RedisFailoverCheck) CheckAllSlavesFromMaster(master string, rFailover 
 	return r0
 }
 
+// CheckIfAllRedisHoldNoData provides a mock function with given fields: rFailover
+func (_m *RedisFailoverCheck) CheckIfAllRedisHoldNoData(rFailover *v1.RedisFailover) (bool, error) {
+	ret := _m.Called(rFailover)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CheckIfAllRedisHoldNoData")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) (bool, error)); ok {
+		return rf(rFailover)
+	}
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) bool); ok {
+		r0 = rf(rFailover)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(*v1.RedisFailover) error); ok {
+		r1 = rf(rFailover)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // CheckIfMasterLocalhost provides a mock function with given fields: rFailover
 func (_m *RedisFailoverCheck) CheckIfMasterLocalhost(rFailover *v1.RedisFailover) (bool, error) {
 	ret := _m.Called(rFailover)
