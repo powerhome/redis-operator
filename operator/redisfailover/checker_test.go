@@ -29,6 +29,7 @@ func TestCheckAndHeal(t *testing.T) {
 		nRedis                         int
 		forceNewMasterNoQrm            bool
 		forceNewMasterFirstBoot        bool
+		redisHoldData                  bool
 		singleMasterTest               bool
 		slavesOK                       bool
 		sentinelMonitorOK              bool
@@ -110,6 +111,38 @@ func TestCheckAndHeal(t *testing.T) {
 			singleMasterTest:               false,
 			forceNewMasterNoQrm:            true,
 			forceNewMasterFirstBoot:        false,
+			slavesOK:                       true,
+			sentinelMonitorOK:              true,
+			sentinelNumberInMemoryOK:       true,
+			redisCheckNumberOK:             true,
+			redisSetMasterOnAllOK:          true,
+			sentinelSlavesNumberInMemoryOK: true,
+			allowSentinels:                 false,
+		},
+		{
+			name:                           "No masters, no sentinel quorum, redis hold data: refuse to choose",
+			nMasters:                       0,
+			nRedis:                         3,
+			singleMasterTest:               false,
+			forceNewMasterNoQrm:            true,
+			forceNewMasterFirstBoot:        false,
+			redisHoldData:                  true,
+			slavesOK:                       true,
+			sentinelMonitorOK:              true,
+			sentinelNumberInMemoryOK:       true,
+			redisCheckNumberOK:             true,
+			redisSetMasterOnAllOK:          true,
+			sentinelSlavesNumberInMemoryOK: true,
+			allowSentinels:                 false,
+		},
+		{
+			name:                           "No masters, first boot, redis hold data: refuse to choose",
+			nMasters:                       0,
+			nRedis:                         3,
+			singleMasterTest:               false,
+			forceNewMasterNoQrm:            false,
+			forceNewMasterFirstBoot:        true,
+			redisHoldData:                  true,
 			slavesOK:                       true,
 			sentinelMonitorOK:              true,
 			sentinelNumberInMemoryOK:       true,
@@ -350,11 +383,28 @@ func TestCheckAndHeal(t *testing.T) {
 					mrfc.On("GetMaxRedisPodTime", rf).Once().Return(1*time.Hour, nil)
 					if test.forceNewMasterNoQrm {
 						mrfc.On("CheckSentinelQuorum", rf).Once().Return(1, errors.New(""))
-						mrfh.On("SetOldestAsMaster", rf).Once().Return(nil)
+						mrfc.On("CheckIfAnyRedisHasData", rf).Once().Return(test.redisHoldData, nil)
+						if test.redisHoldData {
+							// The operator refuses to choose among nodes that
+							// may hold writes, records why on the resource, and
+							// nothing below it runs.
+							mrfs.On("UpdateStatus", rf).Once().Return(rf, nil)
+							expErr = true
+							continueTests = false
+						} else {
+							mrfh.On("SetOldestAsMaster", rf).Once().Return(nil)
+						}
 					} else if test.forceNewMasterFirstBoot {
 						mrfc.On("CheckSentinelQuorum", rf).Once().Return(3, nil)
 						mrfc.On("CheckIfMasterLocalhost", rf).Once().Return(true, nil)
-						mrfh.On("SetOldestAsMaster", rf).Once().Return(nil)
+						mrfc.On("CheckIfAnyRedisHasData", rf).Once().Return(test.redisHoldData, nil)
+						if test.redisHoldData {
+							mrfs.On("UpdateStatus", rf).Once().Return(rf, nil)
+							expErr = true
+							continueTests = false
+						} else {
+							mrfh.On("SetOldestAsMaster", rf).Once().Return(nil)
+						}
 					} else {
 						mrfc.On("CheckSentinelQuorum", rf).Once().Return(3, nil)
 						mrfc.On("CheckIfMasterLocalhost", rf).Once().Return(false, nil)

@@ -22,6 +22,7 @@ type Client interface {
 	ResetSentinel(ip string, port string) error
 	GetSlaveOf(ip, port, password string) (string, error)
 	IsMaster(ip, port, password string) (bool, error)
+	HasData(ip, port, password string) (bool, error)
 	MonitorRedis(ip, monitor, quorum, password string, port string) error
 	MonitorRedisWithPort(ip, monitor, port, quorum, password string, sentinelPort string) error
 	MakeMaster(ip, port, password string) error
@@ -52,6 +53,8 @@ const (
 	sentinelStatusREString       = "status=([a-z]+)"
 	redisMasterHostREString      = "master_host:([0-9.]+)"
 	redisConnectedSlavesREString = "connected_slaves:([0-9]+)"
+	redisDBKeysREString          = `db[0-9]+:keys=[1-9]`
+	redisLoadingREString         = `(?m)^(async_)?loading:1\r?$`
 	redisRoleMaster              = "role:master"
 	redisSyncing                 = "master_sync_in_progress:1"
 	redisMasterSillPending       = "master_host:127.0.0.1"
@@ -67,6 +70,8 @@ var (
 	slaveNumberRE          = regexp.MustCompile(slaveNumberREString)
 	redisMasterHostRE      = regexp.MustCompile(redisMasterHostREString)
 	redisConnectedSlavesRE = regexp.MustCompile(redisConnectedSlavesREString)
+	redisDBKeysRE          = regexp.MustCompile(redisDBKeysREString)
+	redisLoadingRE         = regexp.MustCompile(redisLoadingREString)
 )
 
 // GetNumberSentinelsInMemory return the number of sentinels that the requested sentinel has
@@ -234,6 +239,64 @@ func (c *client) IsMaster(ip, port, password string) (bool, error) {
 	}
 	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.IS_MASTER, metrics.SUCCESS, metrics.NOT_APPLICABLE)
 	return strings.Contains(info, redisRoleMaster), nil
+}
+
+// ErrRedisLoading reports that a Redis is reading its dataset from disk, so
+// what it holds cannot be established yet.
+var ErrRedisLoading = errors.New("redis is loading its dataset")
+
+// HasData reports whether this Redis holds keys in any database.
+//
+// The question it exists to answer is whether the operator may choose a
+// master. Seeding one is safe only where every candidate is empty, because
+// then no choice can discard writes; see docs/adr/ADR-001.
+//
+// It reads the keyspace section of INFO, which lists one line per database
+// that contains keys and comes back with none when the instance is empty.
+// DBSIZE would only answer for the database this client selected.
+//
+// A Redis part-way through reading an RDB is the case this has to be careful
+// about. INFO is served while `loading:1`, and the keyspace section fills in
+// as keys are inserted, so a node holding a full dataset on disk reports an
+// empty keyspace until enough of it is in memory. Answering "no data" there
+// would let the operator seed over a restarting cluster, which is what asking
+// the keyspace exists to prevent. Loading is therefore an error, not a false:
+// the answer is not available yet and a later reconcile can ask again.
+//
+// An instance that cannot be reached is an error for the same reason. "No
+// data" and "no answer" lead to opposite decisions.
+func (c *client) HasData(ip, port, password string) (bool, error) {
+	options := &rediscli.Options{
+		Addr:     net.JoinHostPort(ip, port),
+		Password: password,
+		DB:       0,
+	}
+	rClient := rediscli.NewClient(options)
+	defer rClient.Close()
+	// The default sections, rather than a named one, so persistence and
+	// keyspace both arrive in a single round trip. Naming several sections in
+	// one INFO is only supported from Redis 7.
+	info, err := rClient.Info(context.TODO()).Result()
+	if err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HAS_DATA, metrics.FAIL, getRedisError(err))
+		return false, err
+	}
+	hasData, err := hasDataFromInfo(info)
+	if err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HAS_DATA, metrics.FAIL, metrics.NOT_APPLICABLE)
+		return false, err
+	}
+	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HAS_DATA, metrics.SUCCESS, metrics.NOT_APPLICABLE)
+	return hasData, nil
+}
+
+// hasDataFromInfo reads the answer out of an INFO payload. Split out from the
+// call so the interpretation can be tested without a running Redis.
+func hasDataFromInfo(info string) (bool, error) {
+	if redisLoadingRE.MatchString(info) {
+		return false, ErrRedisLoading
+	}
+	return redisDBKeysRE.MatchString(info), nil
 }
 
 func (c *client) MonitorRedis(ip, monitor, quorum, password string, sentinelPort string) error {

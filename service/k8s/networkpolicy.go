@@ -91,4 +91,3 @@ func (p *NetworkPolicyService) DeleteNetworkPolicy(namespace string, name string
 	recordMetrics(namespace, "NetworkPolicy", name, "DELETE", err, p.metricsRecorder)
 	return err
 }
-
