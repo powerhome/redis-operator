@@ -27,6 +27,10 @@ jobs:
         with:
           owner: powerhome
           package: redis-operator
+          # Release versions are held whatever else is configured. The action
+          # gives this list priority over every other rule, so no retention
+          # count and no age setting can reach a semantic version tag.
+          exclude-tags: 'v*'
           delete-untagged: true
           older-than: '1 day'
           validate: true
