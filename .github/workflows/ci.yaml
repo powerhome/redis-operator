@@ -73,6 +73,14 @@ jobs:
         run: kubectl create -f manifests/databases.spotahome.com_redisfailovers.yaml
       - run: make test-integration-ci
 
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        run: make lint-workflows
+
   chart-test:
     name: Chart testing
     runs-on: ubuntu-latest
