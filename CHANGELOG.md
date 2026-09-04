@@ -33,10 +33,6 @@ A `RedisFailover` with `auth.secretPath` set restarts once when the operator is 
 - [Reject an `auth.secretPath` secret whose `password` field is empty](https://github.com/powerhome/redis-operator/pull/98)
 - [Authenticate the connected-slaves health check](https://github.com/powerhome/redis-operator/pull/102), resolving [#99](https://github.com/powerhome/redis-operator/issues/99)
 
-## [v4.5.1] - 2026-08-18
-
-Never released. This heading was added by [#93](https://github.com/powerhome/redis-operator/pull/93) rather than by a release, and no `v4.5.1` tag, image, or GitHub release was ever published. The change it listed ships in v4.6.0.
-
 ## [v4.5.0] - 2026-08-06
 
 ### Changed
