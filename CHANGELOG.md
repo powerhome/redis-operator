@@ -9,93 +9,29 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.6.0] - 2026-09-04
+
+### Upgrade note
+
+A `RedisFailover` with `auth.secretPath` set restarts once when the operator is upgraded, as its pod template gains a record of which password it was built for. The Redis pods go together rather than one at a time, so expect a minute or two with a few tens of seconds of it without a master. A failover with no password is unaffected. The `latest` tag moves to this release.
+
 ### Added
 
 - [Publish a bill of materials and build provenance with the image](https://github.com/powerhome/redis-operator/pull/109)
 
-  The published image now carries a Software Bill of Materials, listing the Alpine packages and the Go modules compiled into the binary at their exact versions. Reading it needs no pull:
-
-  ```
-  docker buildx imagetools inspect powerhome/redis-operator:<tag> --format '{{ json .SBOM }}'
-  ```
-
-  Without one, answering "does this image contain an affected version" means pulling it and letting a scanner infer the contents by inspecting files, which is where reports mixing reachable and unreachable findings come from. The bill of materials makes it a lookup against a published document.
-
-  Build provenance was already published and moves to `max`, which records the source revision and the resolved base image digests. Together with the digest-pinned bases, an image can now be traced to the commit and the exact bases it was built from.
-
-  The scanner that produces the bill of materials is pinned by digest along with the base images, so the build has no unpinned inputs. A stale scanner degrades quietly, under-reporting rather than failing, so this pin needs bumping on a schedule.
-
-  Attestations are attached to the image index as entries with an `unknown/unknown` platform. This is how the registry represents them and the published images already carried provenance this way, so no consumer sees a new shape.
-
 ### Changed
 
-- [Build with Go 1.25 and pin the base images by digest](https://github.com/powerhome/redis-operator/pull/108)
-
-  The published image carried vulnerable versions of the Go standard library and `golang.org/x/net`. `govulncheck`, which reports whether the vulnerable symbols are actually reachable rather than merely present, found 16 with call paths into the operator. Building with Go 1.25.14 and moving `golang.org/x/net` to v0.58.0 brings that to zero.
-
-  **This raises the Go toolchain required to build the operator to 1.25.** Continuous integration takes its version from `go.mod`, so it follows automatically.
-
-  The build, runtime and development images are now pinned by digest rather than the mutable `golang:1.24-alpine` and `alpine:latest`. The development image `make test` runs in moves to the same toolchain: these images set `GOTOOLCHAIN=local`, so an older one cannot fetch a newer one to satisfy the `go` directive. Building from a moving tag meant the image was not reproducible and there was no way to say what a given release contained. Each reference carries both its tag and its digest, so the version is readable in the reference itself; the digest is what resolves.
-
-  `golangci-lint` moves to v2.13.2, because a linter built with an older Go refuses to load a module targeting a newer one. Version 2 merged several linters into `staticcheck` and dropped the default exclusions, which would have changed what is enforced as a side effect of the toolchain bump; a new `.golangci.yml` holds the enforced set where it was, so that change can be made deliberately and on its own.
-
-  The Alpine OpenSSL packages a scanner reports against the image are not reachable from the operator. `scripts/build.sh` sets `CGO_ENABLED=0` with `-extldflags '-static'`, so the binary is statically linked and never loads them; `ldd` inside the image reports it is not a dynamic program at all. No Alpine release currently ships the fixed OpenSSL those reports ask for, and the pinned base is the same release `alpine:latest` resolved to.
+- [Build with Go 1.25 and pin the base images by digest](https://github.com/powerhome/redis-operator/pull/108), resolving [#101](https://github.com/powerhome/redis-operator/issues/101)
+- [Apply a password change to a running `RedisFailover` without manual intervention](https://github.com/powerhome/redis-operator/pull/104)
+- [Publish the operator image to ghcr.io/powerhome in addition to Docker Hub](https://github.com/powerhome/redis-operator/pull/93)
 
 ### Fixed
 
 - [Remove the HAProxy resources when the `haproxy` block is taken out of a `RedisFailover`](https://github.com/powerhome/redis-operator/pull/107)
-
-  The operator ensured HAProxy when the block was present and removed it when the failover was bootstrapping, but did neither when the block was removed, because both branches sat inside a check that the block existed. The resources carry owner references to the `RedisFailover`, so nothing collected them while the failover itself lived on: a proxy kept accepting and routing traffic from a configuration that would never be updated again, with no event or condition recording that it was now unmanaged. Removing `haproxy:` now removes what it created.
-
-  The Redis headless service backing HAProxy's SRV discovery is removed with it. It is created alongside the HAProxy resources but under a different name, so every removal had left it behind, including the bootstrapping one that otherwise worked.
-
-  Cleanup no longer depends on the Deployment existing, so a partly created set is still removed, and a failure to remove something is reported rather than treated as permission to carry on.
-
-- [Do not promote a Redis node when the current master could not be inspected](https://github.com/powerhome/redis-operator/pull/106)
-
-  `GetNumberMasters` skipped past any node it could not query and counted only the ones that answered as a master, so a running master the operator could not reach was reported as absent. Reaching zero masters is what drives recovery, and recovery promotes a node, so an unreachable master could be replaced by an arbitrary replica while it was still running and writable. A count of zero now means every node answered and none of them was the master; anything else is reported as the unknown it is, and recovery does not run.
-
-  `SetOldestAsMaster` logged a failure to demote a node and carried on to report success. Promoting one node while failing to demote another leaves the failover with two masters and nothing looking for it, until a later reconcile stops with "more than one master, fix manually" and divergent writes are already possible. The remaining nodes are still demoted, so the failover ends with as few masters as it can, and the failure is now returned.
-
-  Neither changes how a master is chosen when recovery does run. Selection is still by pod age rather than replication offset, which is tracked separately in [issue 100](https://github.com/powerhome/redis-operator/issues/100).
-
-### Added
-
-- [Apply a password change to a running `RedisFailover` without manual intervention](https://github.com/powerhome/redis-operator/pull/104)
-
-  Adding `auth.secretPath` to a running failover, or changing the value in the secret it names, left Redis using the password it started with: it reads `requirepass` only at startup, and the Redis StatefulSet uses the `OnDelete` update strategy, so nothing restarted the pods. The operator meanwhile had taken the new password, so every one of its checks was refused and the reconcile failed on the first of them, never reaching the rolling update that would have applied it. Recovering meant deleting the Redis pods by hand.
-
-  The operator now recognises that Redis is refusing the configured password and restarts the pods to apply it. **This means a short interruption:** the pods go together, because a restarted pod cannot replicate with one that has not restarted yet, so restarting them singly leaves the failover split rather than shortening the window. Expect a minute or two for the change, a few tens of seconds of it without a master, and plan a password change alongside the applications that hold it. `haproxy`, when configured, is restarted after Redis, since restarting it first would leave it authenticating with a password its backends do not have. The operator leaves the running proxy alone until every Redis pod that is up and answering agrees with the configured password, which holds whether a password is being taken or given up. Removing `auth.secretPath` is applied the same way.
-
-  A `RedisFailover` with no `auth.secretPath` is unaffected and nothing restarts on upgrade. One with a password gets a single restart when the operator is upgraded, as its pod template gains a record of which password it was built for. Two cases are reported rather than acted on: a secret with an empty `password`, and a refusal while the pods already carry the current configuration, which means the secret itself is wrong and restarting cannot fix it.
-
-### Fixed
-
+- [Do not promote a Redis node when the current master could not be inspected](https://github.com/powerhome/redis-operator/pull/106), partially addressing [#100](https://github.com/powerhome/redis-operator/issues/100)
 - [HAProxy: authenticate the health check so `auth.secretPath` is usable](https://github.com/powerhome/redis-operator/pull/98)
-
-  A `RedisFailover` that set both `auth.secretPath` and `haproxy` could not serve traffic through HAProxy. The generated health check did not authenticate, so under `requirepass` every backend failed its check and stayed `DOWN`, leaving the `rfrm-haproxy-<name>` service with nothing to route to. The direct `rfrm-<name>` master service was unaffected. The check now authenticates when the failover has a password, and the HAProxy deployment reads that password from the same secret the Redis pods use.
-
-  No action is required for a `RedisFailover` without `auth.secretPath`: its generated config and deployment are unchanged, so nothing restarts on upgrade. The minimum HAProxy image is still v3.1.0, as set in v4.0.0.
-
 - [Reject an `auth.secretPath` secret whose `password` field is empty](https://github.com/powerhome/redis-operator/pull/98)
-
-  An empty `password` produced a Redis with neither `requirepass` nor `masterauth` while the `RedisFailover` reported itself healthy, so a failover configured for authentication silently ran without any. The operator now fails the reconcile and reports the secret by name. A `RedisFailover` relying on that to run unauthenticated must remove `auth.secretPath` to keep doing so.
-
-- [Authenticate the connected-slaves health check](https://github.com/powerhome/redis-operator/pull/102)
-
-  On a `RedisFailover` with `auth.secretPath` set, the check of how many replicas the master has connected did not authenticate, so under `requirepass` it was answered `NOAUTH` on every reconcile. The operator read that as a replica-count mismatch and responded by killing the master's replica connections, forcing the replicas to resync roughly every 30 seconds on an otherwise healthy cluster. The check now authenticates when the failover has a password.
-
-  A `RedisFailover` without `auth.secretPath` is unaffected: the resolved password is empty, which is what the check already sent.
-
-## [v4.5.1] - 2026-08-18
-
-### Changed
-
-- [Publish the operator image to ghcr.io/powerhome in addition to Docker Hub](https://github.com/powerhome/redis-operator/pull/93)
-
-### Fixed as a temporary workaround to have checks green. Will be removed when [fix: create /etc/cni/net.d before chmod in none driver](https://github.com/medyagh/setup-minikube/pull/836) merges
-
-- [Create /etc/cni/net.d before setup-minikube so the integration-test none driver works on current runner images](https://github.com/powerhome/redis-operator/pull/93)
+- [Authenticate the connected-slaves health check](https://github.com/powerhome/redis-operator/pull/102), resolving [#99](https://github.com/powerhome/redis-operator/issues/99)
 
 ## [v4.5.0] - 2026-08-06
 
