@@ -163,18 +163,13 @@ lint:
 	  golangci-lint run --fix --timeout=15m
 
 # Lint the GitHub Actions workflow files
-#
-# The "action is too old" rule is excluded. It reports on the versions of the
-# actions a workflow calls rather than on whether the workflow file itself is
-# correct, and moving those versions is its own change.
 .PHONY: lint-workflows
 lint-workflows:
 	docker run --rm \
 	  -v $(PWD):$(WORKDIR) \
 	  -w $(WORKDIR) \
 	  $(ACTIONLINT_IMAGE) \
-	  -color \
-	  -ignore 'the runner of ".+" action is too old to run on GitHub Actions'
+	  -color
 
 # Run all code generators
 .PHONY: generate
