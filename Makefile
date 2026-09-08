@@ -1,4 +1,4 @@
-VERSION := v4.5.0
+VERSION := v4.6.0
 
 # Name of this service/application
 SERVICE_NAME := redis-operator
@@ -27,6 +27,9 @@ PORT := 9710
 
 GOLANGCI_LINT_VERSION := v1.64.2
 GOLANGCI_LINT_IMAGE := golangci/golangci-lint:$(GOLANGCI_LINT_VERSION)
+
+ACTIONLINT_VERSION := 1.7.12
+ACTIONLINT_IMAGE := rhysd/actionlint:$(ACTIONLINT_VERSION)
 
 # workdir
 WORKDIR := /go/src/github.com/spotahome/redis-operator
@@ -159,6 +162,15 @@ lint:
 	  -w $(WORKDIR) \
 	  $(GOLANGCI_LINT_IMAGE) \
 	  golangci-lint run --fix --timeout=15m
+
+# Lint the GitHub Actions workflow files
+.PHONY: lint-workflows
+lint-workflows:
+	docker run --rm \
+	  -v $(PWD):$(WORKDIR) \
+	  -w $(WORKDIR) \
+	  $(ACTIONLINT_IMAGE) \
+	  -color
 
 # Run all code generators
 .PHONY: generate

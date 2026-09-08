@@ -1,0 +1,17 @@
+version: "2"
+
+linters:
+  # Keep the enforced set as it was under golangci-lint v1. Version 2 merged
+  # gosimple, staticcheck and stylecheck into one linter and turned on its
+  # quickfix (QF) and style (ST) checks, and it dropped the default exclusions
+  # that suppressed `defer x.Close()`. Both are worth considering on their own
+  # merits; neither should arrive as a side effect of a toolchain bump.
+  settings:
+    staticcheck:
+      checks:
+        - all
+        - -QF*
+        - -ST*
+  exclusions:
+    presets:
+      - std-error-handling

@@ -280,7 +280,7 @@ backend redis-master-backend
 
 func generateRedisHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 
-	name := rf.GenerateName("redis")
+	name := GetRedisHeadlessName(rf)
 	namespace := rf.Namespace
 
 	redisTargetPort := intstr.FromString("redis")

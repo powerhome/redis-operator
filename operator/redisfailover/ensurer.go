@@ -29,32 +29,34 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 		return err
 	}
 
-	if rf.Spec.Haproxy != nil {
-		haproxyAllowed := rf.HaproxyAllowed()
-		if haproxyAllowed {
-			if err := w.rfService.EnsureHAProxyRedisMasterService(rf, labels, or); err != nil {
-				return err
-			}
+	// Whenever HAProxy should not be running, its resources are removed. That
+	// covers the failover being bootstrapped, and it covers the haproxy block
+	// being taken out of the spec: previously the outer condition let the second
+	// case reach neither branch, so a proxy kept serving traffic from a
+	// configuration nothing would update again.
+	if rf.Spec.Haproxy != nil && rf.HaproxyAllowed() {
+		if err := w.rfService.EnsureHAProxyRedisMasterService(rf, labels, or); err != nil {
+			return err
+		}
 
-			if err := w.rfService.EnsureRedisHeadlessService(rf, labels, or); err != nil {
-				return err
-			}
+		if err := w.rfService.EnsureRedisHeadlessService(rf, labels, or); err != nil {
+			return err
+		}
 
-			if err := w.rfService.EnsureHAProxyRedisMasterConfigmap(rf, labels, or); err != nil {
-				return err
-			}
+		if err := w.rfService.EnsureHAProxyRedisMasterConfigmap(rf, labels, or); err != nil {
+			return err
+		}
 
-			if err := w.rfService.EnsureHAProxyRedisMasterDeployment(rf, labels, or); err != nil {
-				return err
-			}
+		if err := w.rfService.EnsureHAProxyRedisMasterDeployment(rf, labels, or); err != nil {
+			return err
+		}
 
-			if err := w.rfService.DestroyOrphanedRedisSlaveHaProxy(rf); err != nil {
-				return err
-			}
-		} else {
-			if err := w.rfService.DestroyHaproxyMasterResources(rf); err != nil {
-				return err
-			}
+		if err := w.rfService.DestroyOrphanedRedisSlaveHaProxy(rf); err != nil {
+			return err
+		}
+	} else {
+		if err := w.rfService.DestroyHaproxyMasterResources(rf); err != nil {
+			return err
 		}
 	}
 

@@ -134,6 +134,33 @@ func (r *RedisFailoverHandler) applyCredentialChange(rf *redisfailoverv1.RedisFa
 	return errors.Join(errs...)
 }
 
+// reportMasterUnknown records on the RedisFailover that the operator is holding
+// off because it could not work out which node is the master.
+//
+// The message reaches `kubectl get redisfailover`, which is the difference
+// between a cluster that is visibly waiting on a named node and one that is
+// merely down while a reconcile fails every thirty seconds with nothing to show
+// for it.
+//
+// Only written when the state changes, since the condition would otherwise be
+// rewritten on every pass for as long as it lasts.
+func (r *RedisFailoverHandler) reportMasterUnknown(rf *redisfailoverv1.RedisFailover, cause error) {
+	if len(rf.Status.Conditions) > 0 && rf.Status.Conditions[len(rf.Status.Conditions)-1].Type == redisfailoverv1.AppStateMasterUnknown {
+		return
+	}
+
+	rf.Status.AddCondition(redisfailoverv1.ClusterCondition{
+		Status:  redisfailoverv1.ConditionTrue,
+		Type:    redisfailoverv1.AppStateMasterUnknown,
+		Message: fmt.Sprintf("Not choosing a master: a Redis node could not be inspected, so one of them may still be the master: %s", cause),
+	})
+
+	if _, err := r.rfService.UpdateStatus(rf); err != nil {
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
+			Errorf("Error attempting to update RedisFailover Status: %s", err)
+	}
+}
+
 // CheckAndHeal runs verifcation checks to ensure the RedisFailover is in an expected and healthy state.
 // If the checks do not match up to expectations, an attempt will be made to "heal" the RedisFailover into a healthy state.
 func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) error {
@@ -163,6 +190,14 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 	}
 
 	nMasters, err := r.rfChecker.GetNumberMasters(rf)
+	if err != nil && !redis.IsAuthError(err) {
+		// The topology could not be established, so nothing below should act on
+		// it. Say so on the resource: this hold has no time limit, and a node
+		// that never answers keeps the failover here until someone intervenes.
+		// Without this the only trace is a reconcile erroring every pass.
+		r.reportMasterUnknown(rf, err)
+		return err
+	}
 	if redis.IsAuthError(err) {
 		// The running Redis is not using the password the failover is
 		// configured with. Two ordinary actions leave it that way: adding
@@ -177,9 +212,6 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		// Waiting does not help either, since the pods keep whatever they
 		// started with.
 		return r.applyCredentialChange(rf, err)
-	}
-	if err != nil {
-		return err
 	}
 
 	switch nMasters {

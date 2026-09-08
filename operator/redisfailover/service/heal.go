@@ -123,6 +123,12 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 
 	port := rf.Spec.Redis.Port.ToString()
 	newMasterIP := ""
+	// A pod that could not be demoted is still a master. Carrying on demotes as
+	// many of the rest as possible, which is the best available outcome, but the
+	// caller has to be told: reporting success here leaves the failover with
+	// more than one master and nothing looking for it. Every failure is kept,
+	// since each one is a node still acting as a master.
+	var demotionErr error
 	for _, pod := range ssp.Items {
 		if newMasterIP == "" {
 			newMasterIP = pod.Status.PodIP
@@ -143,6 +149,8 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 			r.logger.Infof("Making pod %s slave of %s", pod.Name, newMasterIP)
 			if err := r.redisClient.MakeSlaveOfWithPort(pod.Status.PodIP, port, newMasterIP, port, password); err != nil {
 				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Make slave failed, slave pod ip: %s, master ip: %s, error: %v", pod.Status.PodIP, newMasterIP, err)
+				demotionErr = errors.Join(demotionErr, err)
+				continue
 			}
 
 			err = r.setSlaveLabelIfNecessary(rf.Namespace, pod)
@@ -153,9 +161,9 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 	}
 	if newMasterIP == "" {
 		return errors.New("SetOldestAsMaster- unable to set master")
-	} else {
-		return nil
 	}
+
+	return demotionErr
 }
 
 // SetMasterOnAll puts all redis nodes as a slave of a given master

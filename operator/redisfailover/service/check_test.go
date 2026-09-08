@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -63,10 +64,11 @@ func TestGetNumberMastersSurfacesRefusedCredentials(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// Unreachable is the case the existing skip-and-continue is for.
+			// Also an error now: unreachable means unknown, and the caller
+			// promotes on the strength of this count reaching zero.
 			name:    "a node is simply unreachable",
 			podErr:  errors.New("dial tcp 10.0.0.1:6379: connect: connection refused"),
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			// Mid-rotation some pods hold the new password and some the old. If
@@ -828,6 +830,79 @@ func TestGetNumberMastersGetStatefulSetPodsError(t *testing.T) {
 	assert.Error(err)
 }
 
+// Recovery promotes a node when the master count reaches zero, so zero has to
+// mean every node answered and none of them was the master. These cover the
+// difference between that and "we could not tell".
+func TestGetNumberMastersOnlyReportsZeroWhenEveryNodeAnswered(t *testing.T) {
+	tests := []struct {
+		name      string
+		podErrs   []error
+		anyMaster bool
+		wantErr   bool
+	}{
+		{
+			name:    "every node answered and none is the master",
+			podErrs: []error{nil, nil},
+			wantErr: false,
+		},
+		{
+			name:    "one node could not be reached",
+			podErrs: []error{nil, errors.New("dial tcp: i/o timeout")},
+			wantErr: true,
+		},
+		{
+			// A reachable master settles it, so an unreachable peer is not a
+			// reason to hold anything back.
+			name:      "a master answered despite an unreachable peer",
+			podErrs:   []error{nil, errors.New("dial tcp: i/o timeout")},
+			anyMaster: true,
+			wantErr:   false,
+		},
+		{
+			// The refusal is the actionable one and takes precedence, since the
+			// caller repairs it by restarting the pods.
+			name:    "a refusal is reported ahead of an unreachable peer",
+			podErrs: []error{errors.New("WRONGPASS invalid username-password pair"), errors.New("dial tcp: i/o timeout")},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+			items := []corev1.Pod{}
+			for i := range test.podErrs {
+				items = append(items, corev1.Pod{Status: corev1.PodStatus{
+					PodIP: fmt.Sprintf("1.1.1.%d", i), Phase: corev1.PodRunning,
+				}})
+			}
+
+			ms := &mK8SService.Services{}
+			ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(&corev1.PodList{Items: items}, nil)
+
+			mr := &mRedisService.Client{}
+			for i, podErr := range test.podErrs {
+				isMaster := test.anyMaster && podErr == nil
+				mr.On("IsMaster", fmt.Sprintf("1.1.1.%d", i), mock.Anything, mock.Anything).Once().Return(isMaster, podErr)
+			}
+
+			checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+			_, err := checker.GetNumberMasters(rf)
+
+			if test.wantErr {
+				assert.Error(err)
+			} else {
+				assert.NoError(err)
+			}
+		})
+	}
+}
+
+// A node that could not be asked is unknown, not "not a master". The caller
+// promotes a node when this count reaches zero, so answering zero here for a
+// node we never reached is how a running master gets replaced.
 func TestGetNumberMastersIsMasterError(t *testing.T) {
 	assert := assert.New(t)
 
@@ -852,7 +927,7 @@ func TestGetNumberMastersIsMasterError(t *testing.T) {
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
 	_, err := checker.GetNumberMasters(rf)
-	assert.NoError(err)
+	assert.Error(err, "a node that could not be classified must not be reported as zero masters")
 }
 
 func TestGetNumberMasters(t *testing.T) {

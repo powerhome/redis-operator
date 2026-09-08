@@ -9,43 +9,29 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.6.0] - 2026-09-04
+
+### Upgrade note
+
+A `RedisFailover` with `auth.secretPath` set restarts once when the operator is upgraded, as its pod template gains a record of which password it was built for. The Redis pods go together rather than one at a time, so expect a minute or two with a few tens of seconds of it without a master. A failover with no password is unaffected. The `latest` tag moves to this release.
+
 ### Added
 
-- [Apply a password change to a running `RedisFailover` without manual intervention](https://github.com/powerhome/redis-operator/pull/104)
-
-  Adding `auth.secretPath` to a running failover, or changing the value in the secret it names, left Redis using the password it started with: it reads `requirepass` only at startup, and the Redis StatefulSet uses the `OnDelete` update strategy, so nothing restarted the pods. The operator meanwhile had taken the new password, so every one of its checks was refused and the reconcile failed on the first of them, never reaching the rolling update that would have applied it. Recovering meant deleting the Redis pods by hand.
-
-  The operator now recognises that Redis is refusing the configured password and restarts the pods to apply it. **This means a short interruption:** the pods go together, because a restarted pod cannot replicate with one that has not restarted yet, so restarting them singly leaves the failover split rather than shortening the window. Expect a minute or two for the change, a few tens of seconds of it without a master, and plan a password change alongside the applications that hold it. `haproxy`, when configured, is restarted after Redis, since restarting it first would leave it authenticating with a password its backends do not have. The operator leaves the running proxy alone until every Redis pod that is up and answering agrees with the configured password, which holds whether a password is being taken or given up. Removing `auth.secretPath` is applied the same way.
-
-  A `RedisFailover` with no `auth.secretPath` is unaffected and nothing restarts on upgrade. One with a password gets a single restart when the operator is upgraded, as its pod template gains a record of which password it was built for. Two cases are reported rather than acted on: a secret with an empty `password`, and a refusal while the pods already carry the current configuration, which means the secret itself is wrong and restarting cannot fix it.
-
-### Fixed
-
-- [HAProxy: authenticate the health check so `auth.secretPath` is usable](https://github.com/powerhome/redis-operator/pull/98)
-
-  A `RedisFailover` that set both `auth.secretPath` and `haproxy` could not serve traffic through HAProxy. The generated health check did not authenticate, so under `requirepass` every backend failed its check and stayed `DOWN`, leaving the `rfrm-haproxy-<name>` service with nothing to route to. The direct `rfrm-<name>` master service was unaffected. The check now authenticates when the failover has a password, and the HAProxy deployment reads that password from the same secret the Redis pods use.
-
-  No action is required for a `RedisFailover` without `auth.secretPath`: its generated config and deployment are unchanged, so nothing restarts on upgrade. The minimum HAProxy image is still v3.1.0, as set in v4.0.0.
-
-- [Reject an `auth.secretPath` secret whose `password` field is empty](https://github.com/powerhome/redis-operator/pull/98)
-
-  An empty `password` produced a Redis with neither `requirepass` nor `masterauth` while the `RedisFailover` reported itself healthy, so a failover configured for authentication silently ran without any. The operator now fails the reconcile and reports the secret by name. A `RedisFailover` relying on that to run unauthenticated must remove `auth.secretPath` to keep doing so.
-
-- [Authenticate the connected-slaves health check](https://github.com/powerhome/redis-operator/pull/102)
-
-  On a `RedisFailover` with `auth.secretPath` set, the check of how many replicas the master has connected did not authenticate, so under `requirepass` it was answered `NOAUTH` on every reconcile. The operator read that as a replica-count mismatch and responded by killing the master's replica connections, forcing the replicas to resync roughly every 30 seconds on an otherwise healthy cluster. The check now authenticates when the failover has a password.
-
-  A `RedisFailover` without `auth.secretPath` is unaffected: the resolved password is empty, which is what the check already sent.
-
-## [v4.5.1] - 2026-08-18
+- [Publish a bill of materials and build provenance with the image](https://github.com/powerhome/redis-operator/pull/109)
 
 ### Changed
 
+- [Build with Go 1.25 and pin the base images by digest](https://github.com/powerhome/redis-operator/pull/108), resolving [#101](https://github.com/powerhome/redis-operator/issues/101)
+- [Apply a password change to a running `RedisFailover` without manual intervention](https://github.com/powerhome/redis-operator/pull/104)
 - [Publish the operator image to ghcr.io/powerhome in addition to Docker Hub](https://github.com/powerhome/redis-operator/pull/93)
 
-### Fixed as a temporary workaround to have checks green. Will be removed when [fix: create /etc/cni/net.d before chmod in none driver](https://github.com/medyagh/setup-minikube/pull/836) merges
+### Fixed
 
-- [Create /etc/cni/net.d before setup-minikube so the integration-test none driver works on current runner images](https://github.com/powerhome/redis-operator/pull/93)
+- [Remove the HAProxy resources when the `haproxy` block is taken out of a `RedisFailover`](https://github.com/powerhome/redis-operator/pull/107)
+- [Do not promote a Redis node when the current master could not be inspected](https://github.com/powerhome/redis-operator/pull/106), partially addressing [#100](https://github.com/powerhome/redis-operator/issues/100)
+- [HAProxy: authenticate the health check so `auth.secretPath` is usable](https://github.com/powerhome/redis-operator/pull/98)
+- [Reject an `auth.secretPath` secret whose `password` field is empty](https://github.com/powerhome/redis-operator/pull/98)
+- [Authenticate the connected-slaves health check](https://github.com/powerhome/redis-operator/pull/102), resolving [#99](https://github.com/powerhome/redis-operator/issues/99)
 
 ## [v4.5.0] - 2026-08-06
 

@@ -14,8 +14,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
@@ -4053,4 +4055,60 @@ func TestEnsureSentinelDeploymentUpdatesWhenAnnotationAbsent(t *testing.T) {
 	err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
 	assert.NoError(err)
 	ms.AssertExpectations(t)
+}
+
+// The resources HAProxy needs are created together and have to go together. The
+// headless service is the one that used to be left behind: it is created
+// alongside the rest but under a different name, so a removal that named only
+// the HAProxy resources never touched it.
+func TestDestroyHaproxyMasterResourcesRemovesEverythingItCreated(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+	deleted := map[string]int{}
+	record := func(args mock.Arguments) { deleted[args.Get(1).(string)]++ }
+
+	ms := &mK8SService.Services{}
+	ms.On("DeleteService", namespace, mock.Anything).Run(record).Return(nil)
+	ms.On("DeleteConfigMap", namespace, mock.Anything).Run(record).Return(nil)
+	ms.On("DeleteDeployment", namespace, mock.Anything).Run(record).Return(nil)
+
+	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+	assert.NoError(client.DestroyHaproxyMasterResources(rf))
+
+	// The haproxy service, configmap and deployment all carry the same name.
+	assert.Equal(3, deleted[rfservice.GetHaproxyMasterName(rf)])
+	assert.Equal(1, deleted[rfservice.GetRedisHeadlessName(rf)], "the headless service backing SRV discovery must go too")
+}
+
+// A set that was only partly created still has to be cleaned up. Reading one
+// resource first and stopping when it was absent left the others in place.
+func TestDestroyHaproxyMasterResourcesToleratesResourcesAlreadyGone(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+	gone := kerrors.NewNotFound(schema.GroupResource{Resource: "deployments"}, "rfrm-haproxy-test")
+
+	ms := &mK8SService.Services{}
+	ms.On("DeleteService", namespace, mock.Anything).Return(nil)
+	ms.On("DeleteConfigMap", namespace, mock.Anything).Return(nil)
+	// The deployment is missing; the service and configmap still need removing.
+	ms.On("DeleteDeployment", namespace, mock.Anything).Once().Return(gone)
+
+	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+	assert.NoError(client.DestroyHaproxyMasterResources(rf))
+	ms.AssertNumberOfCalls(t, "DeleteService", 2)
+}
+
+// Any other failure to remove something is reported, rather than being taken as
+// permission to carry on deleting the rest.
+func TestDestroyHaproxyMasterResourcesReportsRealFailures(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+	ms := &mK8SService.Services{}
+	ms.On("DeleteService", namespace, mock.Anything).Once().Return(errors.New("apiserver is unwell"))
+
+	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+	assert.Error(client.DestroyHaproxyMasterResources(rf))
 }

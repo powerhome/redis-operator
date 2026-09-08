@@ -99,6 +99,45 @@ func TestSetOldestAsMaster(t *testing.T) {
 	assert.NoError(err)
 }
 
+// Demoting the rest still happens even when one of them fails, so the failover
+// ends with as few masters as it can, and the failure is still reported.
+func TestSetOldestAsMasterDemotesTheRestAfterAFailure(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+	pods := &corev1.PodList{
+		Items: []corev1.Pod{
+			{ObjectMeta: metav1.ObjectMeta{Name: "a", CreationTimestamp: metav1.Now()}, Status: corev1.PodStatus{PodIP: "0.0.0.0", Phase: corev1.PodRunning}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "b", CreationTimestamp: metav1.Now()}, Status: corev1.PodStatus{PodIP: "1.1.1.1", Phase: corev1.PodRunning}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "c", CreationTimestamp: metav1.Now()}, Status: corev1.PodStatus{PodIP: "2.2.2.2", Phase: corev1.PodRunning}},
+		},
+	}
+
+	ms := &mK8SService.Services{}
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
+	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Return(nil)
+
+	mr := &mRedisService.Client{}
+	mr.On("MakeMaster", "0.0.0.0", "0", "").Once().Return(nil)
+	mr.On("MakeSlaveOfWithPort", "1.1.1.1", "0", "0.0.0.0", "0", "").Once().Return(errors.New("first node refused"))
+	// The one after the failure is still demoted rather than abandoned.
+	mr.On("MakeSlaveOfWithPort", "2.2.2.2", "0", "0.0.0.0", "0", "").Once().Return(errors.New("second node refused"))
+
+	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
+
+	err := healer.SetOldestAsMaster(rf)
+
+	// Each failure is a node still acting as a master, so naming only the first
+	// would understate how far the failover is from having one.
+	if assert.Error(err) {
+		assert.Contains(err.Error(), "first node refused")
+		assert.Contains(err.Error(), "second node refused")
+	}
+	mr.AssertExpectations(t)
+}
+
+// A pod that could not be demoted is still a master. Reporting success leaves
+// the failover with more than one and nothing looking for it.
 func TestSetOldestAsMasterMultiplePodsMakeSlaveOfError(t *testing.T) {
 	assert := assert.New(t)
 
@@ -129,7 +168,7 @@ func TestSetOldestAsMasterMultiplePodsMakeSlaveOfError(t *testing.T) {
 	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
 
 	err := healer.SetOldestAsMaster(rf)
-	assert.NoError(err)
+	assert.Error(err, "a failed demotion leaves a second master and must be reported")
 }
 
 func TestSetOldestAsMasterMultiplePods(t *testing.T) {

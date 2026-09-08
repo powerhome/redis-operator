@@ -335,18 +335,22 @@ func (r *RedisFailoverChecker) GetNumberMasters(rf *redisfailoverv1.RedisFailove
 	}
 
 	rport := rf.Spec.Redis.Port.ToString()
-	// A node that is merely not ready yet is worth skipping past, since another
-	// may still answer and the condition clears on its own. A node that refuses
-	// our credential is not: it will keep refusing until its pod restarts onto
-	// the password the failover is configured with. Reporting that as "not
-	// ready" and returning zero masters hides the one fault the caller could
-	// actually repair.
-	var authErr error
+	// A node that could not be asked is unknown, not answered. It may be the
+	// master, and the caller promotes a node on the strength of this count
+	// reaching zero, so reporting a node we never reached as simply "not a
+	// master" is how a running master gets replaced by an arbitrary replica.
+	//
+	// A refused credential is kept apart from every other fault because it is
+	// the one the caller can repair, by restarting the pods onto the password
+	// the failover is configured with.
+	var authErr, unreachableErr error
 	for _, rip := range rips {
 		master, err := r.redisClient.IsMaster(rip, rport, password)
 		if err != nil {
 			if redis.IsAuthError(err) {
 				authErr = err
+			} else if unreachableErr == nil {
+				unreachableErr = err
 			}
 			r.logger.Errorf("Get redis info failed, maybe this node is not ready, pod ip: %s", rip)
 			continue
@@ -356,11 +360,18 @@ func (r *RedisFailoverChecker) GetNumberMasters(rf *redisfailoverv1.RedisFailove
 		}
 	}
 
-	// Only when nothing answered at all: while a rotation is being applied some
-	// pods hold the new password and some the old, and if one of them is still
-	// a reachable master there is nothing to repair here.
-	if nMasters == 0 && authErr != nil {
-		return nMasters, authErr
+	// Both only matter when nothing answered as a master. A reachable master
+	// makes the rest moot: there is no recovery to hold back, and while a
+	// password is being applied some pods hold the new one and some the old.
+	//
+	// The refusal goes first when both happened, since it is the actionable one.
+	if nMasters == 0 {
+		if authErr != nil {
+			return nMasters, authErr
+		}
+		if unreachableErr != nil {
+			return nMasters, unreachableErr
+		}
 	}
 
 	return nMasters, nil

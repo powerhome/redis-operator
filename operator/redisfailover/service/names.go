@@ -56,6 +56,13 @@ func GetHaproxySlaveName(rf *redisfailoverv1.RedisFailover) string {
 	return generateName(redisHAProxySlaveRedisName, rf.Name)
 }
 
+// GetRedisHeadlessName returns the name of the headless service backing the SRV
+// records HAProxy discovers Redis through. It is created with the HAProxy
+// resources and has to be removed with them, so both sides name it from here.
+func GetRedisHeadlessName(rf *redisfailoverv1.RedisFailover) string {
+	return rf.GenerateName("redis")
+}
+
 func GetHaproxyMasterName(rf *redisfailoverv1.RedisFailover) string {
 	return generateName(redisHAProxyMasterRedisName, rf.Name)
 }
