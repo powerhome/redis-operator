@@ -20,12 +20,23 @@ It can be done with plain old [deployment](example/operator), using [Kustomize](
 
 ### Using the Helm chart
 
-From the root folder of the project, execute the following:
+The chart is published two ways. Both serve the same versions; pick whichever
+fits your tooling.
+
+**HTTP Helm repository (GitHub Pages):**
 
 ```
-helm repo add redis-operator https://spotahome.github.io/redis-operator
+helm repo add redis-operator https://powerhome.github.io/redis-operator
 helm repo update
 helm install redis-operator redis-operator/redis-operator
+```
+
+**OCI artifact from ghcr.io (powerhome org):**
+
+```
+helm install redis-operator oci://ghcr.io/powerhome/charts/redis-operator
+# or pin a version:
+helm pull oci://ghcr.io/powerhome/charts/redis-operator --version 4.5.0
 ```
 
 #### Update helm chart

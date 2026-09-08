@@ -132,6 +132,7 @@ generate-crd:
 		--apis-in ./api \
 		--crd-gen-out ./manifests
 	cp -f manifests/databases.spotahome.com_redisfailovers.yaml manifests/kustomize/base
+	cp -f manifests/databases.spotahome.com_redisfailovers.yaml charts/redisoperator/crds/databases.spotahome.com_redisfailovers.yaml
 
 .PHONY: generate-go
 generate-go: image-dev-tools

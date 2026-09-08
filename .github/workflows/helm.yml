@@ -1,11 +1,17 @@
 name: Release Charts
 
+# Both jobs below run from the same push-to-master event so the HTTP Helm
+# repository (GitHub Pages) and the OCI artifact on ghcr.io always publish the
+# same chart version and cannot diverge. Version bumps reach master via the
+# automated chart-version-sync job in ci.yaml, triggered on operator `v*` tags.
 on:
   push:
     branches:
       - master
 
 jobs:
+  # Existing HTTP Helm repository: helm/chart-releaser-action + GitHub Pages
+  # index.yaml. Unchanged; the OCI publish below is purely additive.
   release:
     runs-on: ubuntu-latest
     steps:
@@ -29,3 +35,55 @@ jobs:
           config: charts/chart-release-config.yaml
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+  # Additive OCI publish to ghcr.io under the powerhome org. Authenticates to
+  # ghcr.io only, with the built-in GITHUB_TOKEN. No Docker Hub login.
+  release-oci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.14.4
+
+      - name: Log in to ghcr.io
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Package and push chart as an OCI artifact
+        run: |
+          set -euo pipefail
+          chart_dir=charts/redisoperator
+          oci_repo=oci://ghcr.io/powerhome/charts
+          version="$(helm show chart "${chart_dir}" | awk '/^version:/ {print $2; exit}')"
+          name="$(helm show chart "${chart_dir}" | awk '/^name:/ {print $2; exit}')"
+
+          # Only publish new versions. Master pushes that do not bump the chart
+          # version are a no-op here, mirroring chart-releaser-action.
+          if helm pull "${oci_repo}/${name}" --version "${version}" \
+              --destination /tmp/existing >/dev/null 2>&1; then
+            echo "Chart ${name} ${version} already published to ${oci_repo}; skipping."
+            exit 0
+          fi
+
+          helm package "${chart_dir}" --destination /tmp/pkg
+          helm push "/tmp/pkg/${name}-${version}.tgz" "${oci_repo}"
+
+      - name: Verify the OCI chart is publicly pullable
+        run: |
+          set -euo pipefail
+          chart_dir=charts/redisoperator
+          version="$(helm show chart "${chart_dir}" | awk '/^version:/ {print $2; exit}')"
+          name="$(helm show chart "${chart_dir}" | awk '/^name:/ {print $2; exit}')"
+          token="$(curl -sf "https://ghcr.io/token?scope=repository:powerhome/charts/${name}:pull&service=ghcr.io" | jq -r .token)"
+          curl -sf -o /dev/null \
+            -H "Authorization: Bearer ${token}" \
+            -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+            "https://ghcr.io/v2/powerhome/charts/${name}/manifests/${version}" \
+            || { echo "OCI chart is not anonymously pullable; set the ghcr package visibility to public (one-time)."; exit 1; }

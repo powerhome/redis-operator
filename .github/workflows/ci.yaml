@@ -89,6 +89,25 @@ jobs:
       - name: Helm test
         run: make test-helm-ci
 
+  # Fail if the chart's bundled CRD has drifted from the generated manifests.
+  # `make generate-crd` copies manifests/databases.spotahome.com_redisfailovers.yaml
+  # into the chart, so the two files must be byte-for-byte identical. When they
+  # differ, regenerate with `make generate-crd` (or copy the manifest into the
+  # chart) and commit the result.
+  chart-crd-drift:
+    name: Chart CRD drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Compare chart CRD with generated manifest
+        run: |
+          if ! diff -u \
+            manifests/databases.spotahome.com_redisfailovers.yaml \
+            charts/redisoperator/crds/databases.spotahome.com_redisfailovers.yaml; then
+            echo "::error::The chart's bundled CRD has drifted from manifests/. Run 'make generate-crd' and commit the result."
+            exit 1
+          fi
+
   # Despite the name, this job publishes the operator image to both Docker Hub
   # (powerhome/redis-operator) and ghcr.io/powerhome/redis-operator in one build.
   # Kept as `dockerhub-image` to avoid renaming a status check that branch
@@ -149,3 +168,45 @@ jobs:
             -H "Accept: application/vnd.oci.image.index.v1+json" \
             "https://ghcr.io/v2/powerhome/redis-operator/manifests/$tag" \
             || { echo "ghcr package is not anonymously pullable"; exit 1; }
+
+  # On an operator release (a `v*` tag that built and published the operator
+  # image above), bump the chart's appVersion, version, and default image tag to
+  # match, then push the change to master. That push triggers the Release Charts
+  # workflow, which publishes the chart to both the HTTP repo and ghcr.io/OCI at
+  # the new version -- so nobody hand-edits the chart to track the operator.
+  chart-version-sync:
+    name: Sync chart to released operator
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - dockerhub-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Bump chart to match released operator
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"   # e.g. v4.6.0
+          version="${tag#v}"          # e.g. 4.6.0
+          chart=charts/redisoperator/Chart.yaml
+          values=charts/redisoperator/values.yaml
+          sed -i -E "s|^appVersion: .*|appVersion: ${version}|" "${chart}"
+          sed -i -E "s|^version: .*|version: ${version}|" "${chart}"
+          sed -i -E "s|^  tag: .*|  tag: ${tag}|" "${values}"
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- charts/redisoperator/Chart.yaml charts/redisoperator/values.yaml; then
+            echo "Chart already in sync with ${GITHUB_REF_NAME}; nothing to do."
+            exit 0
+          fi
+          git add charts/redisoperator/Chart.yaml charts/redisoperator/values.yaml
+          git commit -m "chore(chart): sync chart to operator ${GITHUB_REF_NAME}"
+          git push origin HEAD:master
