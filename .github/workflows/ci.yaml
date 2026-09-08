@@ -97,27 +97,35 @@ jobs:
       - name: Helm test
         run: make test-helm-ci
 
-  # Regenerate the CRD from the api/ types and fail if anything the generator
-  # owns is out of date. This catches two kinds of drift with one check: an
-  # api/ change nobody ran `make generate-crd` for, and the chart's bundled copy
-  # diverging from manifests/. `make generate-crd` writes manifests/, its
-  # kustomize base, and the chart copy from a single source, so all three must
-  # be clean after regenerating.
+  # `make generate-crd` writes the same CRD into manifests/, its kustomize base,
+  # and the chart from a single source, so those three committed copies must be
+  # byte-for-byte identical. This gate fails when the chart's bundled CRD (or
+  # the kustomize base) has drifted from manifests/, which is the drift that can
+  # actually merge here. When it fails, run `make generate-crd` and commit all
+  # three.
+  #
+  # It compares the committed files rather than regenerating in CI on purpose:
+  # the pinned codegen image (ghcr.io/slok/kube-code-generator:v0.6.0) ships an
+  # older Go than go.mod requires, so `make generate-crd` cannot run on a runner
+  # today. Regenerating in CI can return once the codegen image catches up.
   chart-crd-drift:
     name: Chart CRD drift
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Regenerate the CRD and check for drift
+      - name: Chart and kustomize CRDs must match manifests/
         run: |
-          make generate-crd DOCKER_INTERACTIVE=
-          if ! git diff --exit-code -- \
-            manifests/databases.spotahome.com_redisfailovers.yaml \
+          gen=manifests/databases.spotahome.com_redisfailovers.yaml
+          rc=0
+          for copy in \
             manifests/kustomize/base/databases.spotahome.com_redisfailovers.yaml \
-            charts/redisoperator/crds/databases.spotahome.com_redisfailovers.yaml; then
-            echo "::error::CRD is out of date. Run 'make generate-crd' and commit manifests/ and charts/redisoperator/crds/."
-            exit 1
-          fi
+            charts/redisoperator/crds/databases.spotahome.com_redisfailovers.yaml; do
+            if ! diff -u "${gen}" "${copy}"; then
+              echo "::error::${copy} has drifted from ${gen}. Run 'make generate-crd' and commit the result."
+              rc=1
+            fi
+          done
+          exit "${rc}"
 
   # The chart ships the operator, so its appVersion and default image tag must
   # name the operator VERSION. These fields live in source (set in the

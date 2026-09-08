@@ -15,10 +15,10 @@ RBAC surface stays a review-on-change checklist.
 
 ## Behavior
 
-- GIVEN the api/ types change and nobody ran `make generate-crd`
+- GIVEN the chart's bundled CRD (or the kustomize base) diverges from
+  `manifests/`
 - WHEN CI runs
-- THEN `chart-crd-drift` regenerates the CRD and fails on the diff, so a stale
-  manifest or a stale chart copy cannot merge
+- THEN `chart-crd-drift` fails on the diff, so a stale copy cannot merge
 
 - GIVEN a release commit sets `Makefile VERSION` but not the chart's appVersion
   or `image.tag`
@@ -98,11 +98,17 @@ RBAC surface stays a review-on-change checklist.
   re-runs it. Publishing on the operator tag with `needs: dockerhub-image` gets
   the ordering for free and from a real event.
 
-- **Accepted: regenerating the CRD in CI rather than diffing two committed
-  copies.** Comparing the chart copy against the committed manifest passes even
-  when both lag the api/ types. `chart-crd-drift` runs `make generate-crd` (with
-  `DOCKER_INTERACTIVE=` so it works on a TTY-less runner) and requires a clean
-  `git diff`, catching the stale-manifest case too.
+- **Rejected: regenerating the CRD in CI.** Comparing the chart copy against the
+  committed manifest passes even when both lag the api/ types, so regenerating
+  and requiring a clean `git diff` would be stronger. It is not viable today:
+  the pinned codegen image `ghcr.io/slok/kube-code-generator:v0.6.0` ships Go
+  1.24 while `go.mod` requires 1.25.14 under `GOTOOLCHAIN=local`, so
+  `make generate-crd` cannot run on a runner (it fails loading `./api`). The
+  gate instead requires the three committed copies — `manifests/`, the kustomize
+  base, and the chart — to be byte-identical, which is the drift that can merge
+  here. Regeneration-in-CI can return when the codegen image catches up to the
+  repo's Go version. (`make generate-crd` keeps `DOCKER_INTERACTIVE=` support so
+  it can run without a TTY once that is fixed.)
 
 - **Accepted: the first publish surfaces a task instead of failing.** A new ghcr
   package is private until someone flips its visibility, so the publish script's
