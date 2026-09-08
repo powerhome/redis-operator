@@ -36,7 +36,7 @@ helm install redis-operator redis-operator/redis-operator
 ```
 helm install redis-operator oci://ghcr.io/powerhome/charts/redis-operator
 # or pin a version:
-helm pull oci://ghcr.io/powerhome/charts/redis-operator --version 4.5.0
+helm pull oci://ghcr.io/powerhome/charts/redis-operator --version 4.6.0
 ```
 
 #### Update helm chart
