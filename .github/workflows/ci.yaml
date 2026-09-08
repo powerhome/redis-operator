@@ -131,7 +131,10 @@ jobs:
   # name the operator VERSION. These fields live in source (set in the
   # "Prepare release vX.Y.Z" commit alongside Makefile VERSION) and this job
   # gates them -- CI never writes them back. The chart's own `version` is
-  # intentionally not checked: it moves independently for chart-only releases.
+  # intentionally not checked here: it moves independently for chart-only
+  # releases. Reusing an already-published chart version while changing this
+  # metadata is caught at publish time instead -- scripts/publish-oci-chart.sh
+  # compares against the published artifact and fails rather than no-opping.
   chart-version-check:
     name: Chart version sync
     runs-on: ubuntu-latest

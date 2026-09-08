@@ -36,9 +36,16 @@ RBAC surface stays a review-on-change checklist.
 - THEN the chart publishes at its own version, pointing at the operator image
   it already names
 
-- GIVEN a version already present in the registry
+- GIVEN a version already present in the registry with identical operator
+  metadata (a re-run)
 - WHEN either publish path runs again
 - THEN it is a no-op, distinguished from a registry error, which fails loudly
+
+- GIVEN an operator release that bumps appVersion/image.tag but reuses a chart
+  `version` already in the registry
+- WHEN the publish path runs
+- THEN it fails, because the published artifact's metadata differs from the
+  local chart, so the new operator would otherwise never ship a chart
 
 ## Constraints
 
@@ -66,6 +73,18 @@ RBAC surface stays a review-on-change checklist.
   and publishes a chart still pointing at the old image. appVersion already
   answers "which operator does this install", so the chart's own SemVer is free
   to move, and chart-only releases publish from `helm.yml` on a `chart-v*` tag.
+  The cost is that an operator release must also bump the chart `version`, since
+  its content changes; that is not gated in CI (the chart `version` is free), so
+  the publish step enforces it at the point it matters (see below).
+
+- **Accepted: publish compares content instead of blindly no-opping.** Because
+  the publish is idempotent on chart `version`, an operator release that bumps
+  appVersion/image.tag but reuses a published chart `version` would skip and
+  ship nothing. The publish script treats an already-published version as a
+  no-op only when the published chart's appVersion and image.tag match the local
+  chart; otherwise it fails and asks for a `version` bump. This keeps retries
+  idempotent while turning the forgotten-bump case into a red build rather than
+  a silent divergence.
 
 - **Rejected: a CI job that bumps the chart and pushes to master.** The first
   design recomputed the version from the tag, wrote it back to Chart.yaml and
