@@ -90,31 +90,66 @@ jobs:
           fetch-depth: 0
 
       - name: Install Helm
-        uses: azure/setup-helm@v3
+        uses: azure/setup-helm@v4
         with:
-          version: v3.7.2
+          version: v3.14.4
 
       - name: Helm test
         run: make test-helm-ci
 
-  # Fail if the chart's bundled CRD has drifted from the generated manifests.
-  # `make generate-crd` copies manifests/databases.spotahome.com_redisfailovers.yaml
-  # into the chart, so the two files must be byte-for-byte identical. When they
-  # differ, regenerate with `make generate-crd` (or copy the manifest into the
-  # chart) and commit the result.
+  # Regenerate the CRD from the api/ types and fail if anything the generator
+  # owns is out of date. This catches two kinds of drift with one check: an
+  # api/ change nobody ran `make generate-crd` for, and the chart's bundled copy
+  # diverging from manifests/. `make generate-crd` writes manifests/, its
+  # kustomize base, and the chart copy from a single source, so all three must
+  # be clean after regenerating.
   chart-crd-drift:
     name: Chart CRD drift
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Compare chart CRD with generated manifest
+      - name: Regenerate the CRD and check for drift
         run: |
-          if ! diff -u \
+          make generate-crd DOCKER_INTERACTIVE=
+          if ! git diff --exit-code -- \
             manifests/databases.spotahome.com_redisfailovers.yaml \
+            manifests/kustomize/base/databases.spotahome.com_redisfailovers.yaml \
             charts/redisoperator/crds/databases.spotahome.com_redisfailovers.yaml; then
-            echo "::error::The chart's bundled CRD has drifted from manifests/. Run 'make generate-crd' and commit the result."
+            echo "::error::CRD is out of date. Run 'make generate-crd' and commit manifests/ and charts/redisoperator/crds/."
             exit 1
           fi
+
+  # The chart ships the operator, so its appVersion and default image tag must
+  # name the operator VERSION. These fields live in source (set in the
+  # "Prepare release vX.Y.Z" commit alongside Makefile VERSION) and this job
+  # gates them -- CI never writes them back. The chart's own `version` is
+  # intentionally not checked: it moves independently for chart-only releases.
+  chart-version-check:
+    name: Chart version sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+      - name: appVersion and image.tag must match Makefile VERSION
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^VERSION := //p' Makefile | head -1)"
+          app_version="$(helm show chart charts/redisoperator | awk '/^appVersion:/ {print $2; exit}')"
+          img_tag="$(helm show values charts/redisoperator | awk '/^image:/{f=1; next} f&&/^[^[:space:]]/{f=0} f&&/^[[:space:]]+tag:/{print $2; exit}')"
+          echo "Makefile VERSION=${version} chart appVersion=${app_version} image.tag=${img_tag}"
+          rc=0
+          if [ "${app_version}" != "${version}" ]; then
+            echo "::error::Chart appVersion (${app_version}) != Makefile VERSION (${version}). Update charts/redisoperator/Chart.yaml in the release commit."
+            rc=1
+          fi
+          if [ "${img_tag}" != "${version}" ]; then
+            echo "::error::values.yaml image.tag (${img_tag}) != Makefile VERSION (${version}). Update charts/redisoperator/values.yaml in the release commit."
+            rc=1
+          fi
+          exit "${rc}"
 
   # Despite the name, this job publishes the operator image to both Docker Hub
   # (powerhome/redis-operator) and ghcr.io/powerhome/redis-operator in one build.
@@ -183,44 +218,35 @@ jobs:
             "https://ghcr.io/v2/powerhome/redis-operator/manifests/$tag" \
             || { echo "ghcr package is not anonymously pullable"; exit 1; }
 
-  # On an operator release (a `v*` tag that built and published the operator
-  # image above), bump the chart's appVersion, version, and default image tag to
-  # match, then push the change to master. That push triggers the Release Charts
-  # workflow, which publishes the chart to both the HTTP repo and ghcr.io/OCI at
-  # the new version -- so nobody hand-edits the chart to track the operator.
-  chart-version-sync:
-    name: Sync chart to released operator
+  # On an operator release (a `v*` tag), after the operator image is published,
+  # publish the chart to ghcr.io as an OCI artifact. `needs: dockerhub-image`
+  # guarantees the image exists first, so the chart never points at a missing
+  # tag. The tagged commit already carries the chart's appVersion/image.tag
+  # (set in the release commit, enforced by chart-version-check), so there is
+  # nothing for CI to compute or write back. Chart-only releases publish from
+  # helm.yml instead. See docs/cir/CIR-004 for why this is a tag event and not
+  # a push to master.
+  chart-oci-publish:
+    name: Publish chart to ghcr.io (OCI)
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - dockerhub-image
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
+      - name: Install Helm
+        uses: azure/setup-helm@v4
         with:
-          ref: master
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Bump chart to match released operator
+          version: v3.14.4
+      - name: Log in to ghcr.io
         run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME}"   # e.g. v4.6.0
-          version="${tag#v}"          # e.g. 4.6.0
-          chart=charts/redisoperator/Chart.yaml
-          values=charts/redisoperator/values.yaml
-          sed -i -E "s|^appVersion: .*|appVersion: ${version}|" "${chart}"
-          sed -i -E "s|^version: .*|version: ${version}|" "${chart}"
-          sed -i -E "s|^  tag: .*|  tag: ${tag}|" "${values}"
-      - name: Commit and push if changed
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- charts/redisoperator/Chart.yaml charts/redisoperator/values.yaml; then
-            echo "Chart already in sync with ${GITHUB_REF_NAME}; nothing to do."
-            exit 0
-          fi
-          git add charts/redisoperator/Chart.yaml charts/redisoperator/values.yaml
-          git commit -m "chore(chart): sync chart to operator ${GITHUB_REF_NAME}"
-          git push origin HEAD:master
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Publish chart
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: ./scripts/publish-oci-chart.sh

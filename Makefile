@@ -125,10 +125,14 @@ generate-client:
 		--apis-in ./api \
 		--go-gen-out ./client/k8s
 
+# Allocate a TTY for interactive local runs, but let CI override it with
+# `DOCKER_INTERACTIVE=` so `make generate-crd` works on a runner with no TTY.
+DOCKER_INTERACTIVE ?= -it
+
 # Generate kubernetes Custom Resource Definitions
 .PHONY: generate-crd
 generate-crd:
-	docker run --rm -it \
+	docker run --rm $(DOCKER_INTERACTIVE) \
 		-v $(PWD):$(WORKDIR) \
 		-w $(WORKDIR) \
 		$(CODEGEN_IMAGE) \

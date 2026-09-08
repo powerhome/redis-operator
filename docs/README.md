@@ -20,45 +20,39 @@ It can be done with plain old [deployment](example/operator), using [Kustomize](
 
 ### Using the Helm chart
 
-The chart is published two ways. Both serve the same versions; pick whichever
-fits your tooling.
-
-**HTTP Helm repository (GitHub Pages):**
-
-```
-helm repo add redis-operator https://powerhome.github.io/redis-operator
-helm repo update
-helm install redis-operator redis-operator/redis-operator
-```
-
-**OCI artifact from ghcr.io (powerhome org):**
+The chart is published to ghcr.io as an OCI artifact under the `powerhome`
+organization. Install it directly from the registry:
 
 ```
 helm install redis-operator oci://ghcr.io/powerhome/charts/redis-operator
 # or pin a version:
-helm pull oci://ghcr.io/powerhome/charts/redis-operator --version 4.6.0
+helm install redis-operator oci://ghcr.io/powerhome/charts/redis-operator --version 4.6.0
 ```
+
+You can inspect what is available with `helm show chart oci://ghcr.io/powerhome/charts/redis-operator`.
 
 #### Update helm chart
 
-Helm chart only manage the creation of CRD in the first install. In order to update the CRD you will need to apply directly.
+Helm only manages the CRD on first install. To pick up CRD changes on an
+upgrade you must apply the CRD directly. Use the CRD that ships with the chart
+version you are upgrading to:
 
 ```
-REDIS_OPERATOR_VERSION=v1.3.0
-kubectl replace -f https://raw.githubusercontent.com/spotahome/redis-operator/${REDIS_OPERATOR_VERSION}/manifests/databases.spotahome.com_redisfailovers.yaml
+REDIS_OPERATOR_VERSION=v4.6.0
+kubectl replace -f https://raw.githubusercontent.com/powerhome/redis-operator/${REDIS_OPERATOR_VERSION}/manifests/databases.spotahome.com_redisfailovers.yaml
 ```
 
 ```
-helm upgrade redis-operator redis-operator/redis-operator
+helm upgrade redis-operator oci://ghcr.io/powerhome/charts/redis-operator
 ```
 ### Using kubectl
 
 To create the operator, you can directly create it with kubectl:
 
 ```
-REDIS_OPERATOR_VERSION=v1.3.0
-kubectl create -f https://raw.githubusercontent.com/spotahome/redis-operator/${REDIS_OPERATOR_VERSION}/manifests/databases.spotahome.com_redisfailovers.yaml
-kubectl apply -f https://raw.githubusercontent.com/spotahome/redis-operator/${REDIS_OPERATOR_VERSION}/example/operator/all-redis-operator-resources.yaml
+REDIS_OPERATOR_VERSION=v4.6.0
+kubectl create -f https://raw.githubusercontent.com/powerhome/redis-operator/${REDIS_OPERATOR_VERSION}/manifests/databases.spotahome.com_redisfailovers.yaml
+kubectl apply -f https://raw.githubusercontent.com/powerhome/redis-operator/${REDIS_OPERATOR_VERSION}/example/operator/all-redis-operator-resources.yaml
 ```
 
 This will create a deployment named `redisoperator`.
