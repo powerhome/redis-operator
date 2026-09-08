@@ -149,6 +149,13 @@ jobs:
           img_tag="$(helm show values charts/redisoperator | awk '/^image:/{f=1; next} f&&/^[^[:space:]]/{f=0} f&&/^[[:space:]]+tag:/{print $2; exit}')"
           echo "Makefile VERSION=${version} chart appVersion=${app_version} image.tag=${img_tag}"
           rc=0
+          # On a release tag, the tag itself must equal VERSION. The operator
+          # image is tagged from the git ref, so a tag cut from a commit whose
+          # VERSION differs would publish an image with no matching chart.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "${GITHUB_REF_NAME:-}" != "${version}" ]; then
+            echo "::error::Release tag (${GITHUB_REF_NAME:-}) != Makefile VERSION (${version}). Cut the tag from the release commit (make tag)."
+            rc=1
+          fi
           if [ "${app_version}" != "${version}" ]; then
             echo "::error::Chart appVersion (${app_version}) != Makefile VERSION (${version}). Update charts/redisoperator/Chart.yaml in the release commit."
             rc=1
@@ -239,6 +246,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - dockerhub-image
+      - chart-version-check
     runs-on: ubuntu-latest
     permissions:
       contents: read

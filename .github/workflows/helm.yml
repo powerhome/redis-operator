@@ -33,6 +33,20 @@ jobs:
         with:
           version: v3.14.4
 
+      # A `chart-v*` tag is only a trigger; make sure it names the version the
+      # chart actually declares, so tagging chart-v4.7.0 on a 4.6.0 chart fails
+      # loudly instead of silently no-opping. (workflow_dispatch skips this.)
+      - name: Validate tag matches the chart version
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          version="$(helm show chart charts/redisoperator | awk '/^version:/ {print $2; exit}')"
+          tag_version="${GITHUB_REF_NAME#chart-v}"
+          if [ "${tag_version}" != "${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match chart version ${version}. Bump charts/redisoperator/Chart.yaml or retag."
+            exit 1
+          fi
+
       - name: Log in to ghcr.io
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" \
