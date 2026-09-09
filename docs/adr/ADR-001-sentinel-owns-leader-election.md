@@ -67,8 +67,9 @@ guesses, but it is still the thing that gets an empty cluster to a first master.
 Recorded 2026-09-09, after this decision was accepted. It qualifies one claim in
 the Context above, so it is written here rather than left in a pull request.
 
-Five restarts of a `RedisFailover` with two Redis and three Sentinels, on a
-local `kind` cluster, Redis and Sentinel 8.4.0, quorum 2, storage backed by a
+Five restarts of a `RedisFailover` with two Redis and three Sentinels, plus one
+run with a hand-configured Sentinel described further down, on a local `kind`
+cluster, Redis and Sentinel 8.4.0, quorum 2, storage backed by a
 persistent volume claim per pod. The operator was built before any of it and
 chooses exactly as described above. Two replicas is what this fleet runs, which
 is worth stating because losing one loses quorum.
@@ -190,8 +191,8 @@ holds when the addresses it remembers are stale pod IPs is not measured, and
 neither is the effect on a genuine cold start. This is recorded as an option the
 decision did not weigh, not as a change to it.
 
-**Why discarding that configuration protects something.** Reasoning, not
-measurement, and it argues against the option above.
+**Why discarding that configuration protects something.** Measured, and it
+argues against the option above.
 
 Sentinel does not only observe a topology, it enforces one. The runs above
 caught it doing so: detaching a replica produced `+convert-to-slave` and a
@@ -207,6 +208,38 @@ master becomes a replica and resynchronises away its own dataset. The same
 confusion on a monitored master address is worse again: two Sentinel quorums
 issuing conflicting instructions to the same pods.
 
+This was reproduced rather than reasoned about. Two standalone Redis instances
+were placed in separate namespaces, neither authenticated, matching the fleet
+default. One Sentinel was started in the first namespace with a hand-written
+configuration of the shape one would persist: it monitored its own master, and
+carried a single `known-replica` line naming the address of the Redis in the
+second namespace, which is what a recycled pod IP produces.
+
+```
+21:40:34  +monitor master mymaster 10.244.3.23 6379 quorum 1
+21:40:44  +convert-to-slave slave 10.244.2.26:6379 ... @ mymaster 10.244.3.23 6379
+```
+
+Ten seconds. The Redis in the second namespace was left as:
+
+```
+role:slave
+master_host:10.244.3.23        a master in a different namespace
+dbsize: 10                     it held 500
+foreign:1 still present?  0    its own data, discarded
+owner:1 now present?      1    it now serves the other cluster's data
+```
+
+All 500 of its keys were destroyed by the resynchronisation. From the first
+cluster's side nothing was wrong: it gained a replica and said so,
+`connected_slaves:1`. No error was raised at any layer, and no failover, quorum
+negotiation or election was involved.
+
+Note which line did it. The stale entry was a `known-replica`, not the monitored
+master, so Sentinel does not need to be confused about its own master for this
+to happen. One recycled replica address is enough, and a failover has more
+replicas than masters.
+
 Nothing in this operator would prevent it. There is no `resolve-hostnames`,
 `announce-ip` or `announce-hostnames` anywhere, so every address it hands
 Sentinel is a pod IP. Every `RedisFailover` serves Redis on 6379. The network
@@ -216,9 +249,10 @@ was unset on all 122 `RedisFailover` resources across four clusters.
 
 Wiping the configuration on every start forecloses all of it. Sentinel restarts
 knowing nothing, so the only topology it can act on is the one the operator
-gives it, and the operator is what knows where a namespace ends. That is a real
-property, whatever was intended when it was written, and it is the reason
-durability cannot be added on its own. It would need an identity that survives
+gives it, and the operator is what knows where a namespace ends. That is the
+only thing standing between this operator and the run above, whatever was
+intended when it was written, and it is the reason durability cannot be added on
+its own. It would need an identity that survives
 IP reuse: hostnames through `sentinel resolve-hostnames`, or a password per
 failover, or a network policy that is not optional.
 
