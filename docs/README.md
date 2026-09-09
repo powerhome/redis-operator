@@ -42,7 +42,7 @@ to that same version:
 ```
 CHART_VERSION=4.6.0
 helm show crds oci://ghcr.io/powerhome/charts/redis-operator --version "${CHART_VERSION}" \
-  | kubectl replace -f -
+  | kubectl apply --server-side --force-conflicts -f -
 helm upgrade redis-operator oci://ghcr.io/powerhome/charts/redis-operator --version "${CHART_VERSION}"
 ```
 ### Using kubectl

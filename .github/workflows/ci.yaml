@@ -247,9 +247,24 @@ jobs:
   chart-oci-publish:
     name: Publish chart to ghcr.io (OCI)
     if: startsWith(github.ref, 'refs/tags/v')
+    # Every chart gate must pass before we publish: the image must exist
+    # (dockerhub-image), the chart must lint (chart-test), its CRD must be in
+    # sync (chart-crd-drift), and its versions must match VERSION
+    # (chart-version-check). Omitting any of these lets a failed gate publish an
+    # invalid or drifted chart, since a job only blocks when it is in `needs`.
     needs:
       - dockerhub-image
+      - chart-test
+      - chart-crd-drift
       - chart-version-check
+    # Serialize with helm.yml's publish-oci job (same group, repo-wide) so an
+    # operator-tag publish and a chart-tag / manual publish cannot race: the
+    # script's "already published?" probe and push are not atomic, and two runs
+    # on the same chart version could both see 404 and both push, letting the
+    # later one overwrite the tag and bypass the different-content guard.
+    concurrency:
+      group: publish-oci-chart
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: read

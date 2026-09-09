@@ -21,6 +21,13 @@ on:
 jobs:
   publish-oci:
     name: Publish chart to ghcr.io (OCI)
+    # Same group as ci.yaml's chart-oci-publish so the two publish paths are
+    # serialized repo-wide: the publish script's existence probe and push are
+    # not atomic, so concurrent runs on the same chart version could both see
+    # 404 and both push, bypassing the different-content guard.
+    concurrency:
+      group: publish-oci-chart
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
