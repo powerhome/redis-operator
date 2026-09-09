@@ -45,12 +45,16 @@ else
 fi
 
 # --- Helper: HTTP status of a ghcr manifest request, with a supplied token. ----
+# Helm rewrites '+' to '_' in OCI tags (SemVer build metadata is not a legal OCI
+# tag character), so probe the tag helm actually pushes, not the raw version.
+oci_tag="${version//+/_}"
+
 manifest_status() {
   local token="$1"
   curl -s -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer ${token}" \
     -H "Accept: application/vnd.oci.image.manifest.v1+json" \
-    "https://${REGISTRY}/v2/${OCI_NAMESPACE}/${name}/manifests/${version}"
+    "https://${REGISTRY}/v2/${OCI_NAMESPACE}/${name}/manifests/${oci_tag}"
 }
 
 auth_token() {
@@ -75,55 +79,60 @@ tar -xzf "${local_tgz}" -C /tmp/oci-local
 authd_token="$(auth_token "${GITHUB_ACTOR:-}:${GITHUB_TOKEN:-}")"
 [ -n "${authd_token}" ] || fail "could not obtain an authenticated ghcr token; check GITHUB_TOKEN/GITHUB_ACTOR"
 
-status="$(manifest_status "${authd_token}")"
-if [ "${status}" = "200" ]; then
-  # Already published at this version. A re-run with identical content is fine,
-  # but chart `version` is decoupled from the operator and is not gated in CI,
-  # so any change that reuses a published version -- an operator bump
-  # (appVersion/image.tag) or a chart-only fix (CRD, RBAC, templates, values) --
-  # would land here and silently no-op, shipping nothing. Compare the whole
-  # packaged chart and only no-op when it is identical; otherwise fail and ask
-  # for a version bump.
-  mkdir -p /tmp/oci-published
-  rm -rf "/tmp/oci-published/${name}"
-  helm pull "${OCI_REPO}/${name}" --version "${version}" --destination /tmp/oci-published --untar
-  if diff -r "/tmp/oci-published/${name}" "/tmp/oci-local/${name}" >/tmp/oci-chart.diff 2>&1; then
-    log "Chart ${name} ${version} already published with identical content; nothing to do."
-    exit 0
-  fi
-  echo "----- differences between published ${version} and this commit -----"
-  cat /tmp/oci-chart.diff
-  fail "chart ${name} ${version} is already published with different content. Bump 'version' in charts/redisoperator/Chart.yaml so the change ships under its own chart version."
-elif [ "${status}" != "404" ]; then
-  fail "unexpected status ${status} probing ${OCI_REPO}/${name}:${version}; refusing to guess"
-fi
-log "Chart ${name} ${version} not yet published; pushing."
-
-# Does the package exist at all? A brand-new package starts private, so the
-# public-pull verification below is advisory on the very first publish only.
+# Does the package exist at all yet? A brand-new package starts private, so the
+# public-pull verification at the end is advisory only on the run that creates
+# it. (Read this before we push, so it reflects the pre-push state.)
 tags_status="$(curl -s -o /dev/null -w '%{http_code}' \
   -H "Authorization: Bearer ${authd_token}" \
   "https://${REGISTRY}/v2/${OCI_NAMESPACE}/${name}/tags/list")"
 first_publish=false
 [ "${tags_status}" = "404" ] && first_publish=true
 
-# --- Push. --------------------------------------------------------------------
-helm push "${local_tgz}" "${OCI_REPO}"
-log "Pushed ${OCI_REPO}/${name}:${version}"
+status="$(manifest_status "${authd_token}")"
+need_push=true
+if [ "${status}" = "200" ]; then
+  # Already published at this version. A re-run with identical content is fine,
+  # but chart `version` is decoupled from the operator and is not gated in CI,
+  # so any change that reuses a published version -- an operator bump
+  # (appVersion/image.tag) or a chart-only fix (CRD, RBAC, templates, values) --
+  # would land here and silently no-op, shipping nothing. Compare the whole
+  # packaged chart and only skip the push when it is identical; otherwise fail
+  # and ask for a version bump.
+  mkdir -p /tmp/oci-published
+  rm -rf "/tmp/oci-published/${name}"
+  helm pull "${OCI_REPO}/${name}" --version "${version}" --destination /tmp/oci-published --untar
+  if ! diff -r "/tmp/oci-published/${name}" "/tmp/oci-local/${name}" >/tmp/oci-chart.diff 2>&1; then
+    echo "----- differences between published ${version} and this commit -----"
+    cat /tmp/oci-chart.diff
+    fail "chart ${name} ${version} is already published with different content. Bump 'version' in charts/redisoperator/Chart.yaml so the change ships under its own chart version."
+  fi
+  log "Chart ${name} ${version} already published with identical content; will not re-push."
+  need_push=false
+elif [ "${status}" != "404" ]; then
+  fail "unexpected status ${status} probing ${OCI_REPO}/${name}:${version}; refusing to guess"
+fi
+
+# --- Push (only when this version is new). ------------------------------------
+if [ "${need_push}" = "true" ]; then
+  log "Chart ${name} ${version} not yet published; pushing."
+  helm push "${local_tgz}" "${OCI_REPO}"
+  log "Pushed ${OCI_REPO}/${name}:${version}"
+fi
 
 # --- Verify it is publicly pullable. ------------------------------------------
-# The only failure that matters to an installer is "pushed but nobody can pull".
-# On the first publish the package is private until someone flips visibility, so
-# we surface a task instead of failing; afterwards, a private result is a real
-# regression (or a chart rename creating a fresh private package).
+# The only failure that matters to an installer is "released but nobody can
+# pull". This runs on both paths -- a fresh push and an already-published
+# no-op -- so a package that stays private is caught on every run, not just the
+# one that pushed. On the run that first creates the package it is private until
+# someone flips visibility, so we surface a task there instead of failing.
 anon_token="$(auth_token "")"
 anon_status=000
 [ -n "${anon_token}" ] && anon_status="$(manifest_status "${anon_token}")"
 
 if [ "${anon_status}" = "200" ]; then
   log "Verified ${OCI_REPO}/${name}:${version} is publicly pullable."
-elif [ "${first_publish}" = "true" ]; then
+elif [ "${first_publish}" = "true" ] && [ "${need_push}" = "true" ]; then
   echo "::notice title=Make the chart package public::First publish of ${OCI_NAMESPACE}/${name}. Set its visibility to Public (one-time) at https://github.com/orgs/powerhome/packages/container/charts%2F${name}/settings"
 else
-  fail "${OCI_REPO}/${name}:${version} was pushed but is not publicly pullable (status ${anon_status}); check the ghcr package visibility"
+  fail "${OCI_REPO}/${name}:${version} is published but not publicly pullable (status ${anon_status}); set the ghcr package visibility to public"
 fi

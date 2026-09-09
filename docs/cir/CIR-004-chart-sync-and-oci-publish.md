@@ -134,8 +134,10 @@ RBAC surface stays a review-on-change checklist.
 
 - **Accepted: the first publish surfaces a task instead of failing.** A new ghcr
   package is private until someone flips its visibility, so the publish script's
-  public-pull check emits a `::notice::` with the settings link on first publish
-  and only fails afterward, when a private result is a real regression.
+  public-pull check emits a `::notice::` with the settings link only on the run
+  that first creates the package, and fails otherwise. The check runs on both
+  the fresh-push and the already-published no-op paths, so a package that is left
+  (or later goes) private is caught on every run, not only the one that pushed.
 
 ## Verification
 
