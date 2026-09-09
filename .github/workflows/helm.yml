@@ -47,6 +47,13 @@ jobs:
             exit 1
           fi
 
+      # ci.yaml runs lint / CRD-drift / version-sync on master, PRs, and
+      # operator `v*` tags, but this chart-only path never goes through it. Run
+      # the same gates here so a `chart-v*` tag (or workflow_dispatch) cannot
+      # publish an invalid or drifted chart.
+      - name: Validate the chart
+        run: ./scripts/validate-chart.sh
+
       - name: Log in to ghcr.io
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" \

@@ -36,13 +36,14 @@ app_version="$(helm show chart "${CHART_DIR}" | awk '/^appVersion:/ {print $2; e
 img_repo="$(helm show values "${CHART_DIR}" | awk '/^image:/{f=1; next} f&&/^[^[:space:]]/{f=0} f&&/^[[:space:]]+repository:/{print $2; exit}')"
 img_tag="$(helm show values "${CHART_DIR}"  | awk '/^image:/{f=1; next} f&&/^[^[:space:]]/{f=0} f&&/^[[:space:]]+tag:/{print $2; exit}')"
 img_tag="${img_tag:-${app_version}}"
-if [ -n "${img_repo}" ] && [ -n "${img_tag}" ]; then
-  log "Checking operator image ${img_repo}:${img_tag} is pullable"
-  docker manifest inspect "${img_repo}:${img_tag}" >/dev/null 2>&1 \
-    || fail "operator image ${img_repo}:${img_tag} is not pullable yet; publish/build it before releasing the chart"
-else
-  log "WARNING: could not determine operator image from values; skipping image precheck"
-fi
+# Fail closed: an unparseable image is treated as "not pullable", not skipped.
+# Skipping here would let a chart with an empty/malformed image.repository ship
+# despite the promise that we never publish a chart nobody can run.
+[ -n "${img_repo}" ] && [ -n "${img_tag}" ] \
+  || fail "could not determine operator image from ${CHART_DIR}/values.yaml (repository='${img_repo}' tag='${img_tag}'); refusing to publish a chart whose image cannot be verified"
+log "Checking operator image ${img_repo}:${img_tag} is pullable"
+docker manifest inspect "${img_repo}:${img_tag}" >/dev/null 2>&1 \
+  || fail "operator image ${img_repo}:${img_tag} is not pullable yet; publish/build it before releasing the chart"
 
 # --- Helper: HTTP status of a ghcr manifest request, with a supplied token. ----
 # Helm rewrites '+' to '_' in OCI tags (SemVer build metadata is not a legal OCI

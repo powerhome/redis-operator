@@ -11,7 +11,11 @@ silently lag.
 Three drift surfaces were identified: the CRD (generated), the image and
 appVersion (chosen at release), and the RBAC ClusterRole (hand-maintained,
 reviewed on change). This record covers the first two and the publish path; the
-RBAC surface stays a review-on-change checklist.
+RBAC surface stays a review-on-change checklist. Note the ClusterRole is
+duplicated across four uncoupled copies -- `charts/redisoperator`,
+`manifests/kustomize/components/rbac`, `example/operator/roles.yaml`, and the
+bundled `example/operator/all-redis-operator-resources.yaml` -- and any rule
+change must be applied to all four by hand until a generator collapses them.
 
 ## Behavior
 

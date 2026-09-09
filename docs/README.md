@@ -34,16 +34,16 @@ You can inspect what is available with `helm show chart oci://ghcr.io/powerhome/
 #### Update helm chart
 
 Helm only manages the CRD on first install. To pick up CRD changes on an
-upgrade you must apply the CRD directly. Use the CRD that ships with the chart
-version you are upgrading to:
+upgrade you must apply the CRD directly. Read the CRD from the exact chart
+version you are upgrading to (the chart version is independent of the operator
+git tag, so pull the CRD from the chart, not from a branch) and pin the upgrade
+to that same version:
 
 ```
-REDIS_OPERATOR_VERSION=v4.6.0
-kubectl replace -f https://raw.githubusercontent.com/powerhome/redis-operator/${REDIS_OPERATOR_VERSION}/manifests/databases.spotahome.com_redisfailovers.yaml
-```
-
-```
-helm upgrade redis-operator oci://ghcr.io/powerhome/charts/redis-operator
+CHART_VERSION=4.6.0
+helm show crds oci://ghcr.io/powerhome/charts/redis-operator --version "${CHART_VERSION}" \
+  | kubectl replace -f -
+helm upgrade redis-operator oci://ghcr.io/powerhome/charts/redis-operator --version "${CHART_VERSION}"
 ```
 ### Using kubectl
 
