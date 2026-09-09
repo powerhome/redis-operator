@@ -159,6 +159,19 @@ jobs:
             echo "::error::Release tag (${GITHUB_REF_NAME:-}) != Makefile VERSION (${version}). Cut the tag from the release commit (make tag)."
             rc=1
           fi
+          # Prerelease tags (e.g. v4.7.0-rc1, any SemVer with a `-` suffix) are
+          # not a supported chart release path: chart-oci-publish triggers on any
+          # `v*` tag and would ship the prerelease as an ordinary OCI version.
+          # Refuse it deliberately instead of publishing one by accident; add an
+          # explicit prerelease flow if that is ever wanted.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            case "${GITHUB_REF_NAME:-}" in
+              *-*)
+                echo "::error::Release tag (${GITHUB_REF_NAME}) is a prerelease. Chart publishing supports stable vX.Y.Z tags only; cut a stable tag or add a deliberate prerelease flow."
+                rc=1
+                ;;
+            esac
+          fi
           if [ "${app_version}" != "${version}" ]; then
             echo "::error::Chart appVersion (${app_version}) != Makefile VERSION (${version}). Update charts/redisoperator/Chart.yaml in the release commit."
             rc=1
