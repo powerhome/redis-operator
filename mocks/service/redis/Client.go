@@ -156,12 +156,12 @@ func (_m *Client) GetSlaveOf(ip string, port string, password string) (string, e
 	return r0, r1
 }
 
-// HoldsNoData provides a mock function with given fields: ip, port, password
-func (_m *Client) HoldsNoData(ip string, port string, password string) (bool, error) {
+// HasData provides a mock function with given fields: ip, port, password
+func (_m *Client) HasData(ip string, port string, password string) (bool, error) {
 	ret := _m.Called(ip, port, password)
 
 	if len(ret) == 0 {
-		panic("no return value specified for HoldsNoData")
+		panic("no return value specified for HasData")
 	}
 
 	var r0 bool

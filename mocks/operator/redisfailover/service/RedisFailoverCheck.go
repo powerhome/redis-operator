@@ -33,12 +33,12 @@ func (_m *RedisFailoverCheck) CheckAllSlavesFromMaster(master string, rFailover 
 	return r0
 }
 
-// CheckIfAllRedisHoldNoData provides a mock function with given fields: rFailover
-func (_m *RedisFailoverCheck) CheckIfAllRedisHoldNoData(rFailover *v1.RedisFailover) (bool, error) {
+// CheckIfAnyRedisHasData provides a mock function with given fields: rFailover
+func (_m *RedisFailoverCheck) CheckIfAnyRedisHasData(rFailover *v1.RedisFailover) (bool, error) {
 	ret := _m.Called(rFailover)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CheckIfAllRedisHoldNoData")
+		panic("no return value specified for CheckIfAnyRedisHasData")
 	}
 
 	var r0 bool

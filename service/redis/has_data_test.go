@@ -13,27 +13,27 @@ import (
 // until enough of it is in memory. Reading that as "empty" would let the
 // operator seed a master over a restarting cluster, which is the outcome
 // docs/adr/ADR-001 exists to prevent.
-func TestHoldsNoDataFromInfo(t *testing.T) {
+func TestHasDataFromInfo(t *testing.T) {
 	tests := []struct {
-		name      string
-		info      string
-		wantEmpty bool
-		wantErr   error
+		name     string
+		info     string
+		wantData bool
+		wantErr  error
 	}{
 		{
-			name:      "empty instance, finished loading",
-			info:      "# Persistence\r\nloading:0\r\nrdb_last_save_time:0\r\n\r\n# Keyspace\r\n",
-			wantEmpty: true,
+			name:     "empty instance, finished loading",
+			info:     "# Persistence\r\nloading:0\r\nrdb_last_save_time:0\r\n\r\n# Keyspace\r\n",
+			wantData: false,
 		},
 		{
-			name:      "holds keys",
-			info:      "# Persistence\r\nloading:0\r\n\r\n# Keyspace\r\ndb0:keys=42,expires=0,avg_ttl=0\r\n",
-			wantEmpty: false,
+			name:     "holds keys",
+			info:     "# Persistence\r\nloading:0\r\n\r\n# Keyspace\r\ndb0:keys=42,expires=0,avg_ttl=0\r\n",
+			wantData: true,
 		},
 		{
-			name:      "holds keys in a database other than the first",
-			info:      "# Persistence\r\nloading:0\r\n\r\n# Keyspace\r\ndb3:keys=7,expires=0,avg_ttl=0\r\n",
-			wantEmpty: false,
+			name:     "holds keys in a database other than the first",
+			info:     "# Persistence\r\nloading:0\r\n\r\n# Keyspace\r\ndb3:keys=7,expires=0,avg_ttl=0\r\n",
+			wantData: true,
 		},
 		{
 			name:    "loading, keyspace not yet populated",
@@ -53,28 +53,28 @@ func TestHoldsNoDataFromInfo(t *testing.T) {
 		{
 			// `loading:0` must not match the loading pattern merely by
 			// containing it as a substring elsewhere in the payload.
-			name:      "a counter whose name ends in loading does not count",
-			info:      "# Stats\r\nrdb_last_load_keys_loaded:1000\r\nloading:0\r\n\r\n# Keyspace\r\n",
-			wantEmpty: true,
+			name:     "a counter whose name ends in loading does not count",
+			info:     "# Stats\r\nrdb_last_load_keys_loaded:1000\r\nloading:0\r\n\r\n# Keyspace\r\n",
+			wantData: false,
 		},
 		{
 			// A database reported with zero keys is empty, not populated.
-			name:      "database present but holding nothing",
-			info:      "# Persistence\r\nloading:0\r\n\r\n# Keyspace\r\ndb0:keys=0,expires=0,avg_ttl=0\r\n",
-			wantEmpty: true,
+			name:     "database present but holding nothing",
+			info:     "# Persistence\r\nloading:0\r\n\r\n# Keyspace\r\ndb0:keys=0,expires=0,avg_ttl=0\r\n",
+			wantData: false,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			assert := assert.New(t)
-			empty, err := holdsNoDataFromInfo(test.info)
+			hasData, err := hasDataFromInfo(test.info)
 			if test.wantErr != nil {
 				assert.True(errors.Is(err, test.wantErr))
 				return
 			}
 			assert.NoError(err)
-			assert.Equal(test.wantEmpty, empty)
+			assert.Equal(test.wantData, hasData)
 		})
 	}
 }

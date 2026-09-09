@@ -171,12 +171,12 @@ func (r *RedisFailoverHandler) reportMasterUnknown(rf *redisfailoverv1.RedisFail
 // carries the reasoning, including why ranking by replication offset was
 // rejected as the alternative.
 func (r *RedisFailoverHandler) checkSeedingAllowed(rf *redisfailoverv1.RedisFailover) error {
-	empty, err := r.rfChecker.CheckIfAllRedisHoldNoData(rf)
+	hasData, err := r.rfChecker.CheckIfAnyRedisHasData(rf)
 	if err != nil {
 		r.reportMasterUnknown(rf, fmt.Errorf("a Redis node could not be inspected to see whether it holds data: %w", err))
 		return err
 	}
-	if !empty {
+	if hasData {
 		err := errors.New("no master could be established and at least one redis holds data, so the operator will not choose one")
 		r.reportMasterUnknown(rf, fmt.Errorf("a Redis node could not be inspected to see whether it holds data: %w", err))
 		return err
