@@ -67,7 +67,7 @@ guesses, but it is still the thing that gets an empty cluster to a first master.
 Recorded 2026-09-09, after this decision was accepted. It qualifies one claim in
 the Context above, so it is written here rather than left in a pull request.
 
-Three restarts of a `RedisFailover` with two Redis and three Sentinels, on a
+Five restarts of a `RedisFailover` with two Redis and three Sentinels, on a
 local `kind` cluster, Redis and Sentinel 8.4.0, quorum 2, storage backed by a
 persistent volume claim per pod. The operator was built before any of it and
 chooses exactly as described above. Two replicas is what this fleet runs, which
@@ -120,9 +120,40 @@ Sentinels wiped nothing else was in a position to.
 
 Note what this does not show. Both nodes came back with identical datasets, so
 no choice among them could have lost a write. It establishes that the path is
-taken with data present, not that taking it loses data. Demonstrating that needs
-divergent datasets, which means partitioning one node, writing to the other, and
-restarting both.
+taken with data present, not that taking it loses data. That took two more runs.
+
+**Restarting both, with the datasets divergent.** Run twice, differing only in
+which node held writes the other lacked. The operator and the Sentinels were
+stopped while the divergence was built, because Sentinel reverses an unwanted
+promotion on sight, logging `+convert-to-slave`. Each node was then given its
+own dataset, persisted to its own volume, and both Redis pods were restarted
+together before the Sentinels and the operator were brought back.
+
+| Newer writes on | Operator promoted | Result |
+| --- | --- | --- |
+| `rfr-redis-0` | `rfr-redis-0` | the writes survived |
+| `rfr-redis-1` | `rfr-redis-0` | 2000 committed writes destroyed |
+
+In the second, `rfr-redis-1` returned holding 9001 keys including 2000 that
+existed nowhere else. The operator promoted `rfr-redis-0`, holding 7001 and none
+of them, and `rfr-redis-1` was re-slaved and resynchronised down to the master's
+dataset. Nothing recorded that anything had been discarded: no error, no
+condition, and a failover reporting healthy.
+
+**The selection is not by age in this case.** Both pods carry the same creation
+timestamp to the second after a simultaneous restart:
+
+```
+rfr-redis-0   2026-09-09T21:24:46Z
+rfr-redis-1   2026-09-09T21:24:46Z
+```
+
+`SetOldestAsMaster` sorts on `CreationTimestamp.Before()`, which finds no
+ordering between equal values, so the result is the order the pod list arrived
+in. It promoted `rfr-redis-0` in both runs, whichever node held the data. So in
+the case this decision is most concerned with, the choice is not a weak
+heuristic over pod age. It is the lowest ordinal, deterministically, with no
+relationship to the data at all.
 
 **What this qualifies.** The Context says that with no reachable master Sentinel
 "has no replica set and nothing to promote". That is what the second run shows,
@@ -139,10 +170,11 @@ reason Sentinel cannot recover it is a choice recorded nowhere.
 
 That choice is what puts the operator in front of the decision at all. Where the
 Sentinels keep their configuration, the first run shows them electing correctly
-without help. Where they lose it, the third run shows the operator selecting by
-pod age on a cluster holding data because nothing else can. Making that
-configuration durable would leave the choice with the component this decision
-says should make it, rather than deciding how the operator should make it.
+without help. Where they lose it, the operator selects the lowest ordinal on a
+cluster holding data because nothing else can, and the last run shows that
+losing committed writes. Making that configuration durable would leave the
+choice with the component this decision says should make it, rather than
+deciding how the operator should make it.
 
 **A second finding, from the first run.** Where the Sentinels survive, the
 operator preempts a working failover by seconds and selects by pod age, while
