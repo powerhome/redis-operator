@@ -62,6 +62,72 @@ rules:
 Rule 3 is what makes the operator's role narrow rather than absent: it never
 guesses, but it is still the thing that gets an empty cluster to a first master.
 
+## Measured behaviour of Sentinel across a restart
+
+Recorded 2026-09-09, after this decision was accepted. It qualifies one claim in
+the Context above, so it is written here rather than left in a pull request.
+
+Two restarts of a `RedisFailover` with two Redis and three Sentinels, on a local
+`kind` cluster, Redis and Sentinel 8.4.0, empty dataset, quorum 2. The operator
+was built before any of it and chooses exactly as described above.
+
+**Restarting only the Redis pods, leaving the Sentinels running.** Sentinel
+handled it, and was not allowed to finish:
+
+```
+17:58:27.772  +sdown master mymaster 10.244.3.10 6379
+17:58:27.872  +odown master mymaster #quorum 2/2
+17:58:27.867  +vote-for-leader 27f4b8b9... 1
+17:58:27.873  Next failover delay: I will not start a failover before 17:58:48
+```
+
+It reached objective down with quorum, elected a leader, and scheduled its
+failover. At `17:58:39`, nine seconds before that was due, the operator selected
+a master by pod age and reconfigured all three Sentinels onto it, which appears
+in their logs as `-monitor` then `+monitor` then `+reset-master`. Sentinel never
+ran the election it had already won the right to run.
+
+**Restarting the Redis and Sentinel pods together.** Sentinel did nothing:
+
+```
+20:34:51.636  +monitor master mymaster 127.0.0.1 6379 quorum 2
+20:34:52.687  +sdown master mymaster 127.0.0.1 6379
+              (fifty seconds, no further entries)
+20:35:42.290  -monitor master mymaster 127.0.0.1 6379
+```
+
+It came back monitoring localhost, marked localhost down, and stopped. No
+`+odown`, no epoch, no vote. The operator repointed it fifty seconds later,
+taking the no-quorum branch: `insufficnet sentinel to reach Quorum - Unhealthy
+count: 3`.
+
+**What this qualifies.** The Context says that with no reachable master Sentinel
+"has no replica set and nothing to promote". That is what the second run shows,
+and it is not what the first shows. The difference is not a property of Sentinel.
+It is where this operator keeps Sentinel's configuration: `sentinel-config-writable`
+is an `emptyDir`, and the `sentinel-config-copy` init container overwrites it
+from the ConfigMap on every pod start. Sentinel writes its learned topology to
+that file continuously while running, logging `Sentinel new configuration saved
+on disk`, and the operator destroys it on the next start.
+
+So Sentinel cannot bootstrap itself, which remains true and is why the operator
+seeds. But a cluster returning from a restart is not bootstrapping, and the
+reason Sentinel cannot recover it is a choice recorded nowhere.
+
+**A second finding, from the first run.** Where the Sentinels survive, the
+operator preempts a working failover by seconds and selects by pod age, while
+Sentinel was about to select with consensus among candidates it knew shared a
+history. On an empty cluster that is harmless. On a populated one the operator
+would be making exactly the choice this decision says it must not make, in a
+case where the component that should make it was ready to.
+
+**What this opens, and does not settle.** Giving Sentinel durable configuration
+and an address that survives rescheduling would let it handle the restart case
+on its own, which is what the first run demonstrates it can do. Whether that
+holds when the addresses it remembers are stale pod IPs is not measured, and
+neither is the effect on a genuine cold start. This is recorded as an option the
+decision did not weigh, not as a change to it.
+
 ## Consequences
 
 **A running master is no longer replaced because the operator could not reach
