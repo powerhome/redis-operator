@@ -190,6 +190,41 @@ holds when the addresses it remembers are stale pod IPs is not measured, and
 neither is the effect on a genuine cold start. This is recorded as an option the
 decision did not weigh, not as a change to it.
 
+**Why discarding that configuration protects something.** Reasoning, not
+measurement, and it argues against the option above.
+
+Sentinel does not only observe a topology, it enforces one. The runs above
+caught it doing so: detaching a replica produced `+convert-to-slave` and a
+`REPLICAOF` dragging the node back. Everything it enforces against is addressed
+by pod IP, and Kubernetes reissues pod IPs.
+
+So a Sentinel that survives a restart holding `known-replica mymaster
+10.244.2.21 6379` may find that address now belongs to a Redis in another
+namespace, serving a different `RedisFailover`. Seeing it report `role:master`
+where a replica is expected, Sentinel would correct it, and that correction is
+`REPLICAOF` pointed at a master in the first cluster. The second cluster's
+master becomes a replica and resynchronises away its own dataset. The same
+confusion on a monitored master address is worse again: two Sentinel quorums
+issuing conflicting instructions to the same pods.
+
+Nothing in this operator would prevent it. There is no `resolve-hostnames`,
+`announce-ip` or `announce-hostnames` anywhere, so every address it hands
+Sentinel is a pod IP. Every `RedisFailover` serves Redis on 6379. The network
+policy that would isolate namespaces is only created when `networkPolicyNsList`
+is set. And per CIR-001, authentication that would reject a foreign connection
+was unset on all 122 `RedisFailover` resources across four clusters.
+
+Wiping the configuration on every start forecloses all of it. Sentinel restarts
+knowing nothing, so the only topology it can act on is the one the operator
+gives it, and the operator is what knows where a namespace ends. That is a real
+property, whatever was intended when it was written, and it is the reason
+durability cannot be added on its own. It would need an identity that survives
+IP reuse: hostnames through `sentinel resolve-hostnames`, or a password per
+failover, or a network policy that is not optional.
+
+Set against that, what the wipe costs is the restart case, where the operator
+selects the lowest ordinal and can lose committed writes.
+
 ## Consequences
 
 **A running master is no longer replaced because the operator could not reach
