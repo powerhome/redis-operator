@@ -60,6 +60,15 @@ auth_token() {
     | jq -r '.token // empty'
 }
 
+# --- Package the chart once, up front. ----------------------------------------
+# The packaged (.helmignore-filtered) form is what we both compare against an
+# existing version and push for a new one, so build it once and reuse it.
+mkdir -p /tmp/oci-pkg /tmp/oci-local
+rm -rf "/tmp/oci-local/${name}"
+helm package "${CHART_DIR}" --destination /tmp/oci-pkg >/dev/null
+local_tgz="/tmp/oci-pkg/${name}-${version}.tgz"
+tar -xzf "${local_tgz}" -C /tmp/oci-local
+
 # --- Is this version already published? ---------------------------------------
 # Distinguish "already there" (200) from "not there" (404) from "cannot tell"
 # (anything else) so a broken token or an outage never masquerades as a no-op.
@@ -68,26 +77,27 @@ authd_token="$(auth_token "${GITHUB_ACTOR:-}:${GITHUB_TOKEN:-}")"
 
 status="$(manifest_status "${authd_token}")"
 if [ "${status}" = "200" ]; then
-  # Already published at this version. Idempotent re-runs are fine, but chart
-  # `version` is decoupled from the operator, so an operator release that bumps
-  # appVersion/image.tag without bumping the chart version would land here and
-  # silently no-op -- shipping no chart for the new operator. Guard that: pull
-  # the published chart and only treat this as a no-op when the operator-derived
-  # metadata is identical; otherwise fail and ask for a version bump.
+  # Already published at this version. A re-run with identical content is fine,
+  # but chart `version` is decoupled from the operator and is not gated in CI,
+  # so any change that reuses a published version -- an operator bump
+  # (appVersion/image.tag) or a chart-only fix (CRD, RBAC, templates, values) --
+  # would land here and silently no-op, shipping nothing. Compare the whole
+  # packaged chart and only no-op when it is identical; otherwise fail and ask
+  # for a version bump.
   mkdir -p /tmp/oci-published
   rm -rf "/tmp/oci-published/${name}"
   helm pull "${OCI_REPO}/${name}" --version "${version}" --destination /tmp/oci-published --untar
-  pub_app="$(helm show chart "/tmp/oci-published/${name}" | awk '/^appVersion:/ {print $2; exit}')"
-  pub_tag="$(helm show values "/tmp/oci-published/${name}" | awk '/^image:/{f=1; next} f&&/^[^[:space:]]/{f=0} f&&/^[[:space:]]+tag:/{print $2; exit}')"
-  if [ "${pub_app}" != "${app_version}" ] || [ "${pub_tag}" != "${img_tag}" ]; then
-    fail "chart ${name} ${version} is already published with appVersion=${pub_app} image.tag=${pub_tag}, but this commit has appVersion=${app_version} image.tag=${img_tag}. Bump 'version' in charts/redisoperator/Chart.yaml so the new content ships under its own chart version."
+  if diff -r "/tmp/oci-published/${name}" "/tmp/oci-local/${name}" >/tmp/oci-chart.diff 2>&1; then
+    log "Chart ${name} ${version} already published with identical content; nothing to do."
+    exit 0
   fi
-  log "Chart ${name} ${version} already published with identical metadata; nothing to do."
-  exit 0
+  echo "----- differences between published ${version} and this commit -----"
+  cat /tmp/oci-chart.diff
+  fail "chart ${name} ${version} is already published with different content. Bump 'version' in charts/redisoperator/Chart.yaml so the change ships under its own chart version."
 elif [ "${status}" != "404" ]; then
   fail "unexpected status ${status} probing ${OCI_REPO}/${name}:${version}; refusing to guess"
 fi
-log "Chart ${name} ${version} not yet published; packaging."
+log "Chart ${name} ${version} not yet published; pushing."
 
 # Does the package exist at all? A brand-new package starts private, so the
 # public-pull verification below is advisory on the very first publish only.
@@ -97,10 +107,8 @@ tags_status="$(curl -s -o /dev/null -w '%{http_code}' \
 first_publish=false
 [ "${tags_status}" = "404" ] && first_publish=true
 
-# --- Package and push. --------------------------------------------------------
-mkdir -p /tmp/oci-pkg
-helm package "${CHART_DIR}" --destination /tmp/oci-pkg
-helm push "/tmp/oci-pkg/${name}-${version}.tgz" "${OCI_REPO}"
+# --- Push. --------------------------------------------------------------------
+helm push "${local_tgz}" "${OCI_REPO}"
 log "Pushed ${OCI_REPO}/${name}:${version}"
 
 # --- Verify it is publicly pullable. ------------------------------------------

@@ -36,16 +36,17 @@ RBAC surface stays a review-on-change checklist.
 - THEN the chart publishes at its own version, pointing at the operator image
   it already names
 
-- GIVEN a version already present in the registry with identical operator
-  metadata (a re-run)
+- GIVEN a version already present in the registry with identical chart content
+  (a re-run)
 - WHEN either publish path runs again
 - THEN it is a no-op, distinguished from a registry error, which fails loudly
 
-- GIVEN an operator release that bumps appVersion/image.tag but reuses a chart
-  `version` already in the registry
+- GIVEN a change that reuses a chart `version` already in the registry -- an
+  operator bump (appVersion/image.tag) or a chart-only fix (CRD, RBAC, template,
+  values)
 - WHEN the publish path runs
-- THEN it fails, because the published artifact's metadata differs from the
-  local chart, so the new operator would otherwise never ship a chart
+- THEN it fails, because the published artifact differs from the local chart, so
+  the change would otherwise never ship
 
 ## Constraints
 
@@ -77,14 +78,16 @@ RBAC surface stays a review-on-change checklist.
   its content changes; that is not gated in CI (the chart `version` is free), so
   the publish step enforces it at the point it matters (see below).
 
-- **Accepted: publish compares content instead of blindly no-opping.** Because
-  the publish is idempotent on chart `version`, an operator release that bumps
-  appVersion/image.tag but reuses a published chart `version` would skip and
-  ship nothing. The publish script treats an already-published version as a
-  no-op only when the published chart's appVersion and image.tag match the local
-  chart; otherwise it fails and asks for a `version` bump. This keeps retries
-  idempotent while turning the forgotten-bump case into a red build rather than
-  a silent divergence.
+- **Accepted: publish compares the whole packaged chart, not just metadata.**
+  Because the publish is idempotent on chart `version`, any change that reuses a
+  published `version` would skip and ship nothing. Comparing only appVersion and
+  image.tag would catch an operator bump but miss a chart-only fix (CRD, RBAC,
+  template, values) that leaves those fields untouched. So the script packages
+  the local chart, `helm pull --untar`s the published one, and `diff -r`s the
+  two trees: a byte-identical tree is a safe no-op (retries stay green), any
+  difference fails and asks for a `version` bump. This turns every
+  forgotten-bump case, operator or chart-only, into a red build rather than a
+  silent divergence.
 
 - **Rejected: a CI job that bumps the chart and pushes to master.** The first
   design recomputed the version from the tag, wrote it back to Chart.yaml and
