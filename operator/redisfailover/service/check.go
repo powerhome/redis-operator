@@ -27,6 +27,7 @@ type RedisFailoverCheck interface {
 	CheckSentinelSlavesNumberInMemory(sentinel string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelQuorum(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	CheckIfMasterLocalhost(rFailover *redisfailoverv1.RedisFailover) (bool, error)
+	CheckIfAllRedisHoldNoData(rFailover *redisfailoverv1.RedisFailover) (bool, error)
 	CheckSentinelMonitor(sentinel string, sentinelPort string, monitor ...string) error
 	GetMasterIP(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetNumberMasters(rFailover *redisfailoverv1.RedisFailover) (int, error)
@@ -194,6 +195,47 @@ func (r *RedisFailoverChecker) CheckIfMasterLocalhost(rFailover *redisfailoverv1
 	}
 	r.logger.Infof("atleast one pod does not have localhost as master , operator should not heal")
 	return false, nil
+}
+
+// CheckIfAllRedisHoldNoData reports whether every running Redis is empty.
+//
+// This is what separates a cluster that has never had a master from one whose
+// master is gone, and the two need opposite handling. Seeding the first is
+// safe because every candidate is equivalent and no choice can discard
+// writes. Choosing among the second risks promoting a node behind the others,
+// which is what docs/adr/ADR-001 rules out.
+//
+// Asking who each node replicates from cannot make this distinction: a
+// restarted pod reloads `slaveof 127.0.0.1` from its generated config while
+// keeping whatever it had persisted, so a cluster holding data looks exactly
+// like an empty one.
+//
+// Any node that cannot be reached, or that holds keys, makes this false. A
+// node the operator could not ask may be the one holding the data.
+func (r *RedisFailoverChecker) CheckIfAllRedisHoldNoData(rFailover *redisfailoverv1.RedisFailover) (bool, error) {
+	redisIps, err := r.GetRedisesIPs(rFailover)
+	if err != nil {
+		return false, err
+	}
+	if len(redisIps) == 0 {
+		return false, errors.New("unable to fetch any redis Ips Currently")
+	}
+	password, err := k8s.GetRedisPassword(r.k8sService, rFailover)
+	if err != nil {
+		return false, err
+	}
+	port := rFailover.Spec.Redis.Port.ToString()
+	for _, ip := range redisIps {
+		empty, err := r.redisClient.HoldsNoData(ip, port, password)
+		if err != nil {
+			return false, err
+		}
+		if !empty {
+			r.logger.Infof("redis %s holds data, the operator must not choose a master", ip)
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // This function will call the sentinel client apis to check with sentinel if the sentinel is in a state

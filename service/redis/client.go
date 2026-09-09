@@ -22,6 +22,7 @@ type Client interface {
 	ResetSentinel(ip string, port string) error
 	GetSlaveOf(ip, port, password string) (string, error)
 	IsMaster(ip, port, password string) (bool, error)
+	HoldsNoData(ip, port, password string) (bool, error)
 	MonitorRedis(ip, monitor, quorum, password string, port string) error
 	MonitorRedisWithPort(ip, monitor, port, quorum, password string, sentinelPort string) error
 	MakeMaster(ip, port, password string) error
@@ -52,6 +53,7 @@ const (
 	sentinelStatusREString       = "status=([a-z]+)"
 	redisMasterHostREString      = "master_host:([0-9.]+)"
 	redisConnectedSlavesREString = "connected_slaves:([0-9]+)"
+	redisDBKeysREString          = `db[0-9]+:keys=[1-9]`
 	redisRoleMaster              = "role:master"
 	redisSyncing                 = "master_sync_in_progress:1"
 	redisMasterSillPending       = "master_host:127.0.0.1"
@@ -67,6 +69,7 @@ var (
 	slaveNumberRE          = regexp.MustCompile(slaveNumberREString)
 	redisMasterHostRE      = regexp.MustCompile(redisMasterHostREString)
 	redisConnectedSlavesRE = regexp.MustCompile(redisConnectedSlavesREString)
+	redisDBKeysRE          = regexp.MustCompile(redisDBKeysREString)
 )
 
 // GetNumberSentinelsInMemory return the number of sentinels that the requested sentinel has
@@ -234,6 +237,34 @@ func (c *client) IsMaster(ip, port, password string) (bool, error) {
 	}
 	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.IS_MASTER, metrics.SUCCESS, metrics.NOT_APPLICABLE)
 	return strings.Contains(info, redisRoleMaster), nil
+}
+
+// HoldsNoData reports whether this Redis holds no keys in any database.
+//
+// It reads the keyspace section of INFO, which lists one line per database
+// that contains keys and comes back with none when the instance is empty.
+// DBSIZE would only answer for the database this client selected.
+//
+// The question it exists to answer is whether the operator may choose a
+// master. Seeding one is safe only where every candidate is empty, because
+// then no choice can discard writes; see docs/adr/ADR-001. An instance that
+// cannot be reached is an error rather than a false, since "no data" and "no
+// answer" lead to opposite decisions.
+func (c *client) HoldsNoData(ip, port, password string) (bool, error) {
+	options := &rediscli.Options{
+		Addr:     net.JoinHostPort(ip, port),
+		Password: password,
+		DB:       0,
+	}
+	rClient := rediscli.NewClient(options)
+	defer rClient.Close()
+	info, err := rClient.Info(context.TODO(), "keyspace").Result()
+	if err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HOLDS_NO_DATA, metrics.FAIL, getRedisError(err))
+		return false, err
+	}
+	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HOLDS_NO_DATA, metrics.SUCCESS, metrics.NOT_APPLICABLE)
+	return !redisDBKeysRE.MatchString(info), nil
 }
 
 func (c *client) MonitorRedis(ip, monitor, quorum, password string, sentinelPort string) error {

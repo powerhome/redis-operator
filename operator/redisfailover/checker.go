@@ -152,13 +152,36 @@ func (r *RedisFailoverHandler) reportMasterUnknown(rf *redisfailoverv1.RedisFail
 	rf.Status.AddCondition(redisfailoverv1.ClusterCondition{
 		Status:  redisfailoverv1.ConditionTrue,
 		Type:    redisfailoverv1.AppStateMasterUnknown,
-		Message: fmt.Sprintf("Not choosing a master: a Redis node could not be inspected, so one of them may still be the master: %s", cause),
+		Message: fmt.Sprintf("Not choosing a master: %s", cause),
 	})
 
 	if _, err := r.rfService.UpdateStatus(rf); err != nil {
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
 			Errorf("Error attempting to update RedisFailover Status: %s", err)
 	}
+}
+
+// checkSeedingAllowed reports whether the operator may choose a first master,
+// and records why it may not.
+//
+// Choosing is safe only where every node is empty. Then no candidate holds
+// writes another lacks, and seeding cannot discard anything. Where the nodes
+// hold data, picking among them can promote one that is behind, so the
+// operator stops instead and leaves the decision to a person. docs/adr/ADR-001
+// carries the reasoning, including why ranking by replication offset was
+// rejected as the alternative.
+func (r *RedisFailoverHandler) checkSeedingAllowed(rf *redisfailoverv1.RedisFailover) error {
+	empty, err := r.rfChecker.CheckIfAllRedisHoldNoData(rf)
+	if err != nil {
+		r.reportMasterUnknown(rf, fmt.Errorf("a Redis node could not be inspected to see whether it holds data: %w", err))
+		return err
+	}
+	if !empty {
+		err := errors.New("no master could be established and at least one redis holds data, so the operator will not choose one")
+		r.reportMasterUnknown(rf, fmt.Errorf("a Redis node could not be inspected to see whether it holds data: %w", err))
+		return err
+	}
+	return nil
 }
 
 // CheckAndHeal runs verifcation checks to ensure the RedisFailover is in an expected and healthy state.
@@ -195,7 +218,7 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		// it. Say so on the resource: this hold has no time limit, and a node
 		// that never answers keeps the failover here until someone intervenes.
 		// Without this the only trace is a reconcile erroring every pass.
-		r.reportMasterUnknown(rf, err)
+		r.reportMasterUnknown(rf, fmt.Errorf("a Redis node could not be inspected, so one of them may still be the master: %w", err))
 		return err
 	}
 	if redis.IsAuthError(err) {
@@ -246,6 +269,9 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		if err != nil {
 			// Sentinels are not in a situation to choose a master we pick one
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Quorum not available for sentinel to choose master,estimated unhealthy sentinels :%d , Operator to step-in", noqrm_cnt)
+			if err := r.checkSeedingAllowed(rf); err != nil {
+				return err
+			}
 			err2 := r.rfHealer.SetOldestAsMaster(rf)
 			setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.NO_MASTER, metrics.NOT_APPLICABLE, err2)
 			if err2 != nil {
@@ -261,6 +287,9 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 			} else if status {
 				// all avaialable redis pods have local host ip as master
 				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("all available redis is having local loop back as master , operator initiates master selection")
+				if err := r.checkSeedingAllowed(rf); err != nil {
+					return err
+				}
 				err3 := r.rfHealer.SetOldestAsMaster(rf)
 				setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.NO_MASTER, metrics.NOT_APPLICABLE, err3)
 				if err3 != nil {
