@@ -30,6 +30,12 @@ rule held in the decision record and not in the operator.
 - WHEN the operator reconciles
 - THEN it is treated as though it holds data and nothing is promoted
 
+- GIVEN a node still reading its dataset from disk, which reports an empty
+  keyspace until enough of it is in memory
+- WHEN the operator reconciles
+- THEN nothing is promoted, and a later reconcile asks again once it has
+  finished loading
+
 - GIVEN a `RedisFailover` with exactly one Redis replica
 - WHEN the operator reconciles with no master
 - THEN it still sets that node as master. Negative: this path is unchanged,
@@ -56,6 +62,22 @@ rule held in the decision record and not in the operator.
   database the client selected, and a node holding keys in any other database
   would read as empty. The keyspace section lists a line per database that holds
   keys and comes back empty when there are none.
+
+- **A Redis reading its dataset from disk is an error, not an empty one.** This
+  is the race the whole check turns on. `INFO` is served while `loading:1`, and
+  the keyspace section fills in as keys are inserted, so a node holding a full
+  dataset on disk reports an empty keyspace for as long as it takes to load.
+  The node list makes this reachable: `GetRedisesIPs` selects on the pod phase
+  being `Running`, not on the container being ready, so a pod whose Redis is
+  still loading is asked. Reading that as empty would let the operator seed over
+  a restarting cluster, which is the outcome this change exists to prevent.
+  `async_loading` is treated the same way, since a replica loading a dataset
+  diskless reports it there instead.
+
+- **The default INFO sections, not a named one.** Persistence and keyspace are
+  both needed, and naming several sections in one `INFO` is only supported from
+  Redis 7. Asking for the defaults gets both in a single round trip on every
+  version the operator supports.
 
 - **A node that cannot be reached counts as holding data.** The two failure
   modes are not symmetric: treating an unreachable node as empty lets the

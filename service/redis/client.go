@@ -54,6 +54,7 @@ const (
 	redisMasterHostREString      = "master_host:([0-9.]+)"
 	redisConnectedSlavesREString = "connected_slaves:([0-9]+)"
 	redisDBKeysREString          = `db[0-9]+:keys=[1-9]`
+	redisLoadingREString         = `(?m)^(async_)?loading:1\r?$`
 	redisRoleMaster              = "role:master"
 	redisSyncing                 = "master_sync_in_progress:1"
 	redisMasterSillPending       = "master_host:127.0.0.1"
@@ -70,6 +71,7 @@ var (
 	redisMasterHostRE      = regexp.MustCompile(redisMasterHostREString)
 	redisConnectedSlavesRE = regexp.MustCompile(redisConnectedSlavesREString)
 	redisDBKeysRE          = regexp.MustCompile(redisDBKeysREString)
+	redisLoadingRE         = regexp.MustCompile(redisLoadingREString)
 )
 
 // GetNumberSentinelsInMemory return the number of sentinels that the requested sentinel has
@@ -239,17 +241,30 @@ func (c *client) IsMaster(ip, port, password string) (bool, error) {
 	return strings.Contains(info, redisRoleMaster), nil
 }
 
+// ErrRedisLoading reports that a Redis is reading its dataset from disk, so
+// what it holds cannot be established yet.
+var ErrRedisLoading = errors.New("redis is loading its dataset")
+
 // HoldsNoData reports whether this Redis holds no keys in any database.
+//
+// The question it exists to answer is whether the operator may choose a
+// master. Seeding one is safe only where every candidate is empty, because
+// then no choice can discard writes; see docs/adr/ADR-001.
 //
 // It reads the keyspace section of INFO, which lists one line per database
 // that contains keys and comes back with none when the instance is empty.
 // DBSIZE would only answer for the database this client selected.
 //
-// The question it exists to answer is whether the operator may choose a
-// master. Seeding one is safe only where every candidate is empty, because
-// then no choice can discard writes; see docs/adr/ADR-001. An instance that
-// cannot be reached is an error rather than a false, since "no data" and "no
-// answer" lead to opposite decisions.
+// A Redis part-way through reading an RDB is the case this has to be careful
+// about. INFO is served while `loading:1`, and the keyspace section fills in
+// as keys are inserted, so a node holding a full dataset on disk reports an
+// empty keyspace until enough of it is in memory. Answering "empty" there
+// would let the operator seed over a restarting cluster, which is what asking
+// the keyspace exists to prevent. Loading is therefore an error, not a false:
+// the answer is not available yet and a later reconcile can ask again.
+//
+// An instance that cannot be reached is an error for the same reason. "No
+// data" and "no answer" lead to opposite decisions.
 func (c *client) HoldsNoData(ip, port, password string) (bool, error) {
 	options := &rediscli.Options{
 		Addr:     net.JoinHostPort(ip, port),
@@ -258,12 +273,29 @@ func (c *client) HoldsNoData(ip, port, password string) (bool, error) {
 	}
 	rClient := rediscli.NewClient(options)
 	defer rClient.Close()
-	info, err := rClient.Info(context.TODO(), "keyspace").Result()
+	// The default sections, rather than a named one, so persistence and
+	// keyspace both arrive in a single round trip. Naming several sections in
+	// one INFO is only supported from Redis 7.
+	info, err := rClient.Info(context.TODO()).Result()
 	if err != nil {
 		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HOLDS_NO_DATA, metrics.FAIL, getRedisError(err))
 		return false, err
 	}
+	empty, err := holdsNoDataFromInfo(info)
+	if err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HOLDS_NO_DATA, metrics.FAIL, metrics.NOT_APPLICABLE)
+		return false, err
+	}
 	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.HOLDS_NO_DATA, metrics.SUCCESS, metrics.NOT_APPLICABLE)
+	return empty, nil
+}
+
+// holdsNoDataFromInfo reads the answer out of an INFO payload. Split out from
+// the call so the interpretation can be tested without a running Redis.
+func holdsNoDataFromInfo(info string) (bool, error) {
+	if redisLoadingRE.MatchString(info) {
+		return false, ErrRedisLoading
+	}
 	return !redisDBKeysRE.MatchString(info), nil
 }
 
