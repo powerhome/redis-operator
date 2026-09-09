@@ -67,9 +67,11 @@ guesses, but it is still the thing that gets an empty cluster to a first master.
 Recorded 2026-09-09, after this decision was accepted. It qualifies one claim in
 the Context above, so it is written here rather than left in a pull request.
 
-Two restarts of a `RedisFailover` with two Redis and three Sentinels, on a local
-`kind` cluster, Redis and Sentinel 8.4.0, empty dataset, quorum 2. The operator
-was built before any of it and chooses exactly as described above.
+Three restarts of a `RedisFailover` with two Redis and three Sentinels, on a
+local `kind` cluster, Redis and Sentinel 8.4.0, quorum 2, storage backed by a
+persistent volume claim per pod. The operator was built before any of it and
+chooses exactly as described above. Two replicas is what this fleet runs, which
+is worth stating because losing one loses quorum.
 
 **Restarting only the Redis pods, leaving the Sentinels running.** Sentinel
 handled it, and was not allowed to finish:
@@ -101,6 +103,27 @@ It came back monitoring localhost, marked localhost down, and stopped. No
 taking the no-quorum branch: `insufficnet sentinel to reach Quorum - Unhealthy
 count: 3`.
 
+**Restarting both, with data on disk.** The same as the second run, with 5000
+keys written and an 88KB `dump.rdb` on each node's persistent volume first. The
+operator took the no-quorum branch and chose:
+
+```
+21:12:41  insufficnet sentinel to reach Quorum - Unhealthy count: 3
+21:12:41  Quorum not available for sentinel to choose master ... Operator to step-in
+21:12:41  New master is rfr-redis-1 with ip 10.244.2.21
+```
+
+Both nodes returned holding all 5000 keys and the failover reformed around the
+chosen master. So the path this decision forbids, selecting among nodes that
+hold data, is the path that recovers a restarted cluster today, and with the
+Sentinels wiped nothing else was in a position to.
+
+Note what this does not show. Both nodes came back with identical datasets, so
+no choice among them could have lost a write. It establishes that the path is
+taken with data present, not that taking it loses data. Demonstrating that needs
+divergent datasets, which means partitioning one node, writing to the other, and
+restarting both.
+
 **What this qualifies.** The Context says that with no reachable master Sentinel
 "has no replica set and nothing to promote". That is what the second run shows,
 and it is not what the first shows. The difference is not a property of Sentinel.
@@ -113,6 +136,13 @@ on disk`, and the operator destroys it on the next start.
 So Sentinel cannot bootstrap itself, which remains true and is why the operator
 seeds. But a cluster returning from a restart is not bootstrapping, and the
 reason Sentinel cannot recover it is a choice recorded nowhere.
+
+That choice is what puts the operator in front of the decision at all. Where the
+Sentinels keep their configuration, the first run shows them electing correctly
+without help. Where they lose it, the third run shows the operator selecting by
+pod age on a cluster holding data because nothing else can. Making that
+configuration durable would leave the choice with the component this decision
+says should make it, rather than deciding how the operator should make it.
 
 **A second finding, from the first run.** Where the Sentinels survive, the
 operator preempts a working failover by seconds and selects by pod age, while
