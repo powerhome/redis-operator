@@ -1079,10 +1079,46 @@ func TestRedisService(t *testing.T) {
 		rfNamespace     string
 		rfLabels        map[string]string
 		rfAnnotations   map[string]string
+		exporter        bool
 		expectedService corev1.Service
 	}{
 		{
-			name: "with defaults",
+			// Without the exporter the service carries no port and nothing to
+			// scrape, and it still exists: it governs the StatefulSet, so it is
+			// what gives each Redis pod its name in DNS.
+			name:     "without the exporter",
+			exporter: false,
+			expectedService: corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      redisName,
+					Namespace: namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
+					Selector: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					Ports: []corev1.ServicePort{},
+				},
+			},
+		},
+		{
+			name:     "with defaults",
+			exporter: true,
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      redisName,
@@ -1104,8 +1140,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1122,8 +1159,9 @@ func TestRedisService(t *testing.T) {
 			},
 		},
 		{
-			name:   "with Name provided",
-			rfName: "custom-name",
+			name:     "with Name provided",
+			exporter: true,
+			rfName:   "custom-name",
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rfr-custom-name",
@@ -1145,8 +1183,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      "custom-name",
@@ -1164,6 +1203,7 @@ func TestRedisService(t *testing.T) {
 		},
 		{
 			name:        "with Namespace provided",
+			exporter:    true,
 			rfNamespace: "custom-namespace",
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1186,8 +1226,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1205,6 +1246,7 @@ func TestRedisService(t *testing.T) {
 		},
 		{
 			name:     "with Labels provided",
+			exporter: true,
 			rfLabels: map[string]string{"some": "label"},
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1228,8 +1270,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1247,6 +1290,7 @@ func TestRedisService(t *testing.T) {
 		},
 		{
 			name:          "with Annotations provided",
+			exporter:      true,
 			rfAnnotations: map[string]string{"some": "annotation"},
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1270,8 +1314,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1302,6 +1347,7 @@ func TestRedisService(t *testing.T) {
 				rf.Namespace = test.rfNamespace
 			}
 			rf.Spec.Redis.ServiceAnnotations = test.rfAnnotations
+			rf.Spec.Redis.Exporter.Enabled = test.exporter
 
 			generatedService := corev1.Service{}
 
