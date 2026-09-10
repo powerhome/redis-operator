@@ -576,6 +576,10 @@ func TestRedisStatefulSetCommands(t *testing.T) {
 			expectedCommands: []string{
 				"redis-server",
 				"/redis/redis.conf",
+				// Kubernetes substitutes the pod's own name here, so each
+				// replica announces itself to its master as a name.
+				"--replica-announce-ip",
+				"$(REDIS_POD_NAME).rfr-test.testns.svc",
 			},
 		},
 		{
@@ -3108,6 +3112,16 @@ func TestRedisEnv(t *testing.T) {
 			auth: "",
 			expectedRedisEnv: []corev1.EnvVar{
 				{
+					// Each Redis announces itself to its master by name, and
+					// the name is built from the pod's own.
+					Name: "REDIS_POD_NAME",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{
+							FieldPath: "metadata.name",
+						},
+					},
+				},
+				{
 					Name:  "REDIS_ADDR",
 					Value: fmt.Sprintf("redis://127.0.0.1:%[1]v", default_port),
 				},
@@ -3125,6 +3139,16 @@ func TestRedisEnv(t *testing.T) {
 			name: "with auth",
 			auth: "redis-secret",
 			expectedRedisEnv: []corev1.EnvVar{
+				{
+					// Each Redis announces itself to its master by name, and
+					// the name is built from the pod's own.
+					Name: "REDIS_POD_NAME",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{
+							FieldPath: "metadata.name",
+						},
+					},
+				},
 				{
 					Name:  "REDIS_ADDR",
 					Value: fmt.Sprintf("redis://127.0.0.1:%[1]v", default_port),

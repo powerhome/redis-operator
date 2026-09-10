@@ -850,7 +850,17 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 							},
 							VolumeMounts: volumeMounts,
 							Command:      redisCommand,
-							Resources:    rf.Spec.Redis.Resources,
+							Env: []corev1.EnvVar{
+								{
+									Name: "REDIS_POD_NAME",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{
+											FieldPath: "metadata.name",
+										},
+									},
+								},
+							},
+							Resources: rf.Spec.Redis.Resources,
 							Lifecycle: &corev1.Lifecycle{
 								PreStop: &corev1.LifecycleHandler{
 									Exec: &corev1.ExecAction{
@@ -1526,6 +1536,15 @@ func getRedisCommand(rf *redisfailoverv1.RedisFailover) []string {
 	return []string{
 		"redis-server",
 		fmt.Sprintf("/redis/%s", redisConfigFileName),
+		// A replica tells its master where to find it, and the master repeats
+		// that to whoever asks, which is how Sentinel learns the replica set.
+		// Left alone a replica announces the address it happens to hold, so
+		// Sentinel records addresses no matter what it was told about the
+		// master. Announcing the pod's own name keeps the set it discovers in
+		// names too. Kubernetes substitutes the variable from the environment
+		// below before Redis sees it.
+		"--replica-announce-ip",
+		fmt.Sprintf("$(REDIS_POD_NAME).%s.%s.svc", GetRedisName(rf), rf.Namespace),
 	}
 }
 
