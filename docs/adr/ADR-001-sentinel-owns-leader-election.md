@@ -104,10 +104,20 @@ silently, buys less than it costs.
 So the operator does not rank nodes at all. Where a cluster has data and no
 master can be established, rule 3 applies and a person decides.
 
-**Pod age survives only where it cannot matter.** `SetOldestAsMaster` still
-sorts on `CreationTimestamp`, which is now reached only when seeding, where every
-candidate is empty and equivalent. Its name is misleading about how little the
-ordering means; renaming it is worth doing.
+**Pod age still decides, in one place it can matter.** `SetOldestAsMaster` sorts
+on `CreationTimestamp`, and `CheckAndHeal` reaches it from three places. Two are
+seeding, where every candidate is empty and the ordering decides nothing. The
+third is the branch taken when `CheckSentinelQuorum` returns an error, and it
+selects without establishing that the nodes are empty, so a failover whose master
+is gone and whose replicas hold data is chosen among on pod age.
+
+Where every Redis restarts together the ordering does not even mean age: the
+pods carry the same creation timestamp to the second, and sorting on `Before()`
+finds no order between equal values, so the result is the order the list arrived
+in. That is rule 2 unimplemented on the path where being wrong costs the most,
+and it is the gap to close before the rest of this decision reads as true. Its
+name is misleading about how little the ordering means; renaming it is worth
+doing.
 
 **Distinguishing a cold start from a restart is now load-bearing, and nothing
 does it yet.** Rule 2 says the operator may seed an empty cluster but must not
