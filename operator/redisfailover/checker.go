@@ -324,14 +324,24 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		return err
 	}
 
+	// Sentinel is told the master's name rather than its address, because it
+	// keeps what it is told and a pod's address can later belong to another
+	// pod, in another namespace, serving another failover. See
+	// docs/adr/ADR-001. Everything above works in addresses, because it is
+	// comparing against what a Redis reports about itself, which is an address.
+	masterHostname, err := r.rfChecker.GetMasterHostname(rf)
+	if err != nil {
+		return err
+	}
+
 	port := rf.Spec.Redis.Port.ToString()
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
 	for _, sip := range sentinels {
-		err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, master, port)
+		err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, masterHostname, port)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Fixing sentinel not monitoring expected master: %s", err.Error())
-			if err := r.rfHealer.NewSentinelMonitor(sip, master, rf); err != nil {
+			if err := r.rfHealer.NewSentinelMonitor(sip, masterHostname, rf); err != nil {
 				return err
 			}
 		}

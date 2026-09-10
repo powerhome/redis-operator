@@ -9,7 +9,7 @@ type Client struct {
 	mock.Mock
 }
 
-// GetNumberRedisConnectedSlaves provides a mock function with given fields: ip, port
+// GetNumberRedisConnectedSlaves provides a mock function with given fields: ip, port, password
 func (_m *Client) GetNumberRedisConnectedSlaves(ip string, port string, password string) (int32, error) {
 	ret := _m.Called(ip, port, password)
 

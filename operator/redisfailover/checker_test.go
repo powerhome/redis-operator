@@ -369,6 +369,10 @@ func TestCheckAndHeal(t *testing.T) {
 				}
 				if !expErr && continueTests {
 					mrfc.On("GetMasterIP", rf).Twice().Return(master, nil)
+					// The sentinel monitor path asks for the master by name.
+					// Everything above it compares against what a Redis reports
+					// about itself, which is an address, so it still asks for one.
+					mrfc.On("GetMasterHostname", rf).Once().Return(master, nil)
 					if test.slavesOK {
 						mrfc.On("CheckAllSlavesFromMaster", master, rf).Once().Return(nil)
 						mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)

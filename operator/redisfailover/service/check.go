@@ -29,6 +29,7 @@ type RedisFailoverCheck interface {
 	CheckIfMasterLocalhost(rFailover *redisfailoverv1.RedisFailover) (bool, error)
 	CheckSentinelMonitor(sentinel string, sentinelPort string, monitor ...string) error
 	GetMasterIP(rFailover *redisfailoverv1.RedisFailover) (string, error)
+	GetMasterHostname(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetNumberMasters(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetSentinelsIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
@@ -286,6 +287,54 @@ func (r *RedisFailoverChecker) CheckSentinelMonitor(sentinel string, sentinelPor
 		return fmt.Errorf("sentinel monitoring %s:%s instead %s:%s", actualMonitorIP, actualMonitorPort, monitorIP, monitorPort)
 	}
 	return nil
+}
+
+// RedisPodHostname is the name a Redis pod answers to in DNS.
+//
+// The StatefulSet is governed by the service of the same name, which is what
+// publishes a record per pod, so the name is the pod, then that service, then
+// the namespace. Unlike the pod's address it carries where the pod lives, and
+// nothing outside that namespace and set can answer to it.
+func RedisPodHostname(rf *redisfailoverv1.RedisFailover, podName string) string {
+	return fmt.Sprintf("%s.%s.%s.svc", podName, GetRedisName(rf), rf.Namespace)
+}
+
+// GetMasterHostname returns the master as a name rather than an address.
+//
+// It answers the same question as GetMasterIP and differs only in what it
+// gives back, so that an address the operator hands to Sentinel outlives the
+// pod that holds it without coming to mean a different pod. Callers comparing
+// against a pod's own address still want GetMasterIP.
+func (r *RedisFailoverChecker) GetMasterHostname(rf *redisfailoverv1.RedisFailover) (string, error) {
+	rps, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
+	if err != nil {
+		return "", err
+	}
+	password, err := k8s.GetRedisPassword(r.k8sService, rf)
+	if err != nil {
+		return "", err
+	}
+
+	masters := []string{}
+	rport := rf.Spec.Redis.Port.ToString()
+	for _, rp := range rps.Items {
+		if rp.Status.Phase != corev1.PodRunning || rp.DeletionTimestamp != nil {
+			continue
+		}
+		master, err := r.redisClient.IsMaster(rp.Status.PodIP, rport, password)
+		if err != nil {
+			r.logger.Errorf("Get redis info failed, maybe this node is not ready, pod ip: %s", rp.Status.PodIP)
+			continue
+		}
+		if master {
+			masters = append(masters, RedisPodHostname(rf, rp.Name))
+		}
+	}
+
+	if len(masters) != 1 {
+		return "", errors.New("number of redis nodes known as master is different than 1")
+	}
+	return masters[0], nil
 }
 
 // GetMasterIP connects to all redis and returns the master of the redis failover
