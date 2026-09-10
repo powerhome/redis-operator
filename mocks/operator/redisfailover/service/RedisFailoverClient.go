@@ -68,6 +68,24 @@ func (_m *RedisFailoverClient) DestroySentinelResources(rFailover *v1.RedisFailo
 	return r0
 }
 
+// DestroyUnusedSentinelWorkload provides a mock function with given fields: rFailover
+func (_m *RedisFailoverClient) DestroyUnusedSentinelWorkload(rFailover *v1.RedisFailover) error {
+	ret := _m.Called(rFailover)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DestroyUnusedSentinelWorkload")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) error); ok {
+		r0 = rf(rFailover)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DestroydOrphanedRedisNetworkPolicy provides a mock function with given fields: rFailover
 func (_m *RedisFailoverClient) DestroydOrphanedRedisNetworkPolicy(rFailover *v1.RedisFailover) error {
 	ret := _m.Called(rFailover)
