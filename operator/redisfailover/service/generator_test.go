@@ -1913,6 +1913,12 @@ func TestGenerateHaproxyConfig(t *testing.T) {
 	}
 }
 
+var (
+	dnsPort     = intstr.FromInt(53)
+	udpProtocol = corev1.ProtocolUDP
+	tcpProtocol = corev1.ProtocolTCP
+)
+
 func TestSentinelNetworkPolicy(t *testing.T) {
 	tests := []struct {
 		name                            string
@@ -1987,6 +1993,15 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 								},
 							},
 						},
+						{
+							// Sentinel has to reach a resolver to use the names
+							// it is given. Restricted to the DNS port, which
+							// reaches nothing speaking Redis or Sentinel.
+							Ports: []networkingv1.NetworkPolicyPort{
+								{Protocol: &udpProtocol, Port: &dnsPort},
+								{Protocol: &tcpProtocol, Port: &dnsPort},
+							},
+						},
 					},
 				},
 			},
@@ -2054,6 +2069,15 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 										},
 									},
 								},
+							},
+						},
+						{
+							// Sentinel has to reach a resolver to use the names
+							// it is given. Restricted to the DNS port, which
+							// reaches nothing speaking Redis or Sentinel.
+							Ports: []networkingv1.NetworkPolicyPort{
+								{Protocol: &udpProtocol, Port: &dnsPort},
+								{Protocol: &tcpProtocol, Port: &dnsPort},
 							},
 						},
 					},
@@ -2133,6 +2157,15 @@ func TestSentinelNetworkPolicy(t *testing.T) {
 										},
 									},
 								},
+							},
+						},
+						{
+							// Sentinel has to reach a resolver to use the names
+							// it is given. Restricted to the DNS port, which
+							// reaches nothing speaking Redis or Sentinel.
+							Ports: []networkingv1.NetworkPolicyPort{
+								{Protocol: &udpProtocol, Port: &dnsPort},
+								{Protocol: &tcpProtocol, Port: &dnsPort},
 							},
 						},
 					},

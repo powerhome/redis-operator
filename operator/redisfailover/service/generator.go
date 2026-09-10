@@ -411,6 +411,19 @@ func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map
 
 	redisfailoverLabels := map[string]string{"redisfailovers.databases.spotahome.com/name": rf.Name}
 
+	// Sentinel resolves the names it is given, so it has to reach a resolver.
+	// The egress rule below confines it to the Redis of its own failover, which
+	// would otherwise drop that lookup and leave every name unusable.
+	//
+	// The destination is unrestricted because a cluster may serve DNS from a
+	// pod, from a node-local cache on a link-local address, or from outside the
+	// cluster entirely, and a selector cannot name all three. The port is what
+	// makes this safe: this rule reaches nothing that speaks Redis or Sentinel,
+	// so it does not widen what the policy exists to prevent.
+	dnsPort := intstr.FromInt(53)
+	udp := corev1.ProtocolUDP
+	tcp := corev1.ProtocolTCP
+
 	return &np.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -439,6 +452,12 @@ func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map
 								MatchLabels: redisfailoverLabels,
 							},
 						},
+					},
+				},
+				{
+					Ports: []np.NetworkPolicyPort{
+						{Protocol: &udp, Port: &dnsPort},
+						{Protocol: &tcp, Port: &dnsPort},
 					},
 				},
 			},
