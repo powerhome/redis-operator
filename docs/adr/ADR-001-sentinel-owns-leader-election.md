@@ -262,11 +262,26 @@ selects the lowest ordinal and can lose committed writes.
 **An identity that survives IP reuse already exists, unused.** A StatefulSet pod
 has a stable name in DNS, `rfr-redis-0.rfr-redis.redis-test.svc.cluster.local`,
 which encodes the namespace and the set it belongs to. Nothing in another
-namespace can answer to it. A stale entry naming a pod either resolves to the
-pod it means or fails to resolve, and failing to resolve leaves Sentinel inert
-rather than acting on a stranger. The `rfr-redis` headless service that grants
-those names is already created, and they already resolve. The operator addresses
+namespace can answer to it. The `rfr-redis` headless service that grants those
+names is already created, and they already resolve. The operator addresses
 everything by pod IP anyway.
+
+Whether that helps depends on Sentinel re-resolving the name rather than
+resolving once and keeping the address, which would leave it holding a
+recyclable IP after all. It re-resolves. A Sentinel configured with
+`resolve-hostnames yes` and monitoring a pod by name, whose pod was then deleted
+and recreated on a new address:
+
+```
+11:53:30  +sdown / +odown  master mymaster dnsredis-0.peers.dns-test...
+11:53:41  -sdown / -odown  master mymaster dnsredis-0.peers.dns-test...
+```
+
+It lost the instance, and eleven seconds later had followed the name to the new
+address with no reconfiguration, `10.244.2.30` to `10.244.2.31`. It also stores
+and reports the master as the hostname rather than a resolved address. So a
+stale entry naming a pod resolves to the pod it means or fails to resolve, and
+failing leaves Sentinel inert rather than acting on a stranger.
 
 Three things would be needed, and the awkward one was measured rather than
 assumed:
