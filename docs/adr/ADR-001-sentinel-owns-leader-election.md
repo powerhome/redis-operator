@@ -71,8 +71,8 @@ Five restarts of a `RedisFailover` with two Redis and three Sentinels, plus one
 run with a hand-configured Sentinel described further down, on a local `kind`
 cluster, Redis and Sentinel 8.4.0, quorum 2, storage backed by a
 persistent volume claim per pod. The operator was built before any of it and
-chooses exactly as described above. Two replicas is what this fleet runs, which
-is worth stating because losing one loses quorum.
+chooses exactly as described above. Two Redis is a supported shape and the one
+used here, which is worth stating because losing one of them loses quorum.
 
 **Restarting only the Redis pods, leaving the Sentinels running.** Sentinel
 handled it, and was not allowed to finish:
@@ -209,8 +209,8 @@ confusion on a monitored master address is worse again: two Sentinel quorums
 issuing conflicting instructions to the same pods.
 
 This was reproduced rather than reasoned about. Two standalone Redis instances
-were placed in separate namespaces, neither authenticated, matching the fleet
-default. One Sentinel was started in the first namespace with a hand-written
+were placed in separate namespaces, neither authenticated, which is what a
+`RedisFailover` with no `auth.secretPath` produces. One Sentinel was started in the first namespace with a hand-written
 configuration of the shape one would persist: it monitored its own master, and
 carried a single `known-replica` line naming the address of the Redis in the
 second namespace, which is what a recycled pod IP produces.
@@ -240,12 +240,14 @@ master, so Sentinel does not need to be confused about its own master for this
 to happen. One recycled replica address is enough, and a failover has more
 replicas than masters.
 
-Nothing in this operator would prevent it. There is no `resolve-hostnames`,
-`announce-ip` or `announce-hostnames` anywhere, so every address it hands
-Sentinel is a pod IP. Every `RedisFailover` serves Redis on 6379. The network
-policy that would isolate namespaces is only created when `networkPolicyNsList`
-is set. And per CIR-001, authentication that would reject a foreign connection
-was unset on all 122 `RedisFailover` resources across four clusters.
+Nothing in this operator prevents it on its own. There is no
+`resolve-hostnames`, `announce-ip` or `announce-hostnames` anywhere, so every
+address it hands Sentinel is a pod IP, and the default Redis port is shared by
+every `RedisFailover`. Two settings decide whether a deployment is exposed, and
+the operator leaves both to the person deploying it: `auth.secretPath`, which
+would make a foreign Redis refuse the connection, and `networkPolicyNsList`,
+which creates the policy confining Sentinel's egress and is not set by default.
+A deployment that sets neither has nothing in the way.
 
 Wiping the configuration on every start forecloses all of it. Sentinel restarts
 knowing nothing, so the only topology it can act on is the one the operator
