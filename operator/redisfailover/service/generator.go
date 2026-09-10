@@ -36,10 +36,17 @@ rename-command "{{.From}}" "{{.To}}"
 {{- end}}
 `
 
+	// resolve-hostnames lets Sentinel take an instance address as a name rather
+	// than an IP, and announce-hostnames makes it report one. A pod's name in
+	// DNS carries its namespace and the set it belongs to, so an address that
+	// outlives the pod it named resolves to that pod or to nothing, where a pod
+	// IP can be reissued to anything in the cluster.
 	sentinelConfigTemplate = `sentinel monitor mymaster 127.0.0.1 {{.Spec.Redis.Port}} 2
 sentinel down-after-milliseconds mymaster 1000
 sentinel failover-timeout mymaster 3000
 sentinel announce-port {{.Spec.Sentinel.Port}}
+sentinel resolve-hostnames yes
+sentinel announce-hostnames yes
 port {{.Spec.Sentinel.Port}}
 sentinel parallel-syncs mymaster 2`
 
@@ -493,6 +500,12 @@ func generateRedisService(rf *redisfailoverv1.RedisFailover, labels map[string]s
 		Spec: corev1.ServiceSpec{
 			Type:      corev1.ServiceTypeClusterIP,
 			ClusterIP: corev1.ClusterIPNone,
+			// This service governs the Redis StatefulSet, so it is what gives
+			// each pod its name in DNS. Without this a pod has no record until
+			// it is ready, and a Redis reading its dataset from disk is not
+			// ready, which is when anything trying to reach it by name most
+			// needs to.
+			PublishNotReadyAddresses: true,
 			Ports: []corev1.ServicePort{
 				{
 					Port:     exporterPort,

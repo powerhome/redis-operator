@@ -1103,8 +1103,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1144,8 +1145,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      "custom-name",
@@ -1185,8 +1187,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1227,8 +1230,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1269,8 +1273,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
