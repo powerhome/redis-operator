@@ -91,8 +91,20 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 			return err
 		}
 
-		if err := w.rfService.EnsureSentinelDeployment(rf, labels, or); err != nil {
-			return err
+		// A failover that has given its Sentinels storage runs them as a set,
+		// so what each one learns survives it. Without that they stay a
+		// Deployment and are told the topology on every start.
+		if rf.Spec.Sentinel.Storage.PersistentVolumeClaim != nil {
+			if err := w.rfService.EnsureSentinelHeadlessService(rf, labels, or); err != nil {
+				return err
+			}
+			if err := w.rfService.EnsureSentinelStatefulSet(rf, labels, or); err != nil {
+				return err
+			}
+		} else {
+			if err := w.rfService.EnsureSentinelDeployment(rf, labels, or); err != nil {
+				return err
+			}
 		}
 	} else {
 		if err := w.rfService.DestroySentinelResources(rf); err != nil {

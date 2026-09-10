@@ -441,10 +441,22 @@ func (r *RedisFailoverChecker) GetRedisesIPs(rf *redisfailoverv1.RedisFailover) 
 	return redises, nil
 }
 
+// getSentinelPods returns the Sentinel pods, whichever way they are being run.
+//
+// A failover that has given its Sentinels storage runs them as a set so that
+// what each one learns survives it; the rest run as a Deployment. The pods are
+// the same either way and only the workload holding them differs.
+func (r *RedisFailoverChecker) getSentinelPods(rf *redisfailoverv1.RedisFailover) (*corev1.PodList, error) {
+	if rf.Spec.Sentinel.Storage.PersistentVolumeClaim != nil {
+		return r.k8sService.GetStatefulSetPods(rf.Namespace, GetSentinelName(rf))
+	}
+	return r.k8sService.GetDeploymentPods(rf.Namespace, GetSentinelName(rf))
+}
+
 // GetSentinelsIPs returns the IPs of the Sentinel nodes
 func (r *RedisFailoverChecker) GetSentinelsIPs(rf *redisfailoverv1.RedisFailover) ([]string, error) {
 	sentinels := []string{}
-	rps, err := r.k8sService.GetDeploymentPods(rf.Namespace, GetSentinelName(rf))
+	rps, err := r.getSentinelPods(rf)
 	if err != nil {
 		return nil, err
 	}
@@ -617,7 +629,7 @@ func (r *RedisFailoverChecker) IsRedisRunning(rFailover *redisfailoverv1.RedisFa
 
 // IsSentinelRunning returns true if all the pods are Running
 func (r *RedisFailoverChecker) IsSentinelRunning(rFailover *redisfailoverv1.RedisFailover) bool {
-	dp, err := r.k8sService.GetDeploymentPods(rFailover.Namespace, GetSentinelName(rFailover))
+	dp, err := r.getSentinelPods(rFailover)
 	return err == nil && len(dp.Items) > int(rFailover.Spec.Sentinel.Replicas-1) && AreAllRunning(dp, int(rFailover.Spec.Sentinel.Replicas))
 }
 
