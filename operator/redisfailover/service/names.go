@@ -63,6 +63,16 @@ func GetRedisHeadlessName(rf *redisfailoverv1.RedisFailover) string {
 	return rf.GenerateName("redis")
 }
 
+// GetSentinelHeadlessName returns the name of the headless service governing
+// the Sentinel set.
+//
+// A StatefulSet needs one to give each pod a name in DNS, and it is separate
+// from the Sentinel service clients use, which carries an address of its own
+// and load balances across them.
+func GetSentinelHeadlessName(rf *redisfailoverv1.RedisFailover) string {
+	return rf.GenerateName("sentinel-headless")
+}
+
 func GetHaproxyMasterName(rf *redisfailoverv1.RedisFailover) string {
 	return generateName(redisHAProxyMasterRedisName, rf.Name)
 }
