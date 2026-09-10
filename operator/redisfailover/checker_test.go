@@ -1243,7 +1243,6 @@ func TestUpdateRedisesPodsWaitingOnFilesystemResize(t *testing.T) {
 			mrfc.On("GetMasterIP", rf).Once().Return("1.1.1.1", nil)
 			mrfc.On("CheckRedisSlavesReady", "0.0.0.0", rf).Once().Return(true, nil)
 			mrfc.On("CheckRedisSlavesReady", "0.0.0.1", rf).Once().Return(true, nil)
-
 			// Every pod already runs the current pod template. A waiting claim
 			// is the only thing that can cause a replacement here.
 			mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)

@@ -36,7 +36,6 @@ type RedisFailoverClient interface {
 	EnsureRedisShutdownConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisReadinessConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
-	EnsureNotPresentRedisService(rFailover *redisfailoverv1.RedisFailover) error
 
 	DestroyHaproxyMasterResources(rFailover *redisfailoverv1.RedisFailover) error
 	DestroySentinelResources(rFailover *redisfailoverv1.RedisFailover) error
@@ -478,17 +477,6 @@ func (r *RedisFailoverKubeClient) EnsureRedisService(rf *redisfailoverv1.RedisFa
 
 	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "Service", rf.Name, err)
 	return err
-}
-
-// EnsureNotPresentRedisService makes sure the redis service is not present
-func (r *RedisFailoverKubeClient) EnsureNotPresentRedisService(rf *redisfailoverv1.RedisFailover) error {
-	name := GetRedisName(rf)
-	namespace := rf.Namespace
-	// If the service exists (no get error), delete it
-	if _, err := r.K8SService.GetService(namespace, name); err == nil {
-		return r.K8SService.DeleteService(namespace, name)
-	}
-	return nil
 }
 
 // EnsureRedisMasterService makes sure the redis master service exists

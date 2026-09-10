@@ -14,14 +14,10 @@ import (
 func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels map[string]string, or []metav1.OwnerReference, metricsClient metrics.Recorder) error {
 	w.warnPodNetworkingIsGoingAway(rf)
 
-	if rf.Spec.Redis.Exporter.Enabled {
-		if err := w.rfService.EnsureRedisService(rf, labels, or); err != nil {
-			return err
-		}
-	} else {
-		if err := w.rfService.EnsureNotPresentRedisService(rf); err != nil {
-			return err
-		}
+	// Unconditionally, because this service is what names the Redis pods in DNS.
+	// The exporter only adds a port to it. See docs/adr/ADR-002.
+	if err := w.rfService.EnsureRedisService(rf, labels, or); err != nil {
+		return err
 	}
 
 	if !(len(rf.Spec.NetworkPolicyNsList) == 0) {

@@ -36,10 +36,14 @@ rename-command "{{.From}}" "{{.To}}"
 {{- end}}
 `
 
+	// A Sentinel starting with resolve-hostnames and announce-hostnames can take
+	// an instance address as a name straight away. See docs/adr/ADR-002.
 	sentinelConfigTemplate = `sentinel monitor mymaster 127.0.0.1 {{.Spec.Redis.Port}} 2
 sentinel down-after-milliseconds mymaster 1000
 sentinel failover-timeout mymaster 3000
 sentinel announce-port {{.Spec.Sentinel.Port}}
+sentinel resolve-hostnames yes
+sentinel announce-hostnames yes
 port {{.Spec.Sentinel.Port}}
 sentinel parallel-syncs mymaster 1`
 
@@ -475,12 +479,21 @@ func generateRedisService(rf *redisfailoverv1.RedisFailover, labels map[string]s
 
 	selectorLabels := generateSelectorLabels(redisRoleName, rf.Name)
 	labels = util.MergeLabels(labels, selectorLabels)
-	defaultAnnotations := map[string]string{
-		"prometheus.io/scrape": "true",
-		"prometheus.io/port":   "http",
-		"prometheus.io/path":   "/metrics",
+
+	annotations := rf.Spec.Redis.ServiceAnnotations
+	ports := []corev1.ServicePort{}
+	if rf.Spec.Redis.Exporter.Enabled {
+		annotations = util.MergeLabels(map[string]string{
+			"prometheus.io/scrape": "true",
+			"prometheus.io/port":   "http",
+			"prometheus.io/path":   "/metrics",
+		}, rf.Spec.Redis.ServiceAnnotations)
+		ports = append(ports, corev1.ServicePort{
+			Port:     exporterPort,
+			Protocol: corev1.ProtocolTCP,
+			Name:     exporterPortName,
+		})
 	}
-	annotations := util.MergeLabels(defaultAnnotations, rf.Spec.Redis.ServiceAnnotations)
 
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -493,14 +506,12 @@ func generateRedisService(rf *redisfailoverv1.RedisFailover, labels map[string]s
 		Spec: corev1.ServiceSpec{
 			Type:      corev1.ServiceTypeClusterIP,
 			ClusterIP: corev1.ClusterIPNone,
-			Ports: []corev1.ServicePort{
-				{
-					Port:     exporterPort,
-					Protocol: corev1.ProtocolTCP,
-					Name:     exporterPortName,
-				},
-			},
-			Selector: selectorLabels,
+			// Without this a pod has no DNS record until it is ready, and a
+			// Redis reading its dataset from disk is not ready for as long as
+			// that takes.
+			PublishNotReadyAddresses: true,
+			Ports:                    ports,
+			Selector:                 selectorLabels,
 		},
 	}
 }
