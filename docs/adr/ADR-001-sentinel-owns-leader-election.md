@@ -259,6 +259,48 @@ failover, or a network policy that is not optional.
 Set against that, what the wipe costs is the restart case, where the operator
 selects the lowest ordinal and can lose committed writes.
 
+**An identity that survives IP reuse already exists, unused.** A StatefulSet pod
+has a stable name in DNS, `rfr-redis-0.rfr-redis.redis-test.svc.cluster.local`,
+which encodes the namespace and the set it belongs to. Nothing in another
+namespace can answer to it. A stale entry naming a pod either resolves to the
+pod it means or fails to resolve, and failing to resolve leaves Sentinel inert
+rather than acting on a stranger. The `rfr-redis` headless service that grants
+those names is already created, and they already resolve. The operator addresses
+everything by pod IP anyway.
+
+Three things would be needed, and the awkward one was measured rather than
+assumed:
+
+- `sentinel resolve-hostnames yes`, which requires Redis 6.2 or newer. The
+  default image is `redis:7.2.4-alpine`.
+- `replica-announce-ip` set to each pod's own name, because Sentinel discovers
+  replicas from the master's `INFO replication`, which otherwise reports the raw
+  IP the replica connected from.
+- `publishNotReadyAddresses` on the governing headless service. Without it a pod
+  has no DNS record until it is ready, and during a restart Redis is not ready
+  for as long as it takes to load its dataset, which is exactly the window
+  Sentinel would need to reconnect in.
+
+That last one decides whether the idea works at all, so it was run. Deleting a
+pod and resolving its name from another pod, first as the operator configures
+the service today and then with the field set:
+
+```
+publishNotReadyAddresses unset          publishNotReadyAddresses: true
+t+12s  redisReady=false  UNRESOLVED     t+12s  redisReady=false  10.244.2.29
+t+36s  redisReady=false  UNRESOLVED     t+36s  redisReady=false  10.244.2.29
+t+42s  redisReady=true   10.244.2.28    t+84s  redisReady=false  10.244.2.29
+```
+
+Unset, the name is absent for the whole not-ready window and appears only when
+readiness returns. Set, it resolves throughout and tracks the new address within
+six seconds of the pod being recreated.
+
+It has to be the governing service. A second headless service selecting the same
+pods gets `hostname` empty in its endpoints, because a StatefulSet fixes each
+pod's subdomain to the service named in `serviceName`. So this is a change to
+the operator rather than something that can be added beside it.
+
 ## Consequences
 
 **A running master is no longer replaced because the operator could not reach
