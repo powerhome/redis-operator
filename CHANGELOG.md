@@ -11,11 +11,41 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Upgrade note
 
-The master is replaced last during a rolling update, and only once every Sentinel reports a replica it could promote, so an upgrade can pause with one pod still on the previous template while the Sentinels catch up. The operator names the Sentinel it is waiting on.
+Upgrading replaces the Redis pods, one at a time, because the Redis container's
+command gains the flag by which a replica announces its name. The Sentinel pods
+are left running: the two settings they need are applied over the wire.
+
+Expect a short window with no master while the pod holding that role is replaced
+and Sentinel elects one of the others. On a two node failover that window is
+around twenty seconds. Clients reconnect as they would for any failover.
+
+A Sentinel-aware client asking `SENTINEL get-master-addr-by-name` receives a name
+such as `rfr-example-0.rfr-example.default.svc` rather than an address. Such
+clients connect to whatever Sentinel gives them, so this costs them nothing, but
+a client that assumes an address, or one running where cluster DNS does not
+resolve, cannot reach the master.
+
+### Changed
+
+- Sentinel is told which Redis to monitor by DNS name rather than by address,
+  and each Redis announces itself to its master by name. A pod's address
+  outlives the pod and can be reissued to another pod in another namespace; a
+  pod's name resolves to the pod it names, or to nothing. A replica reports the
+  master it was last told to follow, which Sentinel gives as a name and the
+  operator as an address, so the operator's check that every replica follows the
+  master accepts both. See
+  [ADR-002](docs/adr/ADR-002-instances-are-addressed-by-name.md) and
+  [CIR-006](docs/cir/CIR-006-address-redis-by-dns-name.md)
+- The service governing the Redis StatefulSet is created whether or not
+  `redis.exporter.enabled` is set. It is what publishes a DNS record per Redis
+  pod; the exporter adds a port and its scrape annotations to it
 
 ### Fixed
 
-- [Replace the master only once the Sentinels could promote a replica](https://github.com/powerhome/redis-operator/pull/PENDING). The rolling update asked each replica whether it had finished syncing, which a replica holding no data answers within milliseconds of being told to replicate. A Sentinel that has just been reset, or has just been given a different master to watch, holds no replica it would promote, so removing the master left the failover with none: Sentinel answered `-failover-abort-no-good-slave`, the surviving replica kept the address of a pod that no longer existed, and the operator seeds a master only when every Redis reports `127.0.0.1`, so neither acted again. No Redis is now replaced until every Sentinel reports a replica it could promote, the master included, and the reconcile that replaces the master ends there rather than going on to reset the Sentinels it just asked. Replacing a replica waits on the same condition, because taking one away removes the candidate the Sentinels would promote. See [CIR-008](docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md)
+- A Sentinel that refuses the master it is offered keeps the one it was
+  monitoring, instead of being left monitoring nothing at all. Every Sentinel is
+  attempted before a failure is reported, so one refusal no longer leaves the
+  rest unconfigured
 
 ## [v4.8.0] - 2026-10-02
 
