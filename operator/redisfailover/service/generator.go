@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/template"
@@ -829,7 +830,17 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 							},
 							VolumeMounts: volumeMounts,
 							Command:      redisCommand,
-							Resources:    rf.Spec.Redis.Resources,
+							Env: []corev1.EnvVar{
+								{
+									Name: redisPodNameEnvVar,
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{
+											FieldPath: "metadata.name",
+										},
+									},
+								},
+							},
+							Resources: rf.Spec.Redis.Resources,
 							Lifecycle: &corev1.Lifecycle{
 								PreStop: &corev1.LifecycleHandler{
 									Exec: &corev1.ExecAction{
@@ -1498,14 +1509,52 @@ func getRedisDataVolumeName(rf *redisfailoverv1.RedisFailover) string {
 	}
 }
 
-func getRedisCommand(rf *redisfailoverv1.RedisFailover) []string {
-	if len(rf.Spec.Redis.Command) > 0 {
-		return rf.Spec.Redis.Command
-	}
+// announceOwnName makes a replica report its own name in DNS to its master,
+// instead of the address it happens to hold, so that the replica set Sentinel
+// learns from that master is named too. See docs/cir/CIR-006.
+func announceOwnName(rf *redisfailoverv1.RedisFailover) []string {
 	return []string{
+		"--replica-announce-ip",
+		RedisPodHostname(rf, fmt.Sprintf("$(%s)", redisPodNameEnvVar)),
+	}
+}
+
+// takesAnAnnounceFlag reports whether adding announceOwnName to this command
+// would mean what it should.
+//
+// A command is an argv, so the flag reaches Redis only where redis-server is
+// what runs: a wrapper would be handed it instead, and ignore it or fail. A
+// command that already announces something has said what it wants.
+func takesAnAnnounceFlag(command []string) bool {
+	if len(command) == 0 || filepath.Base(command[0]) != "redis-server" {
+		return false
+	}
+
+	for _, argument := range command {
+		if strings.Contains(argument, "replica-announce-ip") || strings.Contains(argument, "slave-announce-ip") {
+			return false
+		}
+	}
+
+	return true
+}
+
+func getRedisCommand(rf *redisfailoverv1.RedisFailover) []string {
+	command := []string{
 		"redis-server",
 		fmt.Sprintf("/redis/%s", redisConfigFileName),
 	}
+	if len(rf.Spec.Redis.Command) > 0 {
+		// Copied: appending to the spec's own slice would share a backing array
+		// with the RedisFailover this was handed.
+		command = append([]string{}, rf.Spec.Redis.Command...)
+	}
+
+	if takesAnAnnounceFlag(command) {
+		command = append(command, announceOwnName(rf)...)
+	}
+
+	return command
 }
 
 func getSentinelCommand(rf *redisfailoverv1.RedisFailover) []string {

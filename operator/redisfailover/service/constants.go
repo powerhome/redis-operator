@@ -25,19 +25,23 @@ const (
 )
 
 const (
-	baseName                    = "rf"
-	sentinelName                = "s"
-	sentinelRoleName            = "sentinel"
-	sentinelConfigFileName      = "sentinel.conf"
-	sentinelNetworkPolicyName   = "s-np"
-	redisConfigFileName         = "redis.conf"
-	redisName                   = "r"
-	redisNetworkPolicyName      = "r-np"
-	redisMasterName             = "rm"
-	redisSlaveName              = "rs"
-	redisShutdownName           = "r-s"
-	redisReadinessName          = "r-readiness"
-	redisRoleName               = "redis"
+	baseName                  = "rf"
+	sentinelName              = "s"
+	sentinelRoleName          = "sentinel"
+	sentinelConfigFileName    = "sentinel.conf"
+	sentinelNetworkPolicyName = "s-np"
+	redisConfigFileName       = "redis.conf"
+	redisName                 = "r"
+	redisNetworkPolicyName    = "r-np"
+	redisMasterName           = "rm"
+	redisSlaveName            = "rs"
+	redisShutdownName         = "r-s"
+	redisReadinessName        = "r-readiness"
+	redisRoleName             = "redis"
+	// redisPodNameEnvVar carries a pod's own name into its Redis command, where
+	// Kubernetes substitutes it before Redis reads it. Declared on the container
+	// and referenced by announceOwnName, which is the only reason it exists.
+	redisPodNameEnvVar          = "REDIS_POD_NAME"
 	appLabel                    = "redis-failover"
 	hostnameTopologyKey         = "kubernetes.io/hostname"
 	redisHAProxySlaveRedisName  = "rs-haproxy"
