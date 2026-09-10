@@ -48,6 +48,9 @@ sentinel parallel-syncs mymaster 1`
 	redisReadinessVolumeName               = "redis-readiness-config"
 	redisStorageVolumeName                 = "redis-data"
 	sentinelStartupConfigurationVolumeName = "sentinel-startup-config"
+	// Where a Sentinel keeps the configuration it rewrites: scratch space by
+	// default, and the claim it is given when the failover asks for one.
+	sentinelConfigWritableVolumeName = "sentinel-config-writable"
 
 	graceTime = 30
 )
@@ -929,6 +932,69 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 	return ss
 }
 
+// generateSentinelHeadlessService returns the service governing the Sentinel
+// StatefulSet, which is what gives each Sentinel a name in DNS.
+//
+// Separate from the Sentinel service clients use: that one carries an address
+// and balances across the set, which is the opposite of what a name per pod is
+// for.
+func generateSentinelHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
+	selectorLabels := generateSelectorLabels(sentinelRoleName, rf.Name)
+	labels = util.MergeLabels(labels, selectorLabels)
+	sentinelTargetPort := intstr.FromInt(int(rf.Spec.Sentinel.Port))
+
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            GetSentinelHeadlessName(rf),
+			Namespace:       rf.Namespace,
+			Labels:          labels,
+			OwnerReferences: ownerRefs,
+		},
+		Spec: corev1.ServiceSpec{
+			Type:      corev1.ServiceTypeClusterIP,
+			ClusterIP: corev1.ClusterIPNone,
+			// A Sentinel reading its dataset back is not ready until it has a
+			// master to report, and reaching it by name is how it gets one.
+			PublishNotReadyAddresses: true,
+			Ports: []corev1.ServicePort{
+				{
+					Port:       rf.Spec.Sentinel.Port.ToInt32(),
+					TargetPort: sentinelTargetPort,
+					Protocol:   corev1.ProtocolTCP,
+					Name:       "sentinel",
+				},
+			},
+			Selector: selectorLabels,
+		},
+	}
+}
+
+// generateSentinelStatefulSet runs the Sentinels as a set, which is what gives
+// each pod a name of its own in DNS. Everything the operator and the Sentinels
+// exchange is then a name that resolves inside this namespace or to nothing.
+func generateSentinelStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.StatefulSet {
+	d := generateSentinelDeployment(rf, labels, ownerRefs)
+
+	return &appsv1.StatefulSet{
+		ObjectMeta: d.ObjectMeta,
+		Spec: appsv1.StatefulSetSpec{
+			ServiceName: GetSentinelHeadlessName(rf),
+			Replicas:    &rf.Spec.Sentinel.Replicas,
+			Selector:    d.Spec.Selector,
+			Template:    d.Spec.Template,
+			// Sentinels have no order between them, so they start together
+			// rather than in an ordinal chain. Immutable once created.
+			PodManagementPolicy: appsv1.ParallelPodManagement,
+			// The operator decides when a Sentinel restarts. Left to the
+			// controller, a rollout would wait on a readiness that only the
+			// operator can produce, and wait for it holding two of three.
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+				Type: appsv1.OnDeleteStatefulSetStrategyType,
+			},
+		},
+	}
+}
+
 func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
 	name := GetSentinelName(rf)
 	configMapName := GetSentinelName(rf)
@@ -983,7 +1049,7 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 									MountPath: "/redis",
 								},
 								{
-									Name:      "sentinel-config-writable",
+									Name:      sentinelConfigWritableVolumeName,
 									MountPath: "/redis-writable",
 								},
 							},
@@ -1320,7 +1386,7 @@ func getRedisVolumeMounts(rf *redisfailoverv1.RedisFailover) []corev1.VolumeMoun
 func getSentinelVolumeMounts(rf *redisfailoverv1.RedisFailover) []corev1.VolumeMount {
 	volumeMounts := []corev1.VolumeMount{
 		{
-			Name:      "sentinel-config-writable",
+			Name:      sentinelConfigWritableVolumeName,
 			MountPath: "/redis",
 		},
 	}
@@ -1423,7 +1489,7 @@ func getSentinelVolumes(rf *redisfailoverv1.RedisFailover, configMapName string)
 			},
 		},
 		{
-			Name: "sentinel-config-writable",
+			Name: sentinelConfigWritableVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},

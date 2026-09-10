@@ -28,7 +28,9 @@ type RedisFailoverClient interface {
 	EnsureSentinelNetworkPolicy(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
-	EnsureSentinelDeployment(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureSentinelStatefulSet(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureSentinelHeadlessService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	DestroySentinelDeployment(rFailover *redisfailoverv1.RedisFailover) error
 	EnsureRedisStatefulset(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisMasterService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
@@ -250,31 +252,64 @@ func (r *RedisFailoverKubeClient) EnsureSentinelConfigMap(rf *redisfailoverv1.Re
 	return err
 }
 
-// EnsureSentinelDeployment makes sure the sentinel deployment exists in the desired state
-func (r *RedisFailoverKubeClient) EnsureSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+// DestroySentinelDeployment removes the Deployment that earlier releases ran the
+// Sentinels under. They run as a set now, so each pod has a name of its own.
+//
+// Both produce pods under the same labels, so leaving the Deployment behind does
+// not replace one set with the other, it runs both. Six Sentinels answering for a
+// failover that asked for three will find each other and agree a quorum among all
+// of them, which is nobody's intent. It therefore goes before the set is created,
+// which costs a window with no Sentinel able to elect; see docs/cir/CIR-009.
+func (r *RedisFailoverKubeClient) DestroySentinelDeployment(rf *redisfailoverv1.RedisFailover) error {
+	name := GetSentinelName(rf)
+
+	if _, err := r.K8SService.GetDeployment(rf.Namespace, name); err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	err := r.K8SService.DeleteDeployment(rf.Namespace, name)
+	r.setEnsureOperationMetrics(rf.Namespace, name, "DestroySentinelDeployment", rf.Name, err)
+	return err
+}
+
+// EnsureSentinelHeadlessService makes sure the service governing the Sentinel
+// set exists, which is what gives each Sentinel a name in DNS.
+func (r *RedisFailoverKubeClient) EnsureSentinelHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	svc := generateSentinelHeadlessService(rf, labels, ownerRefs)
+	err := r.K8SService.CreateIfNotExistsService(rf.Namespace, svc)
+	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureSentinelHeadlessService", rf.Name, err)
+	return err
+}
+
+// EnsureSentinelStatefulSet makes sure the Sentinel set exists in the desired
+// state, for a failover that has given its Sentinels somewhere to keep what
+// they learn.
+func (r *RedisFailoverKubeClient) EnsureSentinelStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	if !rf.Spec.Sentinel.DisablePodDisruptionBudget {
 		if err := r.ensurePodDisruptionBudget(rf, sentinelName, sentinelRoleName, labels, ownerRefs); err != nil {
 			return err
 		}
 	}
-	d := generateSentinelDeployment(rf, labels, ownerRefs)
+	ss := generateSentinelStatefulSet(rf, labels, ownerRefs)
 
-	digest, err := specDigest(d.Spec)
+	digest, err := specDigest(ss.Spec)
 	if err != nil {
-		return fmt.Errorf("EnsureSentinelDeployment failed to compute spec digest: %w", err)
+		return fmt.Errorf("EnsureSentinelStatefulSet failed to compute spec digest: %w", err)
 	}
-	if existing, getErr := r.K8SService.GetDeployment(rf.Namespace, d.Name); getErr == nil {
+	if existing, getErr := r.K8SService.GetStatefulSet(rf.Namespace, ss.Name); getErr == nil {
 		if existing.Annotations[sentinelDeploymentSpecChecksumKey] == digest {
 			return nil
 		}
 	}
-	if d.Annotations == nil {
-		d.Annotations = make(map[string]string)
+	if ss.Annotations == nil {
+		ss.Annotations = make(map[string]string)
 	}
-	d.Annotations[sentinelDeploymentSpecChecksumKey] = digest
+	ss.Annotations[sentinelDeploymentSpecChecksumKey] = digest
 
-	err = r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
-	r.setEnsureOperationMetrics(d.Namespace, d.Name, "Deployment", rf.Name, err)
+	err = r.K8SService.CreateOrUpdateStatefulSet(rf.Namespace, ss)
+	r.setEnsureOperationMetrics(ss.Namespace, ss.Name, "StatefulSet", rf.Name, err)
 	return err
 }
 

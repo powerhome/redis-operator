@@ -393,10 +393,14 @@ func (r *RedisFailoverChecker) GetRedisesIPs(rf *redisfailoverv1.RedisFailover) 
 	return redises, nil
 }
 
+func (r *RedisFailoverChecker) getSentinelPods(rf *redisfailoverv1.RedisFailover) (*corev1.PodList, error) {
+	return r.k8sService.GetStatefulSetPods(rf.Namespace, GetSentinelName(rf))
+}
+
 // GetSentinelsIPs returns the IPs of the Sentinel nodes
 func (r *RedisFailoverChecker) GetSentinelsIPs(rf *redisfailoverv1.RedisFailover) ([]string, error) {
 	sentinels := []string{}
-	rps, err := r.k8sService.GetDeploymentPods(rf.Namespace, GetSentinelName(rf))
+	rps, err := r.getSentinelPods(rf)
 	if err != nil {
 		return nil, err
 	}
@@ -575,7 +579,7 @@ func (r *RedisFailoverChecker) IsRedisRunning(rFailover *redisfailoverv1.RedisFa
 
 // IsSentinelRunning returns true if all the pods are Running
 func (r *RedisFailoverChecker) IsSentinelRunning(rFailover *redisfailoverv1.RedisFailover) bool {
-	dp, err := r.k8sService.GetDeploymentPods(rFailover.Namespace, GetSentinelName(rFailover))
+	dp, err := r.getSentinelPods(rFailover)
 	return err == nil && len(dp.Items) > int(rFailover.Spec.Sentinel.Replicas-1) && AreAllRunning(dp, int(rFailover.Spec.Sentinel.Replicas))
 }
 
