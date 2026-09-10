@@ -31,6 +31,7 @@ type RedisFailoverClient interface {
 	EnsureSentinelDeployment(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelStatefulSet(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelHeadlessService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	DestroyUnusedSentinelWorkload(rFailover *redisfailoverv1.RedisFailover) error
 	EnsureRedisStatefulset(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisMasterService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
@@ -253,6 +254,39 @@ func (r *RedisFailoverKubeClient) EnsureSentinelConfigMap(rf *redisfailoverv1.Re
 }
 
 // EnsureSentinelDeployment makes sure the sentinel deployment exists in the desired state
+// DestroyUnusedSentinelWorkload removes whichever way of running the Sentinels
+// this failover is not using.
+//
+// Both create the same pods under the same labels, so leaving the other behind
+// does not replace one set with the other, it runs both. Six Sentinels answering
+// for a failover that asked for three will find each other and agree a quorum
+// among all of them, which is nobody's intent.
+func (r *RedisFailoverKubeClient) DestroyUnusedSentinelWorkload(rf *redisfailoverv1.RedisFailover) error {
+	name := GetSentinelName(rf)
+
+	if rf.Spec.Sentinel.Storage.PersistentVolumeClaim != nil {
+		if _, err := r.K8SService.GetDeployment(rf.Namespace, name); err != nil {
+			if errors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		err := r.K8SService.DeleteDeployment(rf.Namespace, name)
+		r.setEnsureOperationMetrics(rf.Namespace, name, "DestroyUnusedSentinelWorkload", rf.Name, err)
+		return err
+	}
+
+	if _, err := r.K8SService.GetStatefulSet(rf.Namespace, name); err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	err := r.K8SService.DeleteStatefulSet(rf.Namespace, name)
+	r.setEnsureOperationMetrics(rf.Namespace, name, "DestroyUnusedSentinelWorkload", rf.Name, err)
+	return err
+}
+
 // EnsureSentinelHeadlessService makes sure the service governing the Sentinel
 // set exists, which is what gives each Sentinel a name in DNS.
 func (r *RedisFailoverKubeClient) EnsureSentinelHeadlessService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
