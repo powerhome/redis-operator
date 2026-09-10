@@ -10,6 +10,7 @@ import (
 	"net"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -421,7 +422,24 @@ func (c *clients) testSentinelMonitoring(t *testing.T) {
 			return false, errors.New("the Sentinels are not monitoring anything yet")
 		}
 
-		isMaster, err := c.redisClient.IsMaster(monitored, "6379", testPass)
+		// Sentinel answers with a name, which is the point: it is what it was
+		// told, and what it reports to a client. An address here would mean
+		// either that it was given one or that it is not announcing hostnames.
+		if net.ParseIP(monitored) != nil {
+			return false, fmt.Errorf("the Sentinels monitor the address %s rather than a name", monitored)
+		}
+		// That name answers inside the cluster and not out here, so the pod it
+		// names is found through the Kubernetes API and asked at its address.
+		podName, _, isPodName := strings.Cut(monitored, ".")
+		if !isPodName {
+			return false, fmt.Errorf("the Sentinels monitor %q, which is not a Redis pod's name in DNS", monitored)
+		}
+		masterPod, err := c.k8sClient.CoreV1().Pods(namespace).Get(context.Background(), podName, metav1.GetOptions{})
+		if err != nil {
+			return false, fmt.Errorf("finding the pod the Sentinels monitor, %s: %w", podName, err)
+		}
+
+		isMaster, err := c.redisClient.IsMaster(masterPod.Status.PodIP, "6379", testPass)
 		if err != nil {
 			return false, fmt.Errorf("asking %s whether it is the master: %w", monitored, err)
 		}

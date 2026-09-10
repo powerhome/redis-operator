@@ -29,6 +29,7 @@ type RedisFailoverCheck interface {
 	CheckIfMasterLocalhost(rFailover *redisfailoverv1.RedisFailover) (bool, error)
 	CheckSentinelMonitor(sentinel string, sentinelPort string, monitor ...string) error
 	GetMasterIP(rFailover *redisfailoverv1.RedisFailover) (string, error)
+	GetMasterHostname(rFailover *redisfailoverv1.RedisFailover, masterIP string) (string, error)
 	GetNumberMasters(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetSentinelsIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
@@ -118,6 +119,8 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 		return err
 	}
 
+	namesTheMaster := waysOfAddressingTheMaster(rf, rps.Items, master)
+
 	rport := rf.Spec.Redis.Port.ToString()
 	for _, rp := range rps.Items {
 		if rp.Status.PodIP == master {
@@ -137,11 +140,27 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 			r.logger.Errorf("Get slave of master failed, maybe this node is not ready, pod ip: %s", rp.Status.PodIP)
 			return err
 		}
-		if slave != "" && slave != master {
+		if slave != "" && !namesTheMaster[slave] {
 			return fmt.Errorf("slave %s don't have the master %s, has %s", rp.Status.PodIP, master, slave)
 		}
 	}
 	return nil
+}
+
+// waysOfAddressingTheMaster is every address that means the master pod: the one
+// the caller holds, and that pod's name in DNS.
+//
+// A replica answers with whatever it was told to replicate from, which is an
+// address where the operator set it and a name where Sentinel did. See
+// docs/adr/ADR-002.
+func waysOfAddressingTheMaster(rf *redisfailoverv1.RedisFailover, pods []corev1.Pod, master string) map[string]bool {
+	ways := map[string]bool{master: true}
+	for _, pod := range pods {
+		if pod.Status.PodIP == master {
+			ways[RedisPodHostname(rf, pod.Name)] = true
+		}
+	}
+	return ways
 }
 
 // CheckSentinelNumberInMemory controls that the provided sentinel has only the living sentinels on its memory.
@@ -287,6 +306,31 @@ func (r *RedisFailoverChecker) CheckSentinelMonitor(sentinel string, sentinelPor
 		return fmt.Errorf("sentinel monitoring %s:%s instead %s:%s", actualMonitorIP, actualMonitorPort, monitorIP, monitorPort)
 	}
 	return nil
+}
+
+// RedisPodHostname is the name a Redis pod answers to in DNS: the pod, the
+// service governing its StatefulSet, then the namespace.
+//
+// Nothing outside that namespace and set can answer to it. See docs/adr/ADR-002.
+func RedisPodHostname(rf *redisfailoverv1.RedisFailover, podName string) string {
+	return fmt.Sprintf("%s.%s.%s.svc", podName, GetRedisName(rf), rf.Namespace)
+}
+
+// GetMasterHostname names the Redis pod at the given address. It does not ask
+// which pod is the master, so it cannot disagree with the caller that did.
+func (r *RedisFailoverChecker) GetMasterHostname(rf *redisfailoverv1.RedisFailover, masterIP string) (string, error) {
+	rps, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
+	if err != nil {
+		return "", err
+	}
+
+	for _, rp := range rps.Items {
+		if rp.Status.PodIP == masterIP {
+			return RedisPodHostname(rf, rp.ObjectMeta.Name), nil
+		}
+	}
+
+	return "", fmt.Errorf("no redis pod holds the master address %s", masterIP)
 }
 
 // GetMasterIP connects to all redis and returns the master of the redis failover

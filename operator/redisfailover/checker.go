@@ -331,17 +331,32 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		return err
 	}
 
+	// Sentinel is told a name rather than an address, because it keeps what it is
+	// told. See docs/adr/ADR-002. This names the master established above rather
+	// than looking for one again.
+	masterHostname, err := r.rfChecker.GetMasterHostname(rf, master)
+	if err != nil {
+		return err
+	}
+
+	// Every Sentinel is attempted before anything is reported: one that refuses
+	// the master it is offered says nothing about the next, and a Sentinel left
+	// on localhost never reports ready.
 	port := rf.Spec.Redis.Port.ToString()
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	var monitorErrs []error
 	for _, sip := range sentinels {
-		err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, master, port)
+		err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, masterHostname, port)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Fixing sentinel not monitoring expected master: %s", err.Error())
-			if err := r.rfHealer.NewSentinelMonitor(sip, master, rf); err != nil {
-				return err
+			if err := r.rfHealer.NewSentinelMonitor(sip, masterHostname, rf); err != nil {
+				monitorErrs = append(monitorErrs, fmt.Errorf("pointing sentinel %s at %s: %w", sip, masterHostname, err))
 			}
 		}
+	}
+	if len(monitorErrs) > 0 {
+		return errors.Join(monitorErrs...)
 	}
 	return r.checkAndHealSentinels(rf, sentinels)
 }

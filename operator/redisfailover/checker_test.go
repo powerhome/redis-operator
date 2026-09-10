@@ -296,6 +296,10 @@ func TestCheckAndHeal(t *testing.T) {
 			continueTests := true
 
 			master := "0.0.0.0"
+			// Deliberately unlike the address: the sentinel monitor path is the
+			// only one that should be given the name, and a test that used the
+			// same value for both could not tell whether it was.
+			masterHostname := "rfr-test-0.rfr-test.testns.svc"
 			sentinel := "1.1.1.1"
 
 			config := generateConfig()
@@ -370,6 +374,9 @@ func TestCheckAndHeal(t *testing.T) {
 				}
 				if !expErr && continueTests {
 					mrfc.On("GetMasterIP", rf).Twice().Return(master, nil)
+					// The sentinel monitor path names the master the checks
+					// above established, rather than asking again.
+					mrfc.On("GetMasterHostname", rf, master).Once().Return(masterHostname, nil)
 					if test.slavesOK {
 						mrfc.On("CheckAllSlavesFromMaster", master, rf).Once().Return(nil)
 						mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)
@@ -401,15 +408,15 @@ func TestCheckAndHeal(t *testing.T) {
 					if test.bootstrapping {
 						mrfc.On("CheckSentinelMonitor", sentinel, bootstrapMaster, bootstrapMasterPort).Once().Return(nil)
 					} else {
-						mrfc.On("CheckSentinelMonitor", sentinel, "26379", master, "0").Once().Return(nil)
+						mrfc.On("CheckSentinelMonitor", sentinel, "26379", masterHostname, "0").Once().Return(nil)
 					}
 				} else {
 					if test.bootstrapping {
 						mrfc.On("CheckSentinelMonitor", sentinel, bootstrapMaster, bootstrapMasterPort).Once().Return(errors.New(""))
 						mrfh.On("NewSentinelMonitorWithPort", sentinel, bootstrapMaster, bootstrapMasterPort, rf).Once().Return(nil)
 					} else {
-						mrfc.On("CheckSentinelMonitor", sentinel, "26379", master, "0").Once().Return(errors.New(""))
-						mrfh.On("NewSentinelMonitor", sentinel, master, rf).Once().Return(nil)
+						mrfc.On("CheckSentinelMonitor", sentinel, "26379", masterHostname, "0").Once().Return(errors.New(""))
+						mrfh.On("NewSentinelMonitor", sentinel, masterHostname, rf).Once().Return(nil)
 					}
 				}
 				if test.sentinelNumberInMemoryOK {
