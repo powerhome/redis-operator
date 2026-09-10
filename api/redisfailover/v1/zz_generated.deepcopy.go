@@ -540,6 +540,7 @@ func (in *SentinelSettings) DeepCopyInto(out *SentinelSettings) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	in.Storage.DeepCopyInto(&out.Storage)
 	if in.Affinity != nil {
 		in, out := &in.Affinity, &out.Affinity
 		*out = new(corev1.Affinity)
