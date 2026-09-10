@@ -1533,19 +1533,31 @@ func getRedisCommand(rf *redisfailoverv1.RedisFailover) []string {
 	if len(rf.Spec.Redis.Command) > 0 {
 		return rf.Spec.Redis.Command
 	}
-	return []string{
+	command := []string{
 		"redis-server",
 		fmt.Sprintf("/redis/%s", redisConfigFileName),
-		// A replica tells its master where to find it, and the master repeats
-		// that to whoever asks, which is how Sentinel learns the replica set.
-		// Left alone a replica announces the address it happens to hold, so
-		// Sentinel records addresses no matter what it was told about the
-		// master. Announcing the pod's own name keeps the set it discovers in
-		// names too. Kubernetes substitutes the variable from the environment
-		// below before Redis sees it.
-		"--replica-announce-ip",
-		fmt.Sprintf("$(REDIS_POD_NAME).%s.%s.svc", GetRedisName(rf), rf.Namespace),
 	}
+
+	// A replica tells its master where to find it, and the master repeats that
+	// to whoever asks, which is how Sentinel learns the replica set. Left alone
+	// a replica announces the address it happens to hold, so Sentinel records
+	// addresses no matter what it was told about the master. Announcing the
+	// pod's own name keeps the set it discovers in names too. Kubernetes
+	// substitutes the variable from the environment before Redis reads it.
+	//
+	// Not while bootstrapping. There the master is `bootstrapNode.host`, which
+	// is somewhere else, and a name from this cluster's DNS means nothing to it
+	// or to anything else reading its replica list. Replication still works,
+	// because the replica opens the connection, but the master would describe
+	// its replicas at addresses that side cannot reach.
+	if !rf.Bootstrapping() {
+		command = append(command,
+			"--replica-announce-ip",
+			fmt.Sprintf("$(REDIS_POD_NAME).%s.%s.svc", GetRedisName(rf), rf.Namespace),
+		)
+	}
+
+	return command
 }
 
 func getSentinelCommand(rf *redisfailoverv1.RedisFailover) []string {

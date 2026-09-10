@@ -568,6 +568,7 @@ func TestRedisStatefulSetCommands(t *testing.T) {
 	tests := []struct {
 		name             string
 		givenCommands    []string
+		bootstrapping    bool
 		expectedCommands []string
 	}{
 		{
@@ -580,6 +581,18 @@ func TestRedisStatefulSetCommands(t *testing.T) {
 				// replica announces itself to its master as a name.
 				"--replica-announce-ip",
 				"$(REDIS_POD_NAME).rfr-test.testns.svc",
+			},
+		},
+		{
+			// While bootstrapping the master is somewhere else, and a name
+			// from this cluster's DNS describes nothing it or anything reading
+			// its replica list can reach, so nothing is announced.
+			name:          "Bootstrapping announces nothing",
+			givenCommands: []string{},
+			bootstrapping: true,
+			expectedCommands: []string{
+				"redis-server",
+				"/redis/redis.conf",
 			},
 		},
 		{
@@ -601,6 +614,13 @@ func TestRedisStatefulSetCommands(t *testing.T) {
 		// Generate a default RedisFailover and attaching the required storage
 		rf := generateRF()
 		rf.Spec.Redis.Command = test.givenCommands
+		if test.bootstrapping {
+			rf.Spec.BootstrapNode = &redisfailoverv1.BootstrapSettings{
+				Host:    "10.0.0.1",
+				Port:    "6379",
+				Enabled: true,
+			}
+		}
 
 		gotCommands := []string{}
 
