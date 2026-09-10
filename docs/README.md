@@ -137,7 +137,7 @@ This redis-failover will be managed by the operator, resulting in the following 
 
 - `rfr-<NAME>`: Redis configmap
 - `rfr-<NAME>`: Redis statefulset
-- `rfr-<NAME>`: Redis service (if redis-exporter is enabled)
+- `rfr-<NAME>`: Redis service, which names each Redis pod in DNS as `rfr-<NAME>-<N>.rfr-<NAME>.<NAMESPACE>.svc` and carries the exporter port when `redis.exporter.enabled` is set
 - `rfs-<NAME>`: Sentinel configmap
 - `rfs-<NAME>`: Sentinel deployment
 - `rfs-<NAME>`: Sentinel service
@@ -198,10 +198,27 @@ If you need the containers to run with specific capabilities or with read only r
 
 By default, redis and sentinel will be called with the basic command, giving the configuration file:
 
-- Redis: `redis-server /redis/redis.conf`
+- Redis: `redis-server /redis/redis.conf --replica-announce-ip $(REDIS_POD_NAME).rfr-<NAME>.<NAMESPACE>.svc`
 - Sentinel: `redis-server /redis/sentinel.conf --sentinel`
 
+Announcing its own name is how a Redis tells its master where to find it, and so
+how Sentinel learns the replica set as names rather than as addresses. A failover
+that is bootstrapping announces nothing, since the master is outside the cluster
+and a name from this cluster's DNS means nothing to it.
+
 If necessary, this command can be changed with the `command` option inside redis/sentinel spec. An example can be found in the [custom command example file](/example/redisfailover/custom-command.yaml).
+
+**A `redis.command` you provide still announces**, so long as the operator can
+see that saying so would reach Redis: the command runs `redis-server`, and does
+not already pass `--replica-announce-ip` itself. The example above qualifies.
+
+A command that wraps Redis in something else, such as `sh -c`, does not. The flag
+would be handed to the wrapper rather than to Redis, so the operator leaves such a
+command exactly as written. A Redis started that way announces the address it
+holds, and its master lists it at that address, which stops meaning that pod once
+the pod is replaced. Sentinel learns its replicas from the master, so it holds an
+address for that node; the master itself is still named, because the operator
+tells Sentinel that directly.
 
 ### Custom Priority Class
 In order to use a custom Kubernetes [Priority Class](https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/#priorityclass) for Redis and/or Sentinel pods, you can set the `priorityClassName` in the redis/sentinel spec, this attribute has no default and depends on the specific cluster configuration. **Note:** the operator doesn't create the referenced `Priority Class` resource.
@@ -316,6 +333,12 @@ url: rfs-<NAME>
 port: 26379
 master-name: mymaster
 ```
+
+Sentinel answers `SENTINEL get-master-addr-by-name` with the master's name in
+DNS, `rfr-<NAME>-<N>.rfr-<NAME>.<NAMESPACE>.svc`, rather than with its address.
+Sentinel-ready clients connect to what Sentinel gives them, so this needs no
+change on your side, but a client that expects an address, or that is running
+somewhere that cannot resolve cluster DNS, will not reach the master.
 
 ### Enabling redis auth
 

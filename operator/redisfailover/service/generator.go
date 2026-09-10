@@ -1550,7 +1550,9 @@ func getRedisCommand(rf *redisfailoverv1.RedisFailover) []string {
 		command = append([]string{}, rf.Spec.Redis.Command...)
 	}
 
-	if takesAnAnnounceFlag(command) {
+	// A bootstrapping failover replicates from outside this cluster, where a name
+	// out of its DNS reaches nothing.
+	if !rf.Bootstrapping() && takesAnAnnounceFlag(command) {
 		command = append(command, announceOwnName(rf)...)
 	}
 
