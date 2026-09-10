@@ -281,9 +281,17 @@ and recreated on a new address:
 
 It lost the instance, and eleven seconds later had followed the name to the new
 address with no reconfiguration, `10.244.2.30` to `10.244.2.31`. It also stores
-and reports the master as the hostname rather than a resolved address. So a
-stale entry naming a pod resolves to the pod it means or fails to resolve, and
-failing leaves Sentinel inert rather than acting on a stranger.
+and reports the master as the hostname rather than a resolved address.
+
+What that closes, precisely. A name is bound to a pod, in a set, in a namespace,
+so a remembered one resolves to the pod it names or to nothing. It cannot come
+to mean a different pod the way a remembered address can once the address is
+reissued, and that drift is the whole hazard in letting Sentinel keep what it
+learned. It is not a reachability control: a name aimed at another namespace
+resolves and connects, as any address would. Nothing needs it to be, because
+every address this operator forms comes from the failover's own namespace, and
+the one it takes from elsewhere is `bootstrapNode.host`, which is supplied
+deliberately and points where it is meant to.
 
 Three things would be needed, and the awkward one was measured rather than
 assumed:
