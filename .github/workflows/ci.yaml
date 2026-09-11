@@ -104,10 +104,13 @@ jobs:
   # actually merge here. When it fails, run `make generate-crd` and commit all
   # three.
   #
-  # It compares the committed files rather than regenerating in CI on purpose:
-  # the pinned codegen image (ghcr.io/slok/kube-code-generator:v0.6.0) ships an
-  # older Go than go.mod requires, so `make generate-crd` cannot run on a runner
-  # today. Regenerating in CI can return once the codegen image catches up.
+  # It compares the committed files rather than regenerating in CI on purpose.
+  # `make generate-crd` does run now -- the Makefile passes GOTOOLCHAIN=auto so
+  # the pinned codegen image (which ships an older Go than go.mod requires)
+  # fetches the toolchain go.mod names -- but that regeneration is only run
+  # locally today and downloads a toolchain at container start, which is not yet
+  # wired up or validated on a runner. Until it is, this cheap committed-copy
+  # diff is the gate; switching it to regenerate-and-diff is a follow-up.
   chart-crd-drift:
     name: Chart CRD drift
     runs-on: ubuntu-latest

@@ -124,17 +124,20 @@ change must be applied to all four by hand until a generator collapses them.
   re-runs it. Publishing on the operator tag with `needs: dockerhub-image` gets
   the ordering for free and from a real event.
 
-- **Rejected: regenerating the CRD in CI.** Comparing the chart copy against the
+- **Deferred: regenerating the CRD in CI.** Comparing the chart copy against the
   committed manifest passes even when both lag the api/ types, so regenerating
-  and requiring a clean `git diff` would be stronger. It is not viable today:
-  the pinned codegen image `ghcr.io/slok/kube-code-generator:v0.6.0` ships Go
-  1.24 while `go.mod` requires 1.25.14 under `GOTOOLCHAIN=local`, so
-  `make generate-crd` cannot run on a runner (it fails loading `./api`). The
-  gate instead requires the three committed copies — `manifests/`, the kustomize
-  base, and the chart — to be byte-identical, which is the drift that can merge
-  here. Regeneration-in-CI can return when the codegen image catches up to the
-  repo's Go version. (`make generate-crd` keeps `DOCKER_INTERACTIVE=` support so
-  it can run without a TTY once that is fixed.)
+  and requiring a clean `git diff` would be stronger. `make generate-crd` does
+  run now: the pinned codegen image `ghcr.io/slok/kube-code-generator:v0.6.0`
+  ships an older Go than `go.mod` requires, and the Makefile passes
+  `GOTOOLCHAIN=auto` so the image fetches the toolchain `go.mod` names (it also
+  pins `--platform linux/amd64`, since the image is amd64-only). But that
+  regeneration is run locally, not in CI, and it downloads a Go toolchain at
+  container start — wiring it into a runner and confirming it stays green is not
+  done yet. Until then the gate requires the three committed copies —
+  `manifests/`, the kustomize base, and the chart — to be byte-identical, which
+  is the drift that can merge here. Regeneration-in-CI is a follow-up.
+  (`make generate-crd` keeps `DOCKER_INTERACTIVE=` support so it can run without
+  a TTY once that lands.)
 
 - **Accepted: the first publish surfaces a task instead of failing.** A new ghcr
   package is private until someone flips its visibility, so the publish script's
