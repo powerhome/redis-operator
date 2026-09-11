@@ -22,7 +22,18 @@ ifneq ($(shell git status --porcelain),)
 endif
 
 PROJECT_PACKAGE := github.com/spotahome/redis-operator
+# Two things this image needs told to it.
+#
+# It is published for linux/amd64 only, so the platform is named rather than
+# left to Docker, which has no arm64 entry to fall back from and refuses to
+# start. Naming it costs nothing where the host is already amd64.
+#
+# It also carries a Go older than the one go.mod asks for, and pins
+# GOTOOLCHAIN to local so it will not fetch one. No published tag of it ships a
+# Go new enough. Letting it fetch the toolchain go.mod names is what makes the
+# generators run at all.
 CODEGEN_IMAGE := ghcr.io/slok/kube-code-generator:v0.6.0
+CODEGEN_PLATFORM := linux/amd64
 PORT := 9710
 
 GOLANGCI_LINT_VERSION := v1.64.2
@@ -119,6 +130,8 @@ test-helm-ci:
 generate-client:
 	@echo ">> Generating code for Kubernetes CRD types..."
 	docker run --rm -it \
+		--platform $(CODEGEN_PLATFORM) \
+		-e GOTOOLCHAIN=auto \
 		-v $(PWD):$(WORKDIR) \
 		-w $(WORKDIR) \
 		$(CODEGEN_IMAGE) \
@@ -133,6 +146,8 @@ DOCKER_INTERACTIVE ?= -it
 .PHONY: generate-crd
 generate-crd:
 	docker run --rm $(DOCKER_INTERACTIVE) \
+		--platform $(CODEGEN_PLATFORM) \
+		-e GOTOOLCHAIN=auto \
 		-v $(PWD):$(WORKDIR) \
 		-w $(WORKDIR) \
 		$(CODEGEN_IMAGE) \

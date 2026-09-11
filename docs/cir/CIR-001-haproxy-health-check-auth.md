@@ -12,10 +12,10 @@ expect string role:master` never matched, every server stayed `DOWN` (they start
 failover reported itself healthy throughout. The direct `rfrm-<name>` master
 Service was unaffected.
 
-The effect was that nobody used authentication at all: 122 `RedisFailover`
-resources across four clusters and nine applications, staging and production,
-every one with `auth.secretPath` unset. That was not taste, it was the only
-configuration that worked.
+The effect was that a failover declaring `haproxy` could not use authentication
+at all. Where the two were combined the password had to be left unset for the
+proxy to have a backend, so `auth.secretPath` went unused wherever `haproxy` was
+wanted. That was not taste, it was the only configuration that worked.
 
 ## Behavior
 
