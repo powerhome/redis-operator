@@ -1,15 +1,26 @@
 annotations:
   category: Redis Operator
-appVersion: 1.3.0
+  org.opencontainers.image.source: https://github.com/powerhome/redis-operator
 apiVersion: v1
-description: A Helm chart for the Spotahome Redis Operator
 name: redis-operator
-version: 3.3.0
-home: https://github.com/spotahome/redis-operator
+description: A Helm chart for the Power Home Redis Operator
+home: https://github.com/powerhome/redis-operator
+sources:
+  - https://github.com/powerhome/redis-operator
+
+# appVersion tracks the operator it ships. It must equal `VERSION` in the
+# Makefile and `image.tag` in values.yaml; the chart-version-check CI job fails
+# the build when they disagree. Set here (with the leading `v`, matching the
+# published image tag) in the "Prepare release vX.Y.Z" commit -- not by CI.
+appVersion: v4.6.0
+
+# version is the chart's own SemVer and moves independently of the operator, so
+# chart-only fixes (RBAC, templates, values) can ship without a fake operator
+# release. Bump this whenever the chart changes; it is NOT gated to appVersion.
+version: 4.6.0
+
 keywords:
   - "golang"
   - "operator"
   - "cluster"
-sources:
-  - https://github.com/spotahome/redis-operator
 kubeVersion: ">=1.21.0-0"

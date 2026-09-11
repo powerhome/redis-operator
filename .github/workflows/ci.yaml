@@ -90,12 +90,100 @@ jobs:
           fetch-depth: 0
 
       - name: Install Helm
-        uses: azure/setup-helm@v3
+        uses: azure/setup-helm@v4
         with:
-          version: v3.7.2
+          version: v3.14.4
 
       - name: Helm test
         run: make test-helm-ci
+
+  # `make generate-crd` writes the same CRD into manifests/, its kustomize base,
+  # and the chart from a single source, so those three committed copies must be
+  # byte-for-byte identical. This gate fails when the chart's bundled CRD (or
+  # the kustomize base) has drifted from manifests/, which is the drift that can
+  # actually merge here. When it fails, run `make generate-crd` and commit all
+  # three.
+  #
+  # It compares the committed files rather than regenerating in CI on purpose.
+  # `make generate-crd` does run now -- the Makefile passes GOTOOLCHAIN=auto so
+  # the pinned codegen image (which ships an older Go than go.mod requires)
+  # fetches the toolchain go.mod names -- but that regeneration is only run
+  # locally today and downloads a toolchain at container start, which is not yet
+  # wired up or validated on a runner. Until it is, this cheap committed-copy
+  # diff is the gate; switching it to regenerate-and-diff is a follow-up.
+  chart-crd-drift:
+    name: Chart CRD drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Chart and kustomize CRDs must match manifests/
+        run: |
+          gen=manifests/databases.spotahome.com_redisfailovers.yaml
+          rc=0
+          for copy in \
+            manifests/kustomize/base/databases.spotahome.com_redisfailovers.yaml \
+            charts/redisoperator/crds/databases.spotahome.com_redisfailovers.yaml; do
+            if ! diff -u "${gen}" "${copy}"; then
+              echo "::error::${copy} has drifted from ${gen}. Run 'make generate-crd' and commit the result."
+              rc=1
+            fi
+          done
+          exit "${rc}"
+
+  # The chart ships the operator, so its appVersion and default image tag must
+  # name the operator VERSION. These fields live in source (set in the
+  # "Prepare release vX.Y.Z" commit alongside Makefile VERSION) and this job
+  # gates them -- CI never writes them back. The chart's own `version` is
+  # intentionally not checked here: it moves independently for chart-only
+  # releases. Reusing an already-published chart version while changing this
+  # metadata is caught at publish time instead -- scripts/publish-oci-chart.sh
+  # compares against the published artifact and fails rather than no-opping.
+  chart-version-check:
+    name: Chart version sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+      - name: appVersion and image.tag must match Makefile VERSION
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^VERSION := //p' Makefile | head -1)"
+          app_version="$(helm show chart charts/redisoperator | awk '/^appVersion:/ {print $2; exit}')"
+          img_tag="$(helm show values charts/redisoperator | awk '/^image:/{f=1; next} f&&/^[^[:space:]]/{f=0} f&&/^[[:space:]]+tag:/{print $2; exit}')"
+          echo "Makefile VERSION=${version} chart appVersion=${app_version} image.tag=${img_tag}"
+          rc=0
+          # On a release tag, the tag itself must equal VERSION. The operator
+          # image is tagged from the git ref, so a tag cut from a commit whose
+          # VERSION differs would publish an image with no matching chart.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "${GITHUB_REF_NAME:-}" != "${version}" ]; then
+            echo "::error::Release tag (${GITHUB_REF_NAME:-}) != Makefile VERSION (${version}). Cut the tag from the release commit (make tag)."
+            rc=1
+          fi
+          # Prerelease tags (e.g. v4.7.0-rc1, any SemVer with a `-` suffix) are
+          # not a supported chart release path: chart-oci-publish triggers on any
+          # `v*` tag and would ship the prerelease as an ordinary OCI version.
+          # Refuse it deliberately instead of publishing one by accident; add an
+          # explicit prerelease flow if that is ever wanted.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            case "${GITHUB_REF_NAME:-}" in
+              *-*)
+                echo "::error::Release tag (${GITHUB_REF_NAME}) is a prerelease. Chart publishing supports stable vX.Y.Z tags only; cut a stable tag or add a deliberate prerelease flow."
+                rc=1
+                ;;
+            esac
+          fi
+          if [ "${app_version}" != "${version}" ]; then
+            echo "::error::Chart appVersion (${app_version}) != Makefile VERSION (${version}). Update charts/redisoperator/Chart.yaml in the release commit."
+            rc=1
+          fi
+          if [ "${img_tag}" != "${version}" ]; then
+            echo "::error::values.yaml image.tag (${img_tag}) != Makefile VERSION (${version}). Update charts/redisoperator/values.yaml in the release commit."
+            rc=1
+          fi
+          exit "${rc}"
 
   # Despite the name, this job publishes the operator image to both Docker Hub
   # (powerhome/redis-operator) and ghcr.io/powerhome/redis-operator in one build.
@@ -163,3 +251,52 @@ jobs:
             -H "Accept: application/vnd.oci.image.index.v1+json" \
             "https://ghcr.io/v2/powerhome/redis-operator/manifests/$tag" \
             || { echo "ghcr package is not anonymously pullable"; exit 1; }
+
+  # On an operator release (a `v*` tag), after the operator image is published,
+  # publish the chart to ghcr.io as an OCI artifact. `needs: dockerhub-image`
+  # guarantees the image exists first, so the chart never points at a missing
+  # tag. The tagged commit already carries the chart's appVersion/image.tag
+  # (set in the release commit, enforced by chart-version-check), so there is
+  # nothing for CI to compute or write back. Chart-only releases publish from
+  # helm.yml instead. See docs/cir/CIR-004 for why this is a tag event and not
+  # a push to master.
+  chart-oci-publish:
+    name: Publish chart to ghcr.io (OCI)
+    if: startsWith(github.ref, 'refs/tags/v')
+    # Every chart gate must pass before we publish: the image must exist
+    # (dockerhub-image), the chart must lint (chart-test), its CRD must be in
+    # sync (chart-crd-drift), and its versions must match VERSION
+    # (chart-version-check). Omitting any of these lets a failed gate publish an
+    # invalid or drifted chart, since a job only blocks when it is in `needs`.
+    needs:
+      - dockerhub-image
+      - chart-test
+      - chart-crd-drift
+      - chart-version-check
+    # Serialize with helm.yml's publish-oci job (same group, repo-wide) so an
+    # operator-tag publish and a chart-tag / manual publish cannot race: the
+    # script's "already published?" probe and push are not atomic, and two runs
+    # on the same chart version could both see 404 and both push, letting the
+    # later one overwrite the tag and bypass the different-content guard.
+    concurrency:
+      group: publish-oci-chart
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+      - name: Log in to ghcr.io
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Publish chart
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: ./scripts/publish-oci-chart.sh

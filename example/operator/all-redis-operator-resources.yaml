@@ -102,8 +102,11 @@ rules:
     resources:
       - networkpolicies
     verbs:
+      - create
+      - delete
       - get
       - list
+      - update
   - apiGroups:
       - coordination.k8s.io
     resources:

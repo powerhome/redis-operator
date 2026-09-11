@@ -1,31 +1,73 @@
-name: Release Charts
+name: Publish Chart (OCI)
 
+# Publishes the Helm chart to ghcr.io as an OCI artifact under powerhome/charts.
+#
+# Operator releases publish from ci.yaml, on the operator `v*` tag, after the
+# operator image is built (so the chart never references an image that does not
+# exist yet). This workflow covers the two cases that are not an operator
+# release:
+#   - a chart-only version bump: push a `chart-v<semver>` tag, or
+#   - a manual re-publish: run it from the Actions tab (workflow_dispatch).
+#
+# Both entry points call the same scripts/publish-oci-chart.sh, which is
+# idempotent (an already-published version is a no-op) and authenticates to
+# ghcr.io only with the built-in GITHUB_TOKEN -- no Docker Hub login.
 on:
   push:
-    branches:
-      - master
+    tags:
+      - 'chart-v*'
+  workflow_dispatch: {}
 
 jobs:
-  release:
+  publish-oci:
+    name: Publish chart to ghcr.io (OCI)
+    # Same group as ci.yaml's chart-oci-publish so the two publish paths are
+    # serialized repo-wide: the publish script's existence probe and push are
+    # not atomic, so concurrent runs on the same chart version could both see
+    # 404 and both push, bypassing the different-content guard.
+    concurrency:
+      group: publish-oci-chart
+      cancel-in-progress: false
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
 
       - name: Install Helm
-        uses: azure/setup-helm@v3
+        uses: azure/setup-helm@v4
         with:
-          version: v3.7.2
+          version: v3.14.4
 
-      - name: Release
-        uses: helm/chart-releaser-action@v1.5.0
-        with:
-          charts_dir: charts
-          config: charts/chart-release-config.yaml
+      # A `chart-v*` tag is only a trigger; make sure it names the version the
+      # chart actually declares, so tagging chart-v4.7.0 on a 4.6.0 chart fails
+      # loudly instead of silently no-opping. (workflow_dispatch skips this.)
+      - name: Validate tag matches the chart version
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          version="$(helm show chart charts/redisoperator | awk '/^version:/ {print $2; exit}')"
+          tag_version="${GITHUB_REF_NAME#chart-v}"
+          if [ "${tag_version}" != "${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match chart version ${version}. Bump charts/redisoperator/Chart.yaml or retag."
+            exit 1
+          fi
+
+      # ci.yaml runs lint / CRD-drift / version-sync on master, PRs, and
+      # operator `v*` tags, but this chart-only path never goes through it. Run
+      # the same gates here so a `chart-v*` tag (or workflow_dispatch) cannot
+      # publish an invalid or drifted chart.
+      - name: Validate the chart
+        run: ./scripts/validate-chart.sh
+
+      - name: Log in to ghcr.io
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Publish chart
         env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: ./scripts/publish-oci-chart.sh
