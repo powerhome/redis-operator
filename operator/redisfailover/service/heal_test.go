@@ -45,7 +45,7 @@ func TestResetReplicaConnections(t *testing.T) {
 	assert.NoError(err)
 }
 
-func TestSetOldestAsMasterNewMasterError(t *testing.T) {
+func TestSeedMasterReportsAFailureToPromote(t *testing.T) {
 	assert := assert.New(t)
 
 	rf := generateRF()
@@ -68,11 +68,78 @@ func TestSetOldestAsMasterNewMasterError(t *testing.T) {
 
 	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
 
-	err := healer.SetOldestAsMaster(rf)
+	err := healer.SeedMaster(rf, "")
 	assert.Error(err)
 }
 
-func TestSetOldestAsMaster(t *testing.T) {
+// The node Sentinel still holds is seeded, whatever order the pods arrive in
+// and whatever their ages say. That record is the last decision Sentinel made,
+// and putting it back is the difference between restoring a master and picking
+// one.
+func TestSeedMasterPrefersTheRememberedNode(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+	older := metav1.NewTime(time.Now().Add(-time.Hour))
+	newer := metav1.NewTime(time.Now())
+
+	pods := &corev1.PodList{
+		Items: []corev1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0", CreationTimestamp: older},
+				Status:     corev1.PodStatus{PodIP: "1.1.1.1"},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-1", CreationTimestamp: newer},
+				Status:     corev1.PodStatus{PodIP: "2.2.2.2"},
+			},
+		},
+	}
+
+	ms := &mK8SService.Services{}
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
+	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Return(nil)
+	mr := &mRedisService.Client{}
+	// The younger pod, which the age ordering would have demoted.
+	mr.On("MakeMaster", "2.2.2.2", "0", "").Once().Return(nil)
+	mr.On("MakeSlaveOfWithPort", "1.1.1.1", "0", "rfr-test-1.rfr-test.testns.svc", "0", "").Once().Return(nil)
+
+	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
+
+	err := healer.SeedMaster(rf, rfservice.RedisPodHostname(rf, "rfr-test-1"))
+	assert.NoError(err)
+	mr.AssertExpectations(t)
+}
+
+// A name nobody here answers to is no instruction at all, so the fallback order
+// applies rather than the seeding failing.
+func TestSeedMasterIgnoresARememberedNodeThatIsGone(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+	pods := &corev1.PodList{
+		Items: []corev1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0", CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Hour))},
+				Status:     corev1.PodStatus{PodIP: "1.1.1.1"},
+			},
+		},
+	}
+
+	ms := &mK8SService.Services{}
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
+	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Return(nil)
+	mr := &mRedisService.Client{}
+	mr.On("MakeMaster", "1.1.1.1", "0", "").Once().Return(nil)
+
+	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
+
+	err := healer.SeedMaster(rf, rfservice.RedisPodHostname(rf, "rfr-test-99"))
+	assert.NoError(err)
+	mr.AssertExpectations(t)
+}
+
+func TestSeedMasterPromotesTheOnlyPod(t *testing.T) {
 	assert := assert.New(t)
 
 	rf := generateRF()
@@ -95,13 +162,13 @@ func TestSetOldestAsMaster(t *testing.T) {
 
 	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
 
-	err := healer.SetOldestAsMaster(rf)
+	err := healer.SeedMaster(rf, "")
 	assert.NoError(err)
 }
 
 // Demoting the rest still happens even when one of them fails, so the failover
 // ends with as few masters as it can, and the failure is still reported.
-func TestSetOldestAsMasterDemotesTheRestAfterAFailure(t *testing.T) {
+func TestSeedMasterDemotesTheRestAfterAFailure(t *testing.T) {
 	assert := assert.New(t)
 
 	rf := generateRF()
@@ -125,7 +192,7 @@ func TestSetOldestAsMasterDemotesTheRestAfterAFailure(t *testing.T) {
 
 	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
 
-	err := healer.SetOldestAsMaster(rf)
+	err := healer.SeedMaster(rf, "")
 
 	// Each failure is a node still acting as a master, so naming only the first
 	// would understate how far the failover is from having one.
@@ -138,7 +205,7 @@ func TestSetOldestAsMasterDemotesTheRestAfterAFailure(t *testing.T) {
 
 // A pod that could not be demoted is still a master. Reporting success leaves
 // the failover with more than one and nothing looking for it.
-func TestSetOldestAsMasterMultiplePodsMakeSlaveOfError(t *testing.T) {
+func TestSeedMasterReportsAFailureToDemote(t *testing.T) {
 	assert := assert.New(t)
 
 	rf := generateRF()
@@ -169,11 +236,11 @@ func TestSetOldestAsMasterMultiplePodsMakeSlaveOfError(t *testing.T) {
 
 	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
 
-	err := healer.SetOldestAsMaster(rf)
+	err := healer.SeedMaster(rf, "")
 	assert.Error(err, "a failed demotion leaves a second master and must be reported")
 }
 
-func TestSetOldestAsMasterMultiplePods(t *testing.T) {
+func TestSeedMasterMakesEveryOtherPodAReplica(t *testing.T) {
 	assert := assert.New(t)
 
 	rf := generateRF()
@@ -204,11 +271,11 @@ func TestSetOldestAsMasterMultiplePods(t *testing.T) {
 
 	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
 
-	err := healer.SetOldestAsMaster(rf)
+	err := healer.SeedMaster(rf, "")
 	assert.NoError(err)
 }
 
-func TestSetOldestAsMasterOrdering(t *testing.T) {
+func TestSeedMasterFallsBackToPodOrderWithNoPreference(t *testing.T) {
 	assert := assert.New(t)
 
 	rf := generateRF()
@@ -250,7 +317,7 @@ func TestSetOldestAsMasterOrdering(t *testing.T) {
 
 	healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
 
-	err := healer.SetOldestAsMaster(rf)
+	err := healer.SeedMaster(rf, "")
 	assert.NoError(err)
 }
 
