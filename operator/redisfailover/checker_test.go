@@ -343,18 +343,30 @@ func TestCheckAndHeal(t *testing.T) {
 				case 0:
 					//mrfc.On("GetRedisesIPs", rf).Once().Return(make([]string, test.nRedis), nil)
 					if rf.Spec.Redis.Replicas == 1 {
-						mrfh.On("SetOldestAsMaster", rf).Once().Return(nil)
+						// Before seeding, the operator asks the Sentinels for the last
+						// master they elected. Nothing remembered here, so the
+						// seeding falls back to an order of its own.
+						mrfc.On("GetSentinelRememberedMaster", rf).Once().Return("", nil)
+						mrfh.On("SeedMaster", rf, mock.Anything).Once().Return(nil)
 						continueTests = false
 						break
 					}
 					mrfc.On("GetMaxRedisPodTime", rf).Once().Return(1*time.Hour, nil)
 					if test.forceNewMasterNoQrm {
 						mrfc.On("CheckSentinelQuorum", rf).Once().Return(1, errors.New(""))
-						mrfh.On("SetOldestAsMaster", rf).Once().Return(nil)
+						// Before seeding, the operator asks the Sentinels for the last
+						// master they elected. Nothing remembered here, so the
+						// seeding falls back to an order of its own.
+						mrfc.On("GetSentinelRememberedMaster", rf).Once().Return("", nil)
+						mrfh.On("SeedMaster", rf, mock.Anything).Once().Return(nil)
 					} else if test.forceNewMasterFirstBoot {
 						mrfc.On("CheckSentinelQuorum", rf).Once().Return(3, nil)
 						mrfc.On("CheckIfMasterLocalhost", rf).Once().Return(true, nil)
-						mrfh.On("SetOldestAsMaster", rf).Once().Return(nil)
+						// Before seeding, the operator asks the Sentinels for the last
+						// master they elected. Nothing remembered here, so the
+						// seeding falls back to an order of its own.
+						mrfc.On("GetSentinelRememberedMaster", rf).Once().Return("", nil)
+						mrfh.On("SeedMaster", rf, mock.Anything).Once().Return(nil)
 					} else {
 						mrfc.On("CheckSentinelQuorum", rf).Once().Return(3, nil)
 						mrfc.On("CheckIfMasterLocalhost", rf).Once().Return(false, nil)

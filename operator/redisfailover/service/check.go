@@ -33,6 +33,7 @@ type RedisFailoverCheck interface {
 	GetNumberMasters(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetSentinelsIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
+	GetSentinelRememberedMaster(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetMaxRedisPodTime(rFailover *redisfailoverv1.RedisFailover) (time.Duration, error)
 	GetRedisesPodsWithStalePassword(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesSlavesPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
@@ -439,6 +440,50 @@ func (r *RedisFailoverChecker) GetRedisesIPs(rf *redisfailoverv1.RedisFailover) 
 		}
 	}
 	return redises, nil
+}
+
+// GetSentinelRememberedMaster returns the master the Sentinels still hold,
+// which is the last one they elected.
+//
+// After every Redis restarts there is no master to find by asking the Redis
+// themselves: each comes back replicating from localhost, because that is what
+// its generated configuration says. Sentinel decided which node was master
+// while the failover was running and wrote it down, so where that record
+// survives it is the answer, and it is the answer from the component this
+// operator defers to rather than a guess made in its absence.
+//
+// Empty when the Sentinels have nothing to say: none reachable, none agreeing,
+// or all of them back to watching localhost because they kept nothing. The
+// caller falls back to seeding without a preference.
+func (r *RedisFailoverChecker) GetSentinelRememberedMaster(rf *redisfailoverv1.RedisFailover) (string, error) {
+	sentinels, err := r.GetSentinelsIPs(rf)
+	if err != nil {
+		return "", err
+	}
+
+	port := rf.Spec.Sentinel.Port.ToString()
+	remembered := ""
+	for _, sip := range sentinels {
+		host, _, err := r.redisClient.GetSentinelMonitor(sip, port)
+		if err != nil {
+			r.logger.Debugf("sentinel %s could not be asked what it monitors: %v", sip, err)
+			continue
+		}
+		if host == "" || host == "127.0.0.1" {
+			continue
+		}
+		if remembered == "" {
+			remembered = host
+			continue
+		}
+		if remembered != host {
+			// Two Sentinels naming different masters is not a record to act
+			// on. Saying nothing leaves the caller where it was.
+			r.logger.Infof("sentinels disagree on the last master, %s and %s, so neither is used", remembered, host)
+			return "", nil
+		}
+	}
+	return remembered, nil
 }
 
 // getSentinelPods returns the Sentinel pods, whichever way they are being run.

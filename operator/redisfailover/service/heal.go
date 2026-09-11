@@ -16,7 +16,7 @@ import (
 type RedisFailoverHeal interface {
 	MakeMaster(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	ResetReplicaConnections(ip string, rFailover *redisfailoverv1.RedisFailover) error
-	SetOldestAsMaster(rFailover *redisfailoverv1.RedisFailover) error
+	SeedMaster(rFailover *redisfailoverv1.RedisFailover, preferred string) error
 	SetMasterOnAll(masterIP string, rFailover *redisfailoverv1.RedisFailover) error
 	SetExternalMasterOnAll(masterIP string, masterPort string, rFailover *redisfailoverv1.RedisFailover) error
 	NewSentinelMonitor(ip string, monitor string, rFailover *redisfailoverv1.RedisFailover) error
@@ -102,7 +102,19 @@ func (r *RedisFailoverHealer) ResetReplicaConnections(ip string, rf *redisfailov
 }
 
 // SetOldestAsMaster puts all redis to the same master, choosen by order of appearance
-func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailover) error {
+// SeedMaster gives a failover with no master one, and makes the rest replicate
+// from it.
+//
+// `preferred` names the node to start from, as the host a Sentinel reports
+// monitoring. That is the last master Sentinel elected, so seeding it puts back
+// the decision Sentinel already made rather than making a new one.
+//
+// Where it is empty, or names a pod that is not here, the order falls back to
+// creation time. That ordering says nothing about which node holds what, and
+// where every pod restarted together it does not even say which is older, since
+// they share a timestamp and what decides is the order the list arrived in. It
+// is a last resort and not a choice worth defending; see docs/adr/ADR-001.
+func (r *RedisFailoverHealer) SeedMaster(rf *redisfailoverv1.RedisFailover, preferred string) error {
 	ssp, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
 	if err != nil {
 		return err
@@ -111,8 +123,12 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 		return errors.New("number of redis pods are 0")
 	}
 
-	// Order the pods so we start by the oldest one
 	sort.Slice(ssp.Items, func(i, j int) bool {
+		if preferred != "" {
+			if iPreferred, jPreferred := RedisPodHostname(rf, ssp.Items[i].Name) == preferred, RedisPodHostname(rf, ssp.Items[j].Name) == preferred; iPreferred != jPreferred {
+				return iPreferred
+			}
+		}
 		return ssp.Items[i].CreationTimestamp.Before(&ssp.Items[j].CreationTimestamp)
 	})
 
@@ -160,7 +176,7 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 		}
 	}
 	if newMasterIP == "" {
-		return errors.New("SetOldestAsMaster- unable to set master")
+		return errors.New("SeedMaster- unable to set master")
 	}
 
 	return demotionErr

@@ -161,6 +161,24 @@ func (r *RedisFailoverHandler) reportMasterUnknown(rf *redisfailoverv1.RedisFail
 	}
 }
 
+// rememberedMaster is the master the Sentinels still hold, or empty if they
+// hold nothing worth acting on.
+//
+// Asking cannot fail the reconcile: a failover with no master is already in
+// trouble, and seeding it without a preference is what happened before anyone
+// could ask at all.
+func (r *RedisFailoverHandler) rememberedMaster(rf *redisfailoverv1.RedisFailover) string {
+	remembered, err := r.rfChecker.GetSentinelRememberedMaster(rf)
+	if err != nil {
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("could not ask the sentinels for the last master: %v", err)
+		return ""
+	}
+	if remembered != "" {
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("sentinels still hold %s as the last master, seeding that", remembered)
+	}
+	return remembered
+}
+
 // CheckAndHeal runs verifcation checks to ensure the RedisFailover is in an expected and healthy state.
 // If the checks do not match up to expectations, an attempt will be made to "heal" the RedisFailover into a healthy state.
 func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) error {
@@ -221,7 +239,7 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		//Configure to master
 		if rf.Spec.Redis.Replicas == 1 {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("Resource spec with standalone master - operator will set the master")
-			err = r.rfHealer.SetOldestAsMaster(rf)
+			err = r.rfHealer.SeedMaster(rf, r.rememberedMaster(rf))
 			setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.NO_MASTER, metrics.NOT_APPLICABLE, err)
 			if err != nil {
 				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Error in Setting oldest Pod as master")
@@ -246,7 +264,7 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		if err != nil {
 			// Sentinels are not in a situation to choose a master we pick one
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Quorum not available for sentinel to choose master,estimated unhealthy sentinels :%d , Operator to step-in", noqrm_cnt)
-			err2 := r.rfHealer.SetOldestAsMaster(rf)
+			err2 := r.rfHealer.SeedMaster(rf, r.rememberedMaster(rf))
 			setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.NO_MASTER, metrics.NOT_APPLICABLE, err2)
 			if err2 != nil {
 				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Error in Setting oldest Pod as master")
@@ -261,7 +279,7 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 			} else if status {
 				// all avaialable redis pods have local host ip as master
 				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("all available redis is having local loop back as master , operator initiates master selection")
-				err3 := r.rfHealer.SetOldestAsMaster(rf)
+				err3 := r.rfHealer.SeedMaster(rf, r.rememberedMaster(rf))
 				setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.NO_MASTER, metrics.NOT_APPLICABLE, err3)
 				if err3 != nil {
 					r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Error in Setting oldest Pod as master")

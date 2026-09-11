@@ -121,6 +121,24 @@ func (_m *RedisFailoverHeal) RestoreSentinel(ip string, port string) error {
 	return r0
 }
 
+// SeedMaster provides a mock function with given fields: rFailover, preferred
+func (_m *RedisFailoverHeal) SeedMaster(rFailover *v1.RedisFailover, preferred string) error {
+	ret := _m.Called(rFailover, preferred)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SeedMaster")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover, string) error); ok {
+		r0 = rf(rFailover, preferred)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // SetExternalMasterOnAll provides a mock function with given fields: masterIP, masterPort, rFailover
 func (_m *RedisFailoverHeal) SetExternalMasterOnAll(masterIP string, masterPort string, rFailover *v1.RedisFailover) error {
 	ret := _m.Called(masterIP, masterPort, rFailover)
@@ -150,24 +168,6 @@ func (_m *RedisFailoverHeal) SetMasterOnAll(masterIP string, rFailover *v1.Redis
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, *v1.RedisFailover) error); ok {
 		r0 = rf(masterIP, rFailover)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// SetOldestAsMaster provides a mock function with given fields: rFailover
-func (_m *RedisFailoverHeal) SetOldestAsMaster(rFailover *v1.RedisFailover) error {
-	ret := _m.Called(rFailover)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetOldestAsMaster")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) error); ok {
-		r0 = rf(rFailover)
 	} else {
 		r0 = ret.Error(0)
 	}
