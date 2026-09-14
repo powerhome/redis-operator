@@ -9,6 +9,10 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Changed
+
+- [Install the operator from `ghcr.io/powerhome/redis-operator`](https://github.com/powerhome/redis-operator/pull/122). The kustomize manifests and the plain deployment examples name ghcr, where the operator image and the Helm chart are both published, so a cluster needs credentials for one registry rather than two. Docker Hub carries the same tags, and remains the only place `v4.5.0` and earlier exist. Both sets of manifests previously installed `quay.io/spotahome/redis-operator`, so an install from either one ran the upstream operator rather than this one.
+
 ## [v4.6.0] - 2026-09-04
 
 ### Upgrade note
