@@ -1085,6 +1085,36 @@ func (_m *Services) ListStatefulSets(namespace string) (*appsv1.StatefulSetList,
 	return r0, r1
 }
 
+// PodsWaitingOnFilesystemResize provides a mock function with given fields: namespace, name
+func (_m *Services) PodsWaitingOnFilesystemResize(namespace string, name string) (map[string]bool, error) {
+	ret := _m.Called(namespace, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PodsWaitingOnFilesystemResize")
+	}
+
+	var r0 map[string]bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) (map[string]bool, error)); ok {
+		return rf(namespace, name)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) map[string]bool); ok {
+		r0 = rf(namespace, name)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]bool)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(namespace, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // UpdateConfigMap provides a mock function with given fields: namespace, configMap
 func (_m *Services) UpdateConfigMap(namespace string, configMap *v1.ConfigMap) error {
 	ret := _m.Called(namespace, configMap)

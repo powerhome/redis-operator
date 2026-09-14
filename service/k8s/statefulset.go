@@ -29,6 +29,7 @@ type StatefulSet interface {
 	CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error
 	DeleteStatefulSet(namespace string, name string) error
 	DeleteStatefulSetKeepingPods(namespace string, name string) error
+	PodsWaitingOnFilesystemResize(namespace string, name string) (map[string]bool, error)
 	ListStatefulSets(namespace string) (*appsv1.StatefulSetList, error)
 }
 
@@ -207,6 +208,64 @@ func (s *StatefulSetService) deleteStatefulSet(namespace, name string, propagati
 	err := s.kubeClient.AppsV1().StatefulSets(namespace).Delete(context.TODO(), name, metav1.DeleteOptions{PropagationPolicy: &propagation})
 	recordMetrics(namespace, "StatefulSet", name, "DELETE", err, s.metricsRecorder)
 	return err
+}
+
+// PodsWaitingOnFilesystemResize names the statefulset's pods whose volume has
+// grown but whose filesystem has not, and will not until the pod restarts.
+//
+// A claim that grows is expanded twice: the volume, then the filesystem on it.
+// A driver that can do the second while the volume is mounted does both and
+// leaves nothing behind. One that cannot marks the claim and waits for the pod
+// to go, and something has to make that happen: a claim size is not part of the
+// pod template, so no pod is stale by revision and nothing else would replace
+// it. The claim would read as resized, the volume would be larger, and the
+// filesystem the Redis writes to would still be the old size.
+func (s *StatefulSetService) PodsWaitingOnFilesystemResize(namespace, name string) (map[string]bool, error) {
+	waiting := map[string]bool{}
+
+	statefulSet, err := s.GetStatefulSet(namespace, name)
+	if err != nil {
+		return nil, err
+	}
+	if statefulSet == nil || len(statefulSet.Spec.VolumeClaimTemplates) == 0 {
+		return waiting, nil
+	}
+
+	pvcs, err := s.kubeClient.CoreV1().PersistentVolumeClaims(namespace).List(context.TODO(), metav1.ListOptions{})
+	recordMetrics(namespace, "PersistentVolumeClaim", metrics.NOT_APPLICABLE, "LIST", err, s.metricsRecorder)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, pvc := range pvcs.Items {
+		if !pendingFilesystemResize(pvc) {
+			continue
+		}
+		// A statefulset names a claim `<template>-<pod>`, so what the template
+		// name does not account for is the pod holding it.
+		for _, template := range statefulSet.Spec.VolumeClaimTemplates {
+			prefix := template.Name + "-"
+			if !strings.HasPrefix(pvc.Name, prefix) {
+				continue
+			}
+			pod := strings.TrimPrefix(pvc.Name, prefix)
+			if strings.HasPrefix(pod, name+"-") {
+				waiting[pod] = true
+			}
+		}
+	}
+
+	return waiting, nil
+}
+
+func pendingFilesystemResize(pvc corev1.PersistentVolumeClaim) bool {
+	for _, condition := range pvc.Status.Conditions {
+		if condition.Type == corev1.PersistentVolumeClaimFileSystemResizePending &&
+			condition.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
 
 // ListStatefulSets will retrieve a list of statefulset in the given namespace
