@@ -167,7 +167,7 @@ generate-go: image-dev-tools
 # Generate testing mocks
 .PHONY: generate-mocks
 generate-mocks: image-dev-tools
-	docker run -ti --rm \
+	docker run --rm $(DOCKER_INTERACTIVE) \
 	  -v $(PWD):$(WORKDIR) \
 	  -u $(UID):$(UID) \
 	  --name $(SERVICE_NAME) \

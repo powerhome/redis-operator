@@ -42,7 +42,9 @@ func newStatefulSetCreateAction(ns string, statefulSet *appsv1.StatefulSet) kube
 }
 
 func newStatefulSetDeleteAction(ns string, name string) kubetesting.DeleteActionImpl {
-	propagation := metav1.DeletePropagationForeground
+	// The resize path orphans: taking the pods with the set would stop every
+	// Redis in the failover at once.
+	propagation := metav1.DeletePropagationOrphan
 	return kubetesting.NewDeleteActionWithOptions(statefulSetsGroup, ns, name, metav1.DeleteOptions{PropagationPolicy: &propagation})
 }
 

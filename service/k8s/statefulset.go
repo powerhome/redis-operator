@@ -28,6 +28,7 @@ type StatefulSet interface {
 	UpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error
 	CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error
 	DeleteStatefulSet(namespace string, name string) error
+	DeleteStatefulSetKeepingPods(namespace string, name string) error
 	ListStatefulSets(namespace string) (*appsv1.StatefulSetList, error)
 }
 
@@ -162,8 +163,8 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 				storedStatefulSet.Annotations = annotations
 				if realUpdate {
 					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("resize statefulset pvcs from %d to %d Success", storedCapacity, stateCapacity)
-					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("removing statefulset to mount resized pvcs")
-					return s.DeleteStatefulSet(namespace, statefulSet.Name)
+					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("replacing statefulset to carry the resized pvcs; its pods keep running")
+					return s.DeleteStatefulSetKeepingPods(namespace, statefulSet.Name)
 				} else {
 					s.logger.WithField("namespace", namespace).WithField("pvc", rfName).Warningf("set annotations,resize nothing")
 				}
@@ -176,9 +177,33 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 	return s.UpdateStatefulSet(namespace, statefulSet)
 }
 
-// DeleteStatefulSet will delete the statefulset
+// DeleteStatefulSet will delete the statefulset and the pods it owns.
 func (s *StatefulSetService) DeleteStatefulSet(namespace, name string) error {
-	propagation := metav1.DeletePropagationForeground
+	return s.deleteStatefulSet(namespace, name, metav1.DeletePropagationForeground)
+}
+
+// DeleteStatefulSetKeepingPods removes the statefulset and leaves the pods it
+// owned running, unowned, for the next reconcile to recreate the set and adopt
+// them.
+//
+// A statefulset's volumeClaimTemplates cannot be changed, so a claim that grows
+// can only reach the set by replacing it. Deleting the set the ordinary way
+// takes every pod with it at once, which for a failover is every Redis in it.
+// Orphaning leaves them serving while the set is absent, and the set that
+// replaces it adopts them by selector.
+//
+// Nothing restarts on adoption: the pods are governed by the OnDelete update
+// strategy, so the statefulset controller will not replace a pod it considers
+// stale. A claim size is not part of the pod template and so does not change
+// the revision the pods carry, which means a resize on its own restarts
+// nothing. Where the pod template changed as well, the adopted pods carry the
+// previous revision, and the operator replaces them one at a time, replicas
+// before the master.
+func (s *StatefulSetService) DeleteStatefulSetKeepingPods(namespace, name string) error {
+	return s.deleteStatefulSet(namespace, name, metav1.DeletePropagationOrphan)
+}
+
+func (s *StatefulSetService) deleteStatefulSet(namespace, name string, propagation metav1.DeletionPropagation) error {
 	err := s.kubeClient.AppsV1().StatefulSets(namespace).Delete(context.TODO(), name, metav1.DeleteOptions{PropagationPolicy: &propagation})
 	recordMetrics(namespace, "StatefulSet", name, "DELETE", err, s.metricsRecorder)
 	return err

@@ -497,6 +497,24 @@ func (_m *Services) DeleteStatefulSet(namespace string, name string) error {
 	return r0
 }
 
+// DeleteStatefulSetKeepingPods provides a mock function with given fields: namespace, name
+func (_m *Services) DeleteStatefulSetKeepingPods(namespace string, name string) error {
+	ret := _m.Called(namespace, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteStatefulSetKeepingPods")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string) error); ok {
+		r0 = rf(namespace, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // GetClusterRole provides a mock function with given fields: name
 func (_m *Services) GetClusterRole(name string) (*rbacv1.ClusterRole, error) {
 	ret := _m.Called(name)
