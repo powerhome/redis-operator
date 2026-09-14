@@ -146,6 +146,18 @@ change must be applied to all four by hand until a generator collapses them.
   the fresh-push and the already-published no-op paths, so a package that is left
   (or later goes) private is caught on every run, not only the one that pushed.
 
+- **Chart changes are recorded in `charts/redisoperator/CHANGELOG.md`.** A version
+  that moves on its own needs somewhere of its own to be described. The repository
+  changelog is keyed by operator release (`## [v4.6.0]`), so a chart-only release
+  has no heading to sit under: an entry there either waits in `Unreleased` while
+  the chart ships without it, or lands under an operator version it was never part
+  of. A chart-local changelog keyed by chart version says what each published
+  chart changed, next to the thing it describes. The repository changelog stays the
+  operator's, which is what it already is in practice. The alternative, an
+  `artifacthub.io/changes` annotation in `Chart.yaml`, was not taken: it is
+  rendered by Artifact Hub, and this chart publishes only to ghcr as an OCI
+  artifact, so the annotation would be written and never read.
+
 ## Verification
 
 - `helm lint` and `helm template` pass; the rendered Deployment resolves
