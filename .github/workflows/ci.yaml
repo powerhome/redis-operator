@@ -183,6 +183,24 @@ jobs:
             echo "::error::values.yaml image.tag (${img_tag}) != Makefile VERSION (${version}). Update charts/redisoperator/values.yaml in the release commit."
             rc=1
           fi
+          # The chart is not the only documented way in. The kustomize version
+          # component and the plain deployment examples carry an image tag of
+          # their own, and a reader who follows those paths gets whatever they
+          # say. Drift there installs a different operator than the chart does,
+          # while reporting success, so it is checked rather than left to the
+          # release commit to remember.
+          kustomize_tag="$(sed -n 's/^[[:space:]]*newTag:[[:space:]]*//p' manifests/kustomize/components/version/kustomization.yaml | head -1)"
+          if [ "${kustomize_tag}" != "${version}" ]; then
+            echo "::error::kustomize newTag (${kustomize_tag}) != Makefile VERSION (${version}). Update manifests/kustomize/components/version/kustomization.yaml in the release commit."
+            rc=1
+          fi
+          for f in example/operator/operator.yaml example/operator/all-redis-operator-resources.yaml; do
+            example_tag="$(sed -n 's|^[[:space:]]*-\{0,1\}[[:space:]]*image:[[:space:]]*ghcr.io/powerhome/redis-operator:||p' "${f}" | head -1)"
+            if [ "${example_tag}" != "${version}" ]; then
+              echo "::error::${f} image tag (${example_tag:-none}) != Makefile VERSION (${version}). Update it in the release commit."
+              rc=1
+            fi
+          done
           exit "${rc}"
 
   # Despite the name, this job publishes the operator image to both Docker Hub

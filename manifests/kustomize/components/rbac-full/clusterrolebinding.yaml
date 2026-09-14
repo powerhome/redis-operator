@@ -9,3 +9,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: redis-operator
+    # A ClusterRoleBinding subject carries no namespace of its own, so one
+    # has to be named here. Setting `namespace:` in a kustomization rewrites
+    # it, so an install into another namespace binds to its own account.
+    namespace: default

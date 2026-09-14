@@ -56,6 +56,10 @@ kubectl apply -f https://raw.githubusercontent.com/powerhome/redis-operator/${RE
 
 This will create a deployment named `redisoperator`.
 
+The manifest includes a `ServiceMonitor` and a `PodMonitor`. Both are skipped with a
+`no matches for kind` message on a cluster without the Prometheus operator's custom
+resource definitions installed; the operator itself still starts.
+
 ### Using kustomize
 
 The kustomize setup included in this repo is highly customizable using [components](https://kubectl.docs.kubernetes.io/guides/config_management/components/),
@@ -64,8 +68,13 @@ but it also comes with a few presets (in the form of overlays) supporting the mo
 To install the operator with default settings and every necessary resource (including RBAC, service account, default resource limits, etc), install the `default` overlay:
 
 ```shell
-kustomize build github.com/powerhome/redis-operator/manifests/kustomize/overlays/default
+kustomize build github.com/powerhome/redis-operator/manifests/kustomize/overlays/default \
+  | kubectl apply --server-side -f -
 ```
+
+`--server-side` is required rather than preferred. The custom resource definition is
+over a megabyte, and a client-side apply stores what it sent in an annotation capped at
+256KiB, so it is rejected with `metadata.annotations: Too long`.
 
 If you would like to customize RBAC or the service account used, you can install the `minimal` overlay.
 
@@ -439,13 +448,17 @@ kubectl delete redisfailover <NAME>
 The `powerhome` fork publishes the operator image to two registries with identical
 tags, digests, and platforms:
 
-- Docker Hub (default): `powerhome/redis-operator`
-- GitHub Container Registry: `ghcr.io/powerhome/redis-operator`
+- GitHub Container Registry (default): `ghcr.io/powerhome/redis-operator`
+- Docker Hub: `powerhome/redis-operator`
 
-Docker Hub remains the advertised default. ghcr is a mirror added alongside it and is
-**not backfilled**: ghcr carries only releases published *after* `v4.5.0`. `v4.5.0` and
-every earlier tag (for example `v4.4.1`) exist **only on Docker Hub** — pull those from
-Docker Hub, as ghcr will not have them.
+ghcr is the default. The Helm chart, the kustomize manifests, and the plain deployment
+examples all install from it, and it is where the chart itself is published, so a
+cluster needs credentials for one registry rather than two. Both packages are public
+and pull anonymously.
+
+ghcr is **not backfilled**: it carries only releases published *after* `v4.5.0`.
+`v4.5.0` and every earlier tag (for example `v4.4.1`) exist **only on Docker Hub**, so
+pull those from Docker Hub.
 
 ## Documentation
 
