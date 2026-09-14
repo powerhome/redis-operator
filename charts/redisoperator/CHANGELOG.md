@@ -8,7 +8,7 @@ and the chart follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 The chart's `version` moves independently of the operator's, so a chart-only fix
 ships without a fake operator release. `appVersion` names the operator a given
 chart version installs. Changes to the operator are recorded in the
-[repository changelog](../../CHANGELOG.md); this file covers the chart alone.
+[repository changelog](https://github.com/powerhome/redis-operator/blob/master/CHANGELOG.md); this file covers the chart alone.
 
 ## Unreleased
 
