@@ -4,7 +4,7 @@
 
 # Name of the image repository to pull the container image from.
 image:
-  repository: powerhome/redis-operator
+  repository: ghcr.io/powerhome/redis-operator
   pullPolicy: IfNotPresent
   tag: v4.6.0
   cli_args: ""
