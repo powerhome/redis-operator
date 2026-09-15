@@ -9,6 +9,16 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.7.0] - 2026-09-15
+
+### Upgrade note
+
+Raising the storage on a `RedisFailover` no longer stops every Redis in it at the same moment. Where the storage driver grows a mounted filesystem, nothing restarts. Where it needs a pod restart before the filesystem follows the volume, the operator restarts them one at a time, replicas before the master.
+
+That restart is a Sentinel failover, and clients reaching Redis through the `rfrm-` master service lose writes while it happens. At the default three replicas we measured about a minute. Clients reaching it through HAProxy lost none. The `rfrm-` service follows a new master only once the operator relabels the pod, which it does on a 30 second loop.
+
+The kustomize manifests and the plain deployment examples install `ghcr.io/powerhome/redis-operator:v4.7.0`. At `v4.6.0` they named the upstream project's image, so anyone who installed from them has been running a different operator.
+
 ### Fixed
 
 - [Expand a volume without stopping every Redis at once](https://github.com/powerhome/redis-operator/pull/125), resolving [#81](https://github.com/powerhome/redis-operator/issues/81). Raising `storage.persistentVolumeClaim.spec.resources.requests.storage` replaced the `StatefulSet` in a way that took every Redis pod with it at the same moment. The pods now keep serving while the set is replaced around them. Where the storage driver needs a pod restart before the filesystem follows the volume, the operator restarts them one at a time, replicas before the master.

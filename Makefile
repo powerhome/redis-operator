@@ -1,4 +1,4 @@
-VERSION := v4.6.0
+VERSION := v4.7.0
 
 # Name of this service/application
 SERVICE_NAME := redis-operator
@@ -91,10 +91,18 @@ image-dev-tools: ensure-docker
 shell: image-dev-tools
 	$(DOCKER_RUN_CMD) /bin/bash
 
-# Create a git tag using the VERSION
-.PHONY: tag
-tag:
-	git tag $(VERSION)
+# Tag an operator release. The tag name comes from VERSION above. See the
+# script for what it refuses.
+.PHONY: tag-operator
+tag-operator:
+	@./scripts/tag-operator.sh
+
+# Tag a chart-only release. The tag name comes from Chart.yaml, where the
+# chart's version lives because it moves without the operator. See the script
+# for what it refuses.
+.PHONY: tag-chart
+tag-chart:
+	@./scripts/tag-chart.sh
 
 # Run unit tests in the development docker container (DEV)
 .PHONY: test-unit
@@ -141,6 +149,14 @@ generate-client:
 # Allocate a TTY for interactive local runs, but let CI override it with
 # `DOCKER_INTERACTIVE=` so `make generate-crd` works on a runner with no TTY.
 DOCKER_INTERACTIVE ?= -it
+
+# Make every version marker agree with VERSION above. The changelogs are left
+# alone: they want prose.
+#   make prepare-release                        after editing VERSION above
+#   make prepare-release CHART_VERSION=4.7.0    the chart patch-bumps otherwise
+.PHONY: prepare-release
+prepare-release:
+	@./scripts/prepare-release.sh "$(VERSION)" "$(CHART_VERSION)"
 
 # Generate kubernetes Custom Resource Definitions
 .PHONY: generate-crd

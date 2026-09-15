@@ -31,11 +31,15 @@ You can do the following commands with make:
 - Generate kubernetes Custom Resource Definitions
   `make generate-crd`
 - Generate go code.
-  `make generate-mocks`
+  `make generate-go`
 - Generate mocks.
   `make generate-mocks`
 - Run all code generators
   `make generate`
+- Lint the Go code
+  `make lint`
+- Lint the GitHub Actions workflow files
+  `make lint-workflows`
 - Build the development environment docker image.
   `make image-dev-tools`
 - Build the operator image for local, end-to-end testing purposes
@@ -45,6 +49,8 @@ You can do the following commands with make:
 - Run unit tests in the development docker container
   `make test-unit`
 - Run helm tests in the development docker container
-  `make test-heml`
+  `make test-helm`
 - Run all development tests
   `make test`
+
+Releasing has its own commands and order. See [releasing](releasing.md).
