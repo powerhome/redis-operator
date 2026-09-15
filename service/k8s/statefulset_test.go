@@ -43,8 +43,7 @@ func newStatefulSetCreateAction(ns string, statefulSet *appsv1.StatefulSet) kube
 }
 
 func newStatefulSetDeleteAction(ns string, name string) kubetesting.DeleteActionImpl {
-	// The resize path orphans: taking the pods with the set would stop every
-	// Redis in the failover at once.
+	// The resize path orphans. A cascading delete would stop every Redis at once.
 	propagation := metav1.DeletePropagationOrphan
 	return kubetesting.NewDeleteActionWithOptions(statefulSetsGroup, ns, name, metav1.DeleteOptions{PropagationPolicy: &propagation})
 }
@@ -273,8 +272,8 @@ func TestPodsWaitingOnFilesystemResize(t *testing.T) {
 	statefulSet := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: appsv1.StatefulSetSpec{
-			// Kubernetes stamps the pods and claims it creates with the set's
-			// selector, which is what PodsWaitingOnFilesystemResize asks for.
+			// Kubernetes labels a set's pods and claims with its selector.
+			// PodsWaitingOnFilesystemResize looks them up by those labels.
 			Selector: &metav1.LabelSelector{MatchLabels: setLabels},
 		},
 	}
@@ -294,7 +293,6 @@ func TestPodsWaitingOnFilesystemResize(t *testing.T) {
 			Status:     corev1.PersistentVolumeClaimStatus{Conditions: conditions},
 		}
 	}
-	// A pod names the claims it holds; nothing here depends on how they are named.
 	pod := func(podName string, podLabels map[string]string, claimNames ...string) corev1.Pod {
 		volumes := []corev1.Volume{{Name: "config", VolumeSource: corev1.VolumeSource{
 			ConfigMap: &corev1.ConfigMapVolumeSource{},
@@ -326,7 +324,8 @@ func TestPodsWaitingOnFilesystemResize(t *testing.T) {
 			expected: map[string]bool{},
 		},
 		{
-			// The claim's name says nothing about which pod holds it; the pod does.
+			// This name is deliberately not one a statefulset would produce.
+			// Tidying it would let name parsing pass this case again.
 			name:     "the pod holding a waiting claim is named",
 			claims:   []corev1.PersistentVolumeClaim{claim("a-name-of-no-pattern", setLabels, pending)},
 			pods:     []corev1.Pod{pod("rfr-test-1", setLabels, "a-name-of-no-pattern")},

@@ -1216,8 +1216,8 @@ func TestUpdateRedisesPodsWaitingOnFilesystemResize(t *testing.T) {
 		},
 		{
 			name: "two replicas waiting are replaced one at a time",
-			// Both are waiting; only the first is taken this round, so the
-			// failover never loses two at once.
+			// Both are waiting. Only the first goes this round, so the failover
+			// never loses two at once.
 			waiting:  map[string]bool{"slave1": true, "slave2": true},
 			expected: []string{"slave1"},
 		},
@@ -1244,8 +1244,8 @@ func TestUpdateRedisesPodsWaitingOnFilesystemResize(t *testing.T) {
 			mrfc.On("CheckRedisSlavesReady", "0.0.0.0", rf).Once().Return(true, nil)
 			mrfc.On("CheckRedisSlavesReady", "0.0.0.1", rf).Once().Return(true, nil)
 
-			// Every pod already runs the current pod template, so a claim
-			// waiting on its filesystem is the only reason to replace one.
+			// Every pod already runs the current pod template. A waiting claim
+			// is the only thing that can cause a replacement here.
 			mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
 			mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(test.waiting, nil)
 			mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{"slave1", "slave2"}, nil)

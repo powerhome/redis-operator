@@ -515,8 +515,8 @@ func (r *RedisFailoverChecker) GetRedisesMasterPod(rFailover *redisfailoverv1.Re
 	return "", errors.New("redis nodes known as master not found")
 }
 
-// GetRedisesPodsWaitingOnFilesystemResize names the Redis pods whose volume has
-// grown but whose filesystem waits on a restart to follow it.
+// GetRedisesPodsWaitingOnFilesystemResize names the Redis pods that must
+// restart before their filesystem grows to match their claim.
 func (r *RedisFailoverChecker) GetRedisesPodsWaitingOnFilesystemResize(rFailover *redisfailoverv1.RedisFailover) (map[string]bool, error) {
 	return r.k8sService.PodsWaitingOnFilesystemResize(rFailover.Namespace, GetRedisName(rFailover))
 }

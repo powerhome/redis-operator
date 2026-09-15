@@ -44,9 +44,8 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		return err
 	}
 
-	// A pod whose volume grew but whose filesystem has not is replaced on the
-	// same terms as one running an old pod template. Both need the pod to go
-	// and come back, and both are worth no more than one pod at a time.
+	// A pod waiting on its filesystem needs replacing, the same as one running
+	// an old pod template. Either way, one pod at a time.
 	waitingOnResize, err := r.rfChecker.GetRedisesPodsWaitingOnFilesystemResize(rf)
 	if err != nil {
 		return err

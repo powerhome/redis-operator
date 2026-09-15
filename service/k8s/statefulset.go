@@ -165,12 +165,10 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 				if realUpdate {
 					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("resize statefulset pvcs from %d to %d Success", storedCapacity, stateCapacity)
 					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("replacing statefulset to carry the resized pvcs; its pods keep running")
-					// A statefulset's volumeClaimTemplates cannot be changed, so
-					// a claim that grows reaches the set only by replacing it.
-					// Taking the pods along would stop every Redis in the
-					// failover at the same moment, so they are left running for
-					// the replacement to adopt. Only a pod that has to restart
-					// then does, one at a time.
+					// volumeClaimTemplates cannot be changed. The only way to
+					// grow a claim is to replace the whole statefulset, and a
+					// normal delete would stop every Redis at once. Leave the
+					// pods running instead; the replacement adopts them.
 					return s.DeleteStatefulSetKeepingPods(namespace, statefulSet.Name)
 				} else {
 					s.logger.WithField("namespace", namespace).WithField("pvc", rfName).Warningf("set annotations,resize nothing")
@@ -189,11 +187,11 @@ func (s *StatefulSetService) DeleteStatefulSet(namespace, name string) error {
 	return s.deleteStatefulSet(namespace, name, metav1.DeletePropagationForeground)
 }
 
-// DeleteStatefulSetKeepingPods removes the statefulset and leaves its pods
-// running and unowned, for the set that replaces it to adopt by selector.
+// DeleteStatefulSetKeepingPods deletes the statefulset but leaves its pods
+// running. The next statefulset created with the same selector adopts them.
 //
-// Adoption alone restarts nothing, since these pods update on delete and the
-// statefulset controller replaces none of them on its own.
+// Adoption does not restart anything. These pods use the OnDelete update
+// strategy, so the statefulset controller never replaces a pod itself.
 func (s *StatefulSetService) DeleteStatefulSetKeepingPods(namespace, name string) error {
 	return s.deleteStatefulSet(namespace, name, metav1.DeletePropagationOrphan)
 }
@@ -204,14 +202,15 @@ func (s *StatefulSetService) deleteStatefulSet(namespace, name string, propagati
 	return err
 }
 
-// PodsWaitingOnFilesystemResize names the statefulset's pods whose volume has
-// grown but whose filesystem has not, and will not until the pod restarts.
+// PodsWaitingOnFilesystemResize names the pods that must restart before their
+// filesystem grows to match their claim.
 //
-// A claim grows in two steps, the volume and then the filesystem on it. A
-// driver that can grow a mounted filesystem does both. One that cannot marks
-// the claim and waits for the pod to go, and only the caller can make that
-// happen: a claim size is not part of the pod template, so nothing else reads
-// such a pod as needing replacement.
+// Growing a claim takes two steps: the volume, then the filesystem on it. Some
+// drivers do both while the volume stays mounted. Others grow the volume, mark
+// the claim, and wait for the pod to restart.
+//
+// Nothing else will restart that pod. A claim's size is not part of the pod
+// template, so the pod does not look out of date to anything that checks.
 func (s *StatefulSetService) PodsWaitingOnFilesystemResize(namespace, name string) (map[string]bool, error) {
 	waiting := map[string]bool{}
 
@@ -223,9 +222,9 @@ func (s *StatefulSetService) PodsWaitingOnFilesystemResize(namespace, name strin
 		return waiting, nil
 	}
 
-	// Kubernetes stamps both the pods and the claims it creates for a
-	// statefulset with that set's selector, so asking for those labels asks for
-	// this set's own and not everything sharing the namespace with it.
+	// Kubernetes labels a statefulset's pods and claims with that set's
+	// selector, so these labels select this set's own and nothing else in the
+	// namespace.
 	listOptions := metav1.ListOptions{
 		LabelSelector: labels.FormatLabels(statefulSet.Spec.Selector.MatchLabels),
 	}
@@ -252,8 +251,6 @@ func (s *StatefulSetService) PodsWaitingOnFilesystemResize(namespace, name strin
 		return nil, err
 	}
 
-	// A pod says which claims it holds, so it is asked rather than deduced from
-	// how a statefulset happens to name them.
 	for _, pod := range pods.Items {
 		for _, volume := range pod.Spec.Volumes {
 			claim := volume.PersistentVolumeClaim
