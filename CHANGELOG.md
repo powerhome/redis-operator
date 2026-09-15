@@ -11,7 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Fixed
 
-- [Expand a volume without stopping every Redis at once](https://github.com/powerhome/redis-operator/pull/125), resolving [#81](https://github.com/powerhome/redis-operator/issues/81). Raising `storage.persistentVolumeClaim.spec.resources.requests.storage` replaced the `StatefulSet` in a way that took every Redis pod with it at the same moment. The pods now keep serving while the set is replaced around them. Where the storage driver needs a pod restart before the filesystem follows the volume, the operator restarts them one at a time, replicas before the master, rather than leaving the claim enlarged and the filesystem as it was.
+- [Expand a volume without stopping every Redis at once](https://github.com/powerhome/redis-operator/pull/125), resolving [#81](https://github.com/powerhome/redis-operator/issues/81). Raising `storage.persistentVolumeClaim.spec.resources.requests.storage` replaced the `StatefulSet` in a way that took every Redis pod with it at the same moment. The pods now keep serving while the set is replaced around them. Where the storage driver needs a pod restart before the filesystem follows the volume, the operator restarts them one at a time, replicas before the master.
 
 ### Changed
 
