@@ -80,18 +80,21 @@ the chart publishes from the same tag.
    where that version is declared, and prints the push command with the tag it
    created. Nothing is published until those pushes run.
 
-   **Push them in order.** The operator tag publishes the image; the chart tag
-   publishes the chart, and the chart publish refuses while the image it names
-   is not pullable. So:
+   Push both tags. The operator tag publishes the image and the chart. The
+   chart tag publishes nothing new, and exists so that anyone running a chart
+   version can read the source it was built from.
+
+   Pushing the chart tag does start a second chart publish, because a
+   `chart-v*` tag is what a chart-only release pushes. It finds the version
+   already there and stops:
 
    ```
-   git push origin v<version>          # then wait for the image to finish building
-   git push origin chart-v<version>
+   >> Chart redis-operator 4.6.2 already published with identical content; will not re-push.
    ```
 
-   Pushing both together fails the chart publish, naming the image it could not
-   find. Nothing is broken by that: re-run the failed workflow once the image
-   exists.
+   The two paths share a concurrency group, so the second runs after the first
+   rather than alongside it. It costs about half a minute and publishes
+   nothing.
 
    It refuses three things. A version origin has already tagged, a commit that
    is not merged into origin's master, and a commit that is not the one that set
@@ -118,11 +121,10 @@ the chart publishes from the same tag.
    chart's version was not moved. An operator release always changes what the
    chart installs, so its version moves with it.
 
-The operator tag runs the full pipeline. `dockerhub-image` builds and pushes the
-operator image to Docker Hub and ghcr, and `latest` moves to it. The chart tag
-then publishes the chart, through the same workflow a chart-only release uses.
-It refuses if the image it names is not pullable, so a published chart never
-names an image that is not there.
+The tag runs the full pipeline. `dockerhub-image` builds and pushes the operator
+image to Docker Hub and ghcr, and `latest` moves to it. `chart-oci-publish` then
+publishes the chart, but only once the image exists and the chart's own gates
+pass. A published chart never names an image that is not there.
 
 ## Releasing the chart alone
 

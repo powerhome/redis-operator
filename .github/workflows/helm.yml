@@ -2,15 +2,26 @@ name: Publish Chart (OCI)
 
 # Publishes the Helm chart to ghcr.io as an OCI artifact under powerhome/charts.
 #
-# This is the only path that publishes the chart. It runs on a `chart-v<semver>`
-# tag, whether that tag comes from a chart-only release or from an operator
-# release, and can be run by hand from the Actions tab.
+# Operator releases publish from ci.yaml, on the operator `v*` tag, after the
+# operator image is built, so the chart never references an image that does not
+# exist yet. This workflow publishes on a `chart-v<semver>` tag, or when run by
+# hand from the Actions tab.
 #
-# publish-oci-chart.sh refuses to publish a chart whose operator image is not
-# pullable, so on an operator release the `v*` tag has to be pushed first and
-# its image built before the `chart-v*` tag is pushed. docs/releasing.md says
-# so. Pushing them together fails this workflow, with the image named; re-run it
-# once the image exists.
+# A release pushes both tags, so on an operator release both paths run for the
+# same chart version. They share a concurrency group, so the second starts after
+# the first has finished and finds the version already published with identical
+# content, which publish-oci-chart.sh reports and skips. The duplicate run is
+# the cost of the `chart-v*` tag doing two jobs: triggering a chart-only
+# release, and recording the source a published chart was built from.
+#
+# Do not remove it by publishing only from this workflow. publish-oci-chart.sh
+# refuses a chart whose operator image is not pullable, so the two tags would
+# have to be pushed in order, with the image built in between: measured at ~15
+# minutes on v4.7.0, against the ~30 seconds this run costs.
+#
+# Both entry points call the same scripts/publish-oci-chart.sh, which
+# authenticates to ghcr.io only with the built-in GITHUB_TOKEN -- no Docker Hub
+# login.
 on:
   push:
     tags:
@@ -20,9 +31,10 @@ on:
 jobs:
   publish-oci:
     name: Publish chart to ghcr.io (OCI)
-    # One publish at a time, repo-wide: the publish script's existence probe and
-    # push are not atomic, so concurrent runs on the same chart version could
-    # both see 404 and both push, bypassing the different-content guard.
+    # Same group as ci.yaml's chart-oci-publish so the two publish paths are
+    # serialized repo-wide: the publish script's existence probe and push are
+    # not atomic, so concurrent runs on the same chart version could both see
+    # 404 and both push, bypassing the different-content guard.
     concurrency:
       group: publish-oci-chart
       cancel-in-progress: false
