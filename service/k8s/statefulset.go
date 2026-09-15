@@ -227,11 +227,17 @@ func (s *StatefulSetService) PodsWaitingOnFilesystemResize(namespace, name strin
 	if err != nil {
 		return nil, err
 	}
-	if statefulSet == nil || len(statefulSet.Spec.VolumeClaimTemplates) == 0 {
+	if statefulSet == nil || statefulSet.Spec.Selector == nil || len(statefulSet.Spec.VolumeClaimTemplates) == 0 {
 		return waiting, nil
 	}
 
-	pvcs, err := s.kubeClient.CoreV1().PersistentVolumeClaims(namespace).List(context.TODO(), metav1.ListOptions{})
+	// Kubernetes stamps a claim it creates for a statefulset with that set's
+	// selector, so asking for the same labels asks for this set's claims and
+	// not every claim sharing the namespace with it.
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.FormatLabels(statefulSet.Spec.Selector.MatchLabels),
+	}
+	pvcs, err := s.kubeClient.CoreV1().PersistentVolumeClaims(namespace).List(context.TODO(), listOptions)
 	recordMetrics(namespace, "PersistentVolumeClaim", metrics.NOT_APPLICABLE, "LIST", err, s.metricsRecorder)
 	if err != nil {
 		return nil, err

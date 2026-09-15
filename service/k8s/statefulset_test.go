@@ -271,6 +271,11 @@ func TestPodsWaitingOnFilesystemResize(t *testing.T) {
 	statefulSet := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: appsv1.StatefulSetSpec{
+			// Kubernetes stamps claims with the set's selector, which is what
+			// PodsWaitingOnFilesystemResize asks for.
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app.kubernetes.io/name": "test"},
+			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 				{ObjectMeta: metav1.ObjectMeta{Name: "redis-data"}},
 			},
@@ -279,8 +284,12 @@ func TestPodsWaitingOnFilesystemResize(t *testing.T) {
 
 	claim := func(claimName string, conditions ...corev1.PersistentVolumeClaimCondition) corev1.PersistentVolumeClaim {
 		return corev1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{Name: claimName, Namespace: ns},
-			Status:     corev1.PersistentVolumeClaimStatus{Conditions: conditions},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      claimName,
+				Namespace: ns,
+				Labels:    map[string]string{"app.kubernetes.io/name": "test"},
+			},
+			Status: corev1.PersistentVolumeClaimStatus{Conditions: conditions},
 		}
 	}
 	pending := corev1.PersistentVolumeClaimCondition{
@@ -329,6 +338,24 @@ func TestPodsWaitingOnFilesystemResize(t *testing.T) {
 		{
 			name:     "a claim from another template is not this set's pod",
 			claims:   []corev1.PersistentVolumeClaim{claim("sentinel-config-rfr-test-0", pending)},
+			expected: map[string]bool{},
+		},
+		{
+			// A claim in the same namespace that this set did not create carries
+			// different labels, so the list never returns it.
+			name: "a claim belonging to something else is not listed",
+			claims: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "redis-data-rfr-test-0",
+						Namespace: ns,
+						Labels:    map[string]string{"app.kubernetes.io/name": "somethingelse"},
+					},
+					Status: corev1.PersistentVolumeClaimStatus{
+						Conditions: []corev1.PersistentVolumeClaimCondition{pending},
+					},
+				},
+			},
 			expected: map[string]bool{},
 		},
 	}

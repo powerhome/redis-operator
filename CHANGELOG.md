@@ -9,6 +9,10 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Fixed
+
+- [Expand a volume without stopping every Redis at once](https://github.com/powerhome/redis-operator/pull/125), resolving [#81](https://github.com/powerhome/redis-operator/issues/81). Raising `storage.persistentVolumeClaim.spec.resources.requests.storage` replaced the `StatefulSet` in a way that took every Redis pod with it at the same moment. The pods now keep serving while the set is replaced around them. Where the storage driver needs a pod restart before the filesystem follows the volume, the operator restarts them one at a time, replicas before the master, rather than leaving the claim enlarged and the filesystem as it was.
+
 ### Changed
 
 - [Install the operator from `ghcr.io/powerhome/redis-operator`](https://github.com/powerhome/redis-operator/pull/122). The kustomize manifests and the plain deployment examples name ghcr, where the operator image and the Helm chart are both published, so a cluster needs credentials for one registry rather than two. Docker Hub carries the same tags, and remains the only place `v4.5.0` and earlier exist. Both sets of manifests previously installed `quay.io/spotahome/redis-operator`, so an install from either one ran the upstream operator rather than this one.
