@@ -50,5 +50,21 @@ if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
   exit 1
 fi
 
+# Tagging anything other than what origin's master points at publishes a chart
+# built from a commit no one has reviewed. `helm.yml` cannot catch this: it
+# checks the tag's name against the chart's version, and both read the same on
+# a branch as on master.
+git fetch --quiet origin master
+head="$(git rev-parse HEAD)"
+master="$(git rev-parse FETCH_HEAD)"
+if [ "${head}" != "${master}" ]; then
+  echo "!! HEAD is not origin/master." >&2
+  echo "   HEAD           ${head}" >&2
+  echo "   origin/master  ${master}" >&2
+  echo "   A release tags what is on master. Check the version bump is merged," >&2
+  echo "   that nothing has merged after it, and that this clone has pulled." >&2
+  exit 1
+fi
+
 git tag "${TAG}"
 echo "tagged ${TAG}. Push it to publish: git push origin ${TAG}"

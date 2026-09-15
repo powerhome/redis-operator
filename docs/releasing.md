@@ -125,10 +125,14 @@ For a chart fix that needs no new operator: a template, a value, an RBAC rule.
    command with the tag it created, so the tag cannot name a version the chart
    does not declare and there is no number to copy.
 
-   It refuses a version origin has already tagged, which means the chart's
-   version was not moved. Like `make tag-operator`, it asks origin rather than
-   reading local tags, since a clone can be configured not to follow them, and
-   refuses when origin cannot be reached.
+   It refuses the same two things `make tag-operator` does. A version origin
+   has already tagged, which means the chart's version was not moved, and any
+   commit other than the one origin's master points at. `helm.yml` cannot make
+   that second check: it compares the tag's name to the chart's version, and
+   both read the same on a branch as on master.
+
+   It asks origin about tags rather than reading local ones, since a clone can
+   be configured not to follow them, and refuses when origin cannot be reached.
 
 A push to `master` publishes nothing. The chart publishes from a `chart-v*` tag.
 
@@ -149,5 +153,6 @@ A push to `master` publishes nothing. The chart publishes from a `chart-v*` tag.
   nothing.
 - **A chart version that has not moved.** `make tag-chart` refuses before the
   tag exists.
-- **A release tag on anything but origin's master, or a version already tagged.**
-  `make tag-operator` refuses before the tag exists.
+- **A tag on anything but origin's master.** Both `make tag-operator` and
+  `make tag-chart` refuse before the tag exists. Neither CI workflow can check
+  this, since every version marker reads the same on a branch as on master.
