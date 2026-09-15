@@ -51,7 +51,7 @@ helm upgrade redis-operator oci://ghcr.io/powerhome/charts/redis-operator --vers
 To create the operator, you can directly create it with kubectl:
 
 ```
-REDIS_OPERATOR_VERSION=v4.6.0
+REDIS_OPERATOR_VERSION=v4.7.0
 kubectl create -f https://raw.githubusercontent.com/powerhome/redis-operator/${REDIS_OPERATOR_VERSION}/manifests/databases.spotahome.com_redisfailovers.yaml
 kubectl apply -f https://raw.githubusercontent.com/powerhome/redis-operator/${REDIS_OPERATOR_VERSION}/example/operator/all-redis-operator-resources.yaml
 ```
@@ -130,7 +130,7 @@ Once the operator is deployed inside a Kubernetes cluster, a new API will be acc
 In order to deploy a new redis-failover a [specification](/example/redisfailover/basic.yaml) has to be created:
 
 ```
-REDIS_OPERATOR_VERSION=v4.6.0
+REDIS_OPERATOR_VERSION=v4.7.0
 kubectl create -f https://raw.githubusercontent.com/powerhome/redis-operator/${REDIS_OPERATOR_VERSION}/example/redisfailover/basic.yaml
 ```
 

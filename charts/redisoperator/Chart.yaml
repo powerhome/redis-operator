@@ -12,12 +12,12 @@ sources:
 # Makefile and `image.tag` in values.yaml; the chart-version-check CI job fails
 # the build when they disagree. Set here (with the leading `v`, matching the
 # published image tag) in the "Prepare release vX.Y.Z" commit -- not by CI.
-appVersion: v4.6.0
+appVersion: v4.7.0
 
 # version is the chart's own SemVer and moves independently of the operator, so
 # chart-only fixes (RBAC, templates, values) can ship without a fake operator
 # release. Bump this whenever the chart changes; it is NOT gated to appVersion.
-version: 4.6.1
+version: 4.6.2
 
 keywords:
   - "golang"

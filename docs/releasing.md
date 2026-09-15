@@ -1,0 +1,148 @@
+# Releasing
+
+This repository publishes two things, and each has its own version.
+
+- **The operator**, as a container image. Its version is `VERSION` in the
+  `Makefile`.
+- **The Helm chart** that installs it. Its version is `version` in
+  `charts/redisoperator/Chart.yaml`.
+
+The two are unrelated. The chart's version moves whenever the chart changes, so
+a chart-only fix can ship without inventing an operator release. A chart at
+`4.8.1` installing operator `v4.7.0` is an ordinary state, and so is a chart at
+`2.1.7`. `docs/cir/CIR-004-chart-sync-and-oci-publish.md` records why.
+
+One field records the link between them. `appVersion` in `Chart.yaml` names the
+operator a given chart installs. It holds the operator's version, not a third
+one, and CI keeps the two equal.
+
+So two versions, written in three places:
+
+| Where                        | Holds                              | Checked against                                       |
+|------------------------------|------------------------------------|-------------------------------------------------------|
+| `VERSION` in `Makefile`      | the operator's version             | nothing. Eight other markers are checked against it   |
+| `appVersion` in `Chart.yaml` | the operator's version, again      | `Makefile` VERSION                                    |
+| `version` in `Chart.yaml`    | the chart's version                | nothing                                               |
+
+## Releasing the operator
+
+The chart goes with it: an operator release changes what the chart installs, so
+the chart publishes from the same tag.
+
+1. **Set the two versions.**
+
+   - `VERSION` in the `Makefile` is the operator's.
+   - `version` in `charts/redisoperator/Chart.yaml` is the chart's. It changes
+     because the chart's content changes, which an operator release always does:
+     the chart now installs a different operator.
+
+   Then make everything else agree:
+
+   ```
+   make prepare-release
+   ```
+
+   This sets the eight other markers to whatever `VERSION` says: the chart's
+   `appVersion` and image tag, the kustomize version component's tag and label,
+   both plain deployment examples, and the install instructions in
+   `docs/README.md`, which name it twice. It does not touch the chart's version.
+
+   It stops if a marker does not end up at the new version. That happens when
+   someone adds or renames one and the script has not been taught about it. Set
+   it by hand, then teach the script.
+
+2. **Write the changelogs.** The script does not write them. Prose needs a
+   person.
+
+   - `CHANGELOG.md` gets a `## [v4.8.0] - YYYY-MM-DD` heading above the entries
+     that were under `Unreleased`, which stays and is left empty. Add an
+     `### Upgrade note` when behaviour changes in a way anyone upgrading has
+     to know about.
+   - `charts/redisoperator/CHANGELOG.md` gets an entry naming the operator
+     version and pointing at the repository changelog. Do not retell the
+     operator's release there.
+
+3. **Open a pull request, get it reviewed, merge it.** Title it
+   `Prepare release - operator vX.Y.Z, chart A.B.C`, naming both versions, since
+   the release moves both. The chart's carries no `v`: only its tag does.
+
+   The release commit is the one the tag has to name, so nothing else may merge
+   between this and step 4.
+
+4. **Tag the release commit and push the tag.**
+
+   ```
+   git checkout master && git pull --ff-only
+   make tag-operator
+   ```
+
+   `make tag-operator` reads `VERSION` from the `Makefile` and prints the push command
+   with the tag it created. Nothing is published until that push runs.
+
+   It refuses two things. A version origin has already tagged, and any commit
+   other than the one origin's master points at.
+
+   That second check matters because CI cannot make it. CI compares the tag's
+   name to `VERSION`, and `VERSION` reads the same on every commit after the
+   release one, so a tag cut from a later commit passes. Only the commit differs.
+
+   Like `make tag-chart`, it asks origin about tags instead of reading local
+   ones, and refuses when origin cannot be reached.
+
+   The chart publishes from this same tag, at the version `Chart.yaml` declares.
+   There is no chart tag to make. `make tag-chart` refuses a version an operator
+   release has already published. A chart released this way therefore has no
+   `chart-v*` tag, which is why some published chart versions have one and some
+   do not.
+
+The tag runs the full pipeline. `dockerhub-image` builds and pushes the operator
+image to Docker Hub and ghcr, and `latest` moves to it. `chart-oci-publish` then
+publishes the chart, but only once the image exists and the chart's own gates
+pass. A published chart never names an image that is not there.
+
+## Releasing the chart alone
+
+For a chart fix that needs no new operator: a template, a value, an RBAC rule.
+
+1. Bump `version` in `charts/redisoperator/Chart.yaml`. Leave `appVersion` and
+   `values.yaml`'s `image.tag` alone, since the operator is not moving.
+2. Add an entry to `charts/redisoperator/CHANGELOG.md`.
+3. Open a pull request, get it reviewed, merge it. Title it
+   `Prepare release - chart A.B.C`. No operator version, since it is not moving.
+4. Tag and push:
+
+   ```
+   git checkout master && git pull --ff-only
+   make tag-chart
+   ```
+
+   `make tag-chart` reads the version from `Chart.yaml` and prints the push
+   command with the tag it created, so the tag cannot name a version the chart
+   does not declare and there is no number to copy. It refuses if that version
+   was already published by an operator release, which means the chart needs a
+   version of its own before it can be released alone.
+
+   It asks origin whether that operator release is tagged, since a clone can be
+   configured not to follow tags. It refuses when origin cannot be reached.
+
+A push to `master` publishes nothing. The chart publishes from a `chart-v*` tag.
+
+## What CI refuses
+
+- **`appVersion` or `values.yaml` `image.tag` not equal to `Makefile` VERSION.**
+  The chart would install an operator other than the one being released.
+- **A version marker in the manifests, examples or install instructions not
+  equal to `Makefile` VERSION.** Someone following those installs a different
+  version than the release.
+- **A release tag that is not `Makefile` VERSION.** The tag was cut from the
+  wrong commit.
+- **A prerelease tag**, anything with a `-` in it. Chart publishing has no
+  prerelease path and would ship it as an ordinary version.
+- **A `chart-v*` tag naming a version `Chart.yaml` does not declare.**
+- **A chart version already published with different content.** Bump the chart
+  version: publishing is idempotent on that version and would otherwise ship
+  nothing.
+- **A `chart-v*` tag for a version an operator release already published.**
+  `make tag-chart` refuses before the tag exists.
+- **A release tag on anything but origin's master, or a version already tagged.**
+  `make tag-operator` refuses before the tag exists.

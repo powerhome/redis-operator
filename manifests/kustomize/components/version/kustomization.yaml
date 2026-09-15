@@ -3,8 +3,8 @@ kind: Component
 
 labels:
   - pairs:
-      app.kubernetes.io/version: 4.6.0
+      app.kubernetes.io/version: 4.7.0
 
 images:
   - name: ghcr.io/powerhome/redis-operator
-    newTag: v4.6.0
+    newTag: v4.7.0

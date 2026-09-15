@@ -159,7 +159,7 @@ jobs:
           # image is tagged from the git ref, so a tag cut from a commit whose
           # VERSION differs would publish an image with no matching chart.
           if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "${GITHUB_REF_NAME:-}" != "${version}" ]; then
-            echo "::error::Release tag (${GITHUB_REF_NAME:-}) != Makefile VERSION (${version}). Cut the tag from the release commit (make tag)."
+            echo "::error::Release tag (${GITHUB_REF_NAME:-}) != Makefile VERSION (${version}). Cut the tag from the release commit (make tag-operator)."
             rc=1
           fi
           # Prerelease tags (e.g. v4.7.0-rc1, any SemVer with a `-` suffix) are
@@ -201,6 +201,14 @@ jobs:
               rc=1
             fi
           done
+          # The install instructions tell a reader to fetch manifests at this git
+          # tag, so it names the release they get. It appears more than once and
+          # nothing else holds any of them.
+          doc_mismatches="$(sed -n 's/^REDIS_OPERATOR_VERSION=//p' docs/README.md | grep -cxv "${version}" || true)"
+          if [ "${doc_mismatches}" != "0" ]; then
+            echo "::error::docs/README.md has ${doc_mismatches} REDIS_OPERATOR_VERSION line(s) that are not ${version}. Update every occurrence in the release commit."
+            rc=1
+          fi
           exit "${rc}"
 
   # Despite the name, this job publishes the operator image to both Docker Hub
