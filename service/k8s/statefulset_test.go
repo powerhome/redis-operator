@@ -2,6 +2,7 @@ package k8s_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -267,31 +268,17 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 func TestPodsWaitingOnFilesystemResize(t *testing.T) {
 	const ns = "testns"
 	const name = "rfr-test"
+	setLabels := map[string]string{"app.kubernetes.io/name": "test"}
 
 	statefulSet := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: appsv1.StatefulSetSpec{
-			// Kubernetes stamps claims with the set's selector, which is what
-			// PodsWaitingOnFilesystemResize asks for.
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app.kubernetes.io/name": "test"},
-			},
-			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
-				{ObjectMeta: metav1.ObjectMeta{Name: "redis-data"}},
-			},
+			// Kubernetes stamps the pods and claims it creates with the set's
+			// selector, which is what PodsWaitingOnFilesystemResize asks for.
+			Selector: &metav1.LabelSelector{MatchLabels: setLabels},
 		},
 	}
 
-	claim := func(claimName string, conditions ...corev1.PersistentVolumeClaimCondition) corev1.PersistentVolumeClaim {
-		return corev1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      claimName,
-				Namespace: ns,
-				Labels:    map[string]string{"app.kubernetes.io/name": "test"},
-			},
-			Status: corev1.PersistentVolumeClaimStatus{Conditions: conditions},
-		}
-	}
 	pending := corev1.PersistentVolumeClaimCondition{
 		Type:   corev1.PersistentVolumeClaimFileSystemResizePending,
 		Status: corev1.ConditionTrue,
@@ -301,61 +288,86 @@ func TestPodsWaitingOnFilesystemResize(t *testing.T) {
 		Status: corev1.ConditionTrue,
 	}
 
+	claim := func(claimName string, claimLabels map[string]string, conditions ...corev1.PersistentVolumeClaimCondition) corev1.PersistentVolumeClaim {
+		return corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: claimName, Namespace: ns, Labels: claimLabels},
+			Status:     corev1.PersistentVolumeClaimStatus{Conditions: conditions},
+		}
+	}
+	// A pod names the claims it holds; nothing here depends on how they are named.
+	pod := func(podName string, podLabels map[string]string, claimNames ...string) corev1.Pod {
+		volumes := []corev1.Volume{{Name: "config", VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{},
+		}}}
+		for i, c := range claimNames {
+			volumes = append(volumes, corev1.Volume{
+				Name: fmt.Sprintf("data-%d", i),
+				VolumeSource: corev1.VolumeSource{
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: c},
+				},
+			})
+		}
+		return corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: ns, Labels: podLabels},
+			Spec:       corev1.PodSpec{Volumes: volumes},
+		}
+	}
+
 	tests := []struct {
 		name     string
 		claims   []corev1.PersistentVolumeClaim
+		pods     []corev1.Pod
 		expected map[string]bool
 	}{
 		{
 			name:     "no claim waiting",
-			claims:   []corev1.PersistentVolumeClaim{claim("redis-data-rfr-test-0")},
+			claims:   []corev1.PersistentVolumeClaim{claim("whatever-0", setLabels)},
+			pods:     []corev1.Pod{pod("rfr-test-0", setLabels, "whatever-0")},
 			expected: map[string]bool{},
 		},
 		{
+			// The claim's name says nothing about which pod holds it; the pod does.
 			name:     "the pod holding a waiting claim is named",
-			claims:   []corev1.PersistentVolumeClaim{claim("redis-data-rfr-test-1", pending)},
+			claims:   []corev1.PersistentVolumeClaim{claim("a-name-of-no-pattern", setLabels, pending)},
+			pods:     []corev1.Pod{pod("rfr-test-1", setLabels, "a-name-of-no-pattern")},
 			expected: map[string]bool{"rfr-test-1": true},
 		},
 		{
 			name: "every pod waiting is named",
 			claims: []corev1.PersistentVolumeClaim{
-				claim("redis-data-rfr-test-0", pending),
-				claim("redis-data-rfr-test-1"),
-				claim("redis-data-rfr-test-2", pending),
+				claim("c0", setLabels, pending),
+				claim("c1", setLabels),
+				claim("c2", setLabels, pending),
+			},
+			pods: []corev1.Pod{
+				pod("rfr-test-0", setLabels, "c0"),
+				pod("rfr-test-1", setLabels, "c1"),
+				pod("rfr-test-2", setLabels, "c2"),
 			},
 			expected: map[string]bool{"rfr-test-0": true, "rfr-test-2": true},
 		},
 		{
 			name:     "a claim resizing but not waiting on the pod is left alone",
-			claims:   []corev1.PersistentVolumeClaim{claim("redis-data-rfr-test-0", resizing)},
+			claims:   []corev1.PersistentVolumeClaim{claim("c0", setLabels, resizing)},
+			pods:     []corev1.Pod{pod("rfr-test-0", setLabels, "c0")},
 			expected: map[string]bool{},
 		},
 		{
-			name:     "another failover's claim is not this set's pod",
-			claims:   []corev1.PersistentVolumeClaim{claim("redis-data-rfr-other-0", pending)},
+			name:     "a pod holding no claim is never named",
+			claims:   []corev1.PersistentVolumeClaim{claim("c0", setLabels, pending)},
+			pods:     []corev1.Pod{pod("rfr-test-0", setLabels)},
 			expected: map[string]bool{},
 		},
 		{
-			name:     "a claim from another template is not this set's pod",
-			claims:   []corev1.PersistentVolumeClaim{claim("sentinel-config-rfr-test-0", pending)},
+			name:     "a claim belonging to another failover is not listed",
+			claims:   []corev1.PersistentVolumeClaim{claim("c0", map[string]string{"app.kubernetes.io/name": "other"}, pending)},
+			pods:     []corev1.Pod{pod("rfr-test-0", setLabels, "c0")},
 			expected: map[string]bool{},
 		},
 		{
-			// A claim in the same namespace that this set did not create carries
-			// different labels, so the list never returns it.
-			name: "a claim belonging to something else is not listed",
-			claims: []corev1.PersistentVolumeClaim{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "redis-data-rfr-test-0",
-						Namespace: ns,
-						Labels:    map[string]string{"app.kubernetes.io/name": "somethingelse"},
-					},
-					Status: corev1.PersistentVolumeClaimStatus{
-						Conditions: []corev1.PersistentVolumeClaimCondition{pending},
-					},
-				},
-			},
+			name:     "a pod belonging to another failover is not listed",
+			claims:   []corev1.PersistentVolumeClaim{claim("c0", setLabels, pending)},
+			pods:     []corev1.Pod{pod("rfr-other-0", map[string]string{"app.kubernetes.io/name": "other"}, "c0")},
 			expected: map[string]bool{},
 		},
 	}
@@ -369,6 +381,10 @@ func TestPodsWaitingOnFilesystemResize(t *testing.T) {
 			assert.NoError(err)
 			for i := range test.claims {
 				_, err := mcli.CoreV1().PersistentVolumeClaims(ns).Create(t.Context(), &test.claims[i], metav1.CreateOptions{})
+				assert.NoError(err)
+			}
+			for i := range test.pods {
+				_, err := mcli.CoreV1().Pods(ns).Create(t.Context(), &test.pods[i], metav1.CreateOptions{})
 				assert.NoError(err)
 			}
 

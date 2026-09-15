@@ -219,44 +219,51 @@ func (s *StatefulSetService) PodsWaitingOnFilesystemResize(namespace, name strin
 	if err != nil {
 		return nil, err
 	}
-	if statefulSet == nil || statefulSet.Spec.Selector == nil || len(statefulSet.Spec.VolumeClaimTemplates) == 0 {
+	if statefulSet == nil || statefulSet.Spec.Selector == nil {
 		return waiting, nil
 	}
 
-	// Kubernetes stamps a claim it creates for a statefulset with that set's
-	// selector, so asking for the same labels asks for this set's claims and
-	// not every claim sharing the namespace with it.
+	// Kubernetes stamps both the pods and the claims it creates for a
+	// statefulset with that set's selector, so asking for those labels asks for
+	// this set's own and not everything sharing the namespace with it.
 	listOptions := metav1.ListOptions{
 		LabelSelector: labels.FormatLabels(statefulSet.Spec.Selector.MatchLabels),
 	}
+
 	pvcs, err := s.kubeClient.CoreV1().PersistentVolumeClaims(namespace).List(context.TODO(), listOptions)
 	recordMetrics(namespace, "PersistentVolumeClaim", metrics.NOT_APPLICABLE, "LIST", err, s.metricsRecorder)
 	if err != nil {
 		return nil, err
 	}
 
+	pending := map[string]bool{}
 	for _, pvc := range pvcs.Items {
-		if !pendingFilesystemResize(pvc) {
-			continue
+		if pendingFilesystemResize(pvc) {
+			pending[pvc.Name] = true
 		}
-		if pod, ok := podHoldingClaim(pvc.Name, statefulSet); ok {
-			waiting[pod] = true
+	}
+	if len(pending) == 0 {
+		return waiting, nil
+	}
+
+	pods, err := s.kubeClient.CoreV1().Pods(namespace).List(context.TODO(), listOptions)
+	recordMetrics(namespace, "Pod", metrics.NOT_APPLICABLE, "LIST", err, s.metricsRecorder)
+	if err != nil {
+		return nil, err
+	}
+
+	// A pod says which claims it holds, so it is asked rather than deduced from
+	// how a statefulset happens to name them.
+	for _, pod := range pods.Items {
+		for _, volume := range pod.Spec.Volumes {
+			claim := volume.PersistentVolumeClaim
+			if claim != nil && pending[claim.ClaimName] {
+				waiting[pod.Name] = true
+			}
 		}
 	}
 
 	return waiting, nil
-}
-
-// podHoldingClaim names the pod a claim belongs to. A statefulset names a claim
-// `<template>-<pod>`, so what is left after the template name is the pod's.
-func podHoldingClaim(claimName string, statefulSet *appsv1.StatefulSet) (string, bool) {
-	for _, template := range statefulSet.Spec.VolumeClaimTemplates {
-		pod, found := strings.CutPrefix(claimName, template.Name+"-")
-		if found && strings.HasPrefix(pod, statefulSet.Name+"-") {
-			return pod, true
-		}
-	}
-	return "", false
 }
 
 func pendingFilesystemResize(pvc corev1.PersistentVolumeClaim) bool {
