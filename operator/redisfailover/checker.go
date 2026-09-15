@@ -44,13 +44,20 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		return err
 	}
 
+	// A pod waiting on its filesystem needs replacing, the same as one running
+	// an old pod template. Either way, one pod at a time.
+	waitingOnResize, err := r.rfChecker.GetRedisesPodsWaitingOnFilesystemResize(rf)
+	if err != nil {
+		return err
+	}
+
 	// Update stale pods with slave role
 	for _, pod := range redisesPods {
 		revision, err := r.rfChecker.GetRedisRevisionHash(pod, rf)
 		if err != nil {
 			return err
 		}
-		if revision != ssUR {
+		if revision != ssUR || waitingOnResize[pod] {
 			//Delete pod and wait next round to check if the new one is synced
 			err = r.rfHealer.DeletePod(pod, rf)
 			if err != nil {
@@ -71,7 +78,7 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		if err != nil {
 			return err
 		}
-		if masterRevision != ssUR {
+		if masterRevision != ssUR || waitingOnResize[master] {
 			err = r.rfHealer.DeletePod(master, rf)
 			if err != nil {
 				return err

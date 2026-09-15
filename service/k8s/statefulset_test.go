@@ -2,6 +2,7 @@ package k8s_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -42,7 +43,8 @@ func newStatefulSetCreateAction(ns string, statefulSet *appsv1.StatefulSet) kube
 }
 
 func newStatefulSetDeleteAction(ns string, name string) kubetesting.DeleteActionImpl {
-	propagation := metav1.DeletePropagationForeground
+	// The resize path orphans. A cascading delete would stop every Redis at once.
+	propagation := metav1.DeletePropagationOrphan
 	return kubetesting.NewDeleteActionWithOptions(statefulSetsGroup, ns, name, metav1.DeleteOptions{PropagationPolicy: &propagation})
 }
 
@@ -258,6 +260,138 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 			err = service.CreateOrUpdateStatefulSet(testns, afterSts)
 			assert.NoError(err)
 			assert.Equal(expActions, mcli.Actions())
+		})
+	}
+}
+
+func TestPodsWaitingOnFilesystemResize(t *testing.T) {
+	const ns = "testns"
+	const name = "rfr-test"
+	setLabels := map[string]string{"app.kubernetes.io/name": "test"}
+
+	statefulSet := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec: appsv1.StatefulSetSpec{
+			// Kubernetes labels a set's pods and claims with its selector.
+			// PodsWaitingOnFilesystemResize looks them up by those labels.
+			Selector: &metav1.LabelSelector{MatchLabels: setLabels},
+		},
+	}
+
+	pending := corev1.PersistentVolumeClaimCondition{
+		Type:   corev1.PersistentVolumeClaimFileSystemResizePending,
+		Status: corev1.ConditionTrue,
+	}
+	resizing := corev1.PersistentVolumeClaimCondition{
+		Type:   corev1.PersistentVolumeClaimResizing,
+		Status: corev1.ConditionTrue,
+	}
+
+	claim := func(claimName string, claimLabels map[string]string, conditions ...corev1.PersistentVolumeClaimCondition) corev1.PersistentVolumeClaim {
+		return corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: claimName, Namespace: ns, Labels: claimLabels},
+			Status:     corev1.PersistentVolumeClaimStatus{Conditions: conditions},
+		}
+	}
+	pod := func(podName string, podLabels map[string]string, claimNames ...string) corev1.Pod {
+		volumes := []corev1.Volume{{Name: "config", VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{},
+		}}}
+		for i, c := range claimNames {
+			volumes = append(volumes, corev1.Volume{
+				Name: fmt.Sprintf("data-%d", i),
+				VolumeSource: corev1.VolumeSource{
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: c},
+				},
+			})
+		}
+		return corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: ns, Labels: podLabels},
+			Spec:       corev1.PodSpec{Volumes: volumes},
+		}
+	}
+
+	tests := []struct {
+		name     string
+		claims   []corev1.PersistentVolumeClaim
+		pods     []corev1.Pod
+		expected map[string]bool
+	}{
+		{
+			name:     "no claim waiting",
+			claims:   []corev1.PersistentVolumeClaim{claim("whatever-0", setLabels)},
+			pods:     []corev1.Pod{pod("rfr-test-0", setLabels, "whatever-0")},
+			expected: map[string]bool{},
+		},
+		{
+			// This name is deliberately not one a statefulset would produce.
+			// Tidying it would let name parsing pass this case again.
+			name:     "the pod holding a waiting claim is named",
+			claims:   []corev1.PersistentVolumeClaim{claim("a-name-of-no-pattern", setLabels, pending)},
+			pods:     []corev1.Pod{pod("rfr-test-1", setLabels, "a-name-of-no-pattern")},
+			expected: map[string]bool{"rfr-test-1": true},
+		},
+		{
+			name: "every pod waiting is named",
+			claims: []corev1.PersistentVolumeClaim{
+				claim("c0", setLabels, pending),
+				claim("c1", setLabels),
+				claim("c2", setLabels, pending),
+			},
+			pods: []corev1.Pod{
+				pod("rfr-test-0", setLabels, "c0"),
+				pod("rfr-test-1", setLabels, "c1"),
+				pod("rfr-test-2", setLabels, "c2"),
+			},
+			expected: map[string]bool{"rfr-test-0": true, "rfr-test-2": true},
+		},
+		{
+			name:     "a claim resizing but not waiting on the pod is left alone",
+			claims:   []corev1.PersistentVolumeClaim{claim("c0", setLabels, resizing)},
+			pods:     []corev1.Pod{pod("rfr-test-0", setLabels, "c0")},
+			expected: map[string]bool{},
+		},
+		{
+			name:     "a pod holding no claim is never named",
+			claims:   []corev1.PersistentVolumeClaim{claim("c0", setLabels, pending)},
+			pods:     []corev1.Pod{pod("rfr-test-0", setLabels)},
+			expected: map[string]bool{},
+		},
+		{
+			name:     "a claim belonging to another failover is not listed",
+			claims:   []corev1.PersistentVolumeClaim{claim("c0", map[string]string{"app.kubernetes.io/name": "other"}, pending)},
+			pods:     []corev1.Pod{pod("rfr-test-0", setLabels, "c0")},
+			expected: map[string]bool{},
+		},
+		{
+			name:     "a pod belonging to another failover is not listed",
+			claims:   []corev1.PersistentVolumeClaim{claim("c0", setLabels, pending)},
+			pods:     []corev1.Pod{pod("rfr-other-0", map[string]string{"app.kubernetes.io/name": "other"}, "c0")},
+			expected: map[string]bool{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			mcli := kubernetes.NewSimpleClientset()
+			_, err := mcli.AppsV1().StatefulSets(ns).Create(t.Context(), statefulSet, metav1.CreateOptions{})
+			assert.NoError(err)
+			for i := range test.claims {
+				_, err := mcli.CoreV1().PersistentVolumeClaims(ns).Create(t.Context(), &test.claims[i], metav1.CreateOptions{})
+				assert.NoError(err)
+			}
+			for i := range test.pods {
+				_, err := mcli.CoreV1().Pods(ns).Create(t.Context(), &test.pods[i], metav1.CreateOptions{})
+				assert.NoError(err)
+			}
+
+			service := k8s.NewStatefulSetService(mcli, log.Dummy, metrics.Dummy)
+			waiting, err := service.PodsWaitingOnFilesystemResize(ns, name)
+
+			assert.NoError(err)
+			assert.Equal(test.expected, waiting)
 		})
 	}
 }

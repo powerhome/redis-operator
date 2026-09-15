@@ -38,6 +38,7 @@ type RedisFailoverCheck interface {
 	GetRedisesMasterPod(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetStatefulSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetRedisRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error)
+	GetRedisesPodsWaitingOnFilesystemResize(rFailover *redisfailoverv1.RedisFailover) (map[string]bool, error)
 	CheckRedisSlavesReady(slaveIP string, rFailover *redisfailoverv1.RedisFailover) (bool, error)
 	IsRedisRunning(rFailover *redisfailoverv1.RedisFailover) bool
 	IsSentinelRunning(rFailover *redisfailoverv1.RedisFailover) bool
@@ -512,6 +513,12 @@ func (r *RedisFailoverChecker) GetRedisesMasterPod(rFailover *redisfailoverv1.Re
 		}
 	}
 	return "", errors.New("redis nodes known as master not found")
+}
+
+// GetRedisesPodsWaitingOnFilesystemResize names the Redis pods that must
+// restart before their filesystem grows to match their claim.
+func (r *RedisFailoverChecker) GetRedisesPodsWaitingOnFilesystemResize(rFailover *redisfailoverv1.RedisFailover) (map[string]bool, error) {
+	return r.k8sService.PodsWaitingOnFilesystemResize(rFailover.Namespace, GetRedisName(rFailover))
 }
 
 // GetStatefulSetUpdateRevision returns current version for the statefulSet

@@ -497,6 +497,24 @@ func (_m *Services) DeleteStatefulSet(namespace string, name string) error {
 	return r0
 }
 
+// DeleteStatefulSetKeepingPods provides a mock function with given fields: namespace, name
+func (_m *Services) DeleteStatefulSetKeepingPods(namespace string, name string) error {
+	ret := _m.Called(namespace, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteStatefulSetKeepingPods")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string) error); ok {
+		r0 = rf(namespace, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // GetClusterRole provides a mock function with given fields: name
 func (_m *Services) GetClusterRole(name string) (*rbacv1.ClusterRole, error) {
 	ret := _m.Called(name)
@@ -1060,6 +1078,36 @@ func (_m *Services) ListStatefulSets(namespace string) (*appsv1.StatefulSetList,
 
 	if rf, ok := ret.Get(1).(func(string) error); ok {
 		r1 = rf(namespace)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// PodsWaitingOnFilesystemResize provides a mock function with given fields: namespace, name
+func (_m *Services) PodsWaitingOnFilesystemResize(namespace string, name string) (map[string]bool, error) {
+	ret := _m.Called(namespace, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PodsWaitingOnFilesystemResize")
+	}
+
+	var r0 map[string]bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) (map[string]bool, error)); ok {
+		return rf(namespace, name)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) map[string]bool); ok {
+		r0 = rf(namespace, name)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]bool)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(namespace, name)
 	} else {
 		r1 = ret.Error(1)
 	}

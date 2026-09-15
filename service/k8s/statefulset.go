@@ -28,6 +28,8 @@ type StatefulSet interface {
 	UpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error
 	CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error
 	DeleteStatefulSet(namespace string, name string) error
+	DeleteStatefulSetKeepingPods(namespace string, name string) error
+	PodsWaitingOnFilesystemResize(namespace string, name string) (map[string]bool, error)
 	ListStatefulSets(namespace string) (*appsv1.StatefulSetList, error)
 }
 
@@ -162,8 +164,12 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 				storedStatefulSet.Annotations = annotations
 				if realUpdate {
 					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("resize statefulset pvcs from %d to %d Success", storedCapacity, stateCapacity)
-					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("removing statefulset to mount resized pvcs")
-					return s.DeleteStatefulSet(namespace, statefulSet.Name)
+					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("replacing statefulset to carry the resized pvcs; its pods keep running")
+					// volumeClaimTemplates cannot be changed. The only way to
+					// grow a claim is to replace the whole statefulset, and a
+					// normal delete would stop every Redis at once. Leave the
+					// pods running instead; the replacement adopts them.
+					return s.DeleteStatefulSetKeepingPods(namespace, statefulSet.Name)
 				} else {
 					s.logger.WithField("namespace", namespace).WithField("pvc", rfName).Warningf("set annotations,resize nothing")
 				}
@@ -176,12 +182,95 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 	return s.UpdateStatefulSet(namespace, statefulSet)
 }
 
-// DeleteStatefulSet will delete the statefulset
+// DeleteStatefulSet will delete the statefulset and the pods it owns.
 func (s *StatefulSetService) DeleteStatefulSet(namespace, name string) error {
-	propagation := metav1.DeletePropagationForeground
+	return s.deleteStatefulSet(namespace, name, metav1.DeletePropagationForeground)
+}
+
+// DeleteStatefulSetKeepingPods deletes the statefulset but leaves its pods
+// running. The next statefulset created with the same selector adopts them.
+//
+// Adoption does not restart anything. These pods use the OnDelete update
+// strategy, so the statefulset controller never replaces a pod itself.
+func (s *StatefulSetService) DeleteStatefulSetKeepingPods(namespace, name string) error {
+	return s.deleteStatefulSet(namespace, name, metav1.DeletePropagationOrphan)
+}
+
+func (s *StatefulSetService) deleteStatefulSet(namespace, name string, propagation metav1.DeletionPropagation) error {
 	err := s.kubeClient.AppsV1().StatefulSets(namespace).Delete(context.TODO(), name, metav1.DeleteOptions{PropagationPolicy: &propagation})
 	recordMetrics(namespace, "StatefulSet", name, "DELETE", err, s.metricsRecorder)
 	return err
+}
+
+// PodsWaitingOnFilesystemResize names the pods that must restart before their
+// filesystem grows to match their claim.
+//
+// Growing a claim takes two steps: the volume, then the filesystem on it. Some
+// drivers do both while the volume stays mounted. Others grow the volume, mark
+// the claim, and wait for the pod to restart.
+//
+// Nothing else will restart that pod. A claim's size is not part of the pod
+// template, so the pod does not look out of date to anything that checks.
+func (s *StatefulSetService) PodsWaitingOnFilesystemResize(namespace, name string) (map[string]bool, error) {
+	waiting := map[string]bool{}
+
+	statefulSet, err := s.GetStatefulSet(namespace, name)
+	if err != nil {
+		return nil, err
+	}
+	if statefulSet == nil || statefulSet.Spec.Selector == nil {
+		return waiting, nil
+	}
+
+	// Kubernetes labels a statefulset's pods and claims with that set's
+	// selector, so these labels select this set's own and nothing else in the
+	// namespace.
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.FormatLabels(statefulSet.Spec.Selector.MatchLabels),
+	}
+
+	pvcs, err := s.kubeClient.CoreV1().PersistentVolumeClaims(namespace).List(context.TODO(), listOptions)
+	recordMetrics(namespace, "PersistentVolumeClaim", metrics.NOT_APPLICABLE, "LIST", err, s.metricsRecorder)
+	if err != nil {
+		return nil, err
+	}
+
+	pending := map[string]bool{}
+	for _, pvc := range pvcs.Items {
+		if pendingFilesystemResize(pvc) {
+			pending[pvc.Name] = true
+		}
+	}
+	if len(pending) == 0 {
+		return waiting, nil
+	}
+
+	pods, err := s.kubeClient.CoreV1().Pods(namespace).List(context.TODO(), listOptions)
+	recordMetrics(namespace, "Pod", metrics.NOT_APPLICABLE, "LIST", err, s.metricsRecorder)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, pod := range pods.Items {
+		for _, volume := range pod.Spec.Volumes {
+			claim := volume.PersistentVolumeClaim
+			if claim != nil && pending[claim.ClaimName] {
+				waiting[pod.Name] = true
+			}
+		}
+	}
+
+	return waiting, nil
+}
+
+func pendingFilesystemResize(pvc corev1.PersistentVolumeClaim) bool {
+	for _, condition := range pvc.Status.Conditions {
+		if condition.Type == corev1.PersistentVolumeClaimFileSystemResizePending &&
+			condition.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
 
 // ListStatefulSets will retrieve a list of statefulset in the given namespace

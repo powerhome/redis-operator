@@ -329,6 +329,7 @@ func TestCheckAndHeal(t *testing.T) {
 				mrfc.On("CheckRedisSlavesReady", "0.0.0.2", rf).Once().Return(true, nil)
 				mrfc.On("CheckRedisSlavesReady", "0.0.0.3", rf).Once().Return(true, nil)
 				mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+				mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
 				mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
 
 				if test.redisSetMasterOnAllOK {
@@ -386,6 +387,7 @@ func TestCheckAndHeal(t *testing.T) {
 					}
 					mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{master}, nil)
 					mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+					mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
 					mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
 					mrfc.On("GetRedisesMasterPod", rf).Once().Return(master, nil)
 					mrfc.On("GetRedisRevisionHash", master, rf).Once().Return("1", nil)
@@ -600,6 +602,7 @@ func TestCheckAndHealBootstrapModeAppliesACredentialChange(t *testing.T) {
 				mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{"0.0.0.1"}, nil)
 				mrfc.On("CheckRedisSlavesReady", "0.0.0.1", rf).Once().Return(true, nil)
 				mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+				mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
 				mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
 				mrfh.On("SetRedisCustomConfig", "0.0.0.1", rf).Once().Return(nil)
 				mrfh.On("SetExternalMasterOnAll", "127.0.0.1", "6379", rf).Once().Return(nil)
@@ -1154,6 +1157,7 @@ func TestUpdate(t *testing.T) {
 					replicas = append(replicas, "slave3")
 				}
 				mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return(test.ssVersion, nil)
+				mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
 				mrfc.On("GetRedisesSlavesPods", rf).Once().Return(replicas, nil)
 
 				for _, pod := range test.pods {
@@ -1192,4 +1196,87 @@ func TestUpdate(t *testing.T) {
 
 		})
 	}
+}
+
+func TestUpdateRedisesPodsWaitingOnFilesystemResize(t *testing.T) {
+	tests := []struct {
+		name     string
+		waiting  map[string]bool
+		expected []string
+	}{
+		{
+			name:     "nothing waiting leaves every pod alone",
+			waiting:  map[string]bool{},
+			expected: []string{},
+		},
+		{
+			name:     "a replica waiting on its filesystem is replaced",
+			waiting:  map[string]bool{"slave1": true},
+			expected: []string{"slave1"},
+		},
+		{
+			name: "two replicas waiting are replaced one at a time",
+			// Both are waiting. Only the first goes this round, so the failover
+			// never loses two at once.
+			waiting:  map[string]bool{"slave1": true, "slave2": true},
+			expected: []string{"slave1"},
+		},
+		{
+			name:     "the master is replaced only once the replicas are current",
+			waiting:  map[string]bool{"master": true},
+			expected: []string{"master"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF(false, false)
+			config := generateConfig()
+
+			mrfs := &mRFService.RedisFailoverClient{}
+			mrfc := &mRFService.RedisFailoverCheck{}
+			mrfh := &mRFService.RedisFailoverHeal{}
+
+			mrfc.On("GetRedisesIPs", rf).Once().Return([]string{"0.0.0.0", "0.0.0.1"}, nil)
+			mrfc.On("GetMasterIP", rf).Once().Return("1.1.1.1", nil)
+			mrfc.On("CheckRedisSlavesReady", "0.0.0.0", rf).Once().Return(true, nil)
+			mrfc.On("CheckRedisSlavesReady", "0.0.0.1", rf).Once().Return(true, nil)
+
+			// Every pod already runs the current pod template. A waiting claim
+			// is the only thing that can cause a replacement here.
+			mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+			mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(test.waiting, nil)
+			mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{"slave1", "slave2"}, nil)
+			mrfc.On("GetRedisRevisionHash", mock.Anything, rf).Return("1", nil)
+
+			if len(test.expected) == 0 || test.expected[0] == "master" {
+				mrfc.On("GetRedisesMasterPod", rf).Once().Return("master", nil)
+			}
+			for _, pod := range test.expected {
+				mrfh.On("DeletePod", pod, rf).Once().Return(nil)
+			}
+
+			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
+			err := handler.UpdateRedisesPods(rf)
+
+			assert.NoError(err)
+			mrfh.AssertExpectations(t)
+			for _, pod := range []string{"slave1", "slave2", "master"} {
+				if !contains(test.expected, pod) {
+					mrfh.AssertNotCalled(t, "DeletePod", pod, rf)
+				}
+			}
+		})
+	}
+}
+
+func contains(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
 }

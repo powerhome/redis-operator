@@ -36,7 +36,7 @@ CODEGEN_IMAGE := ghcr.io/slok/kube-code-generator:v0.6.0
 CODEGEN_PLATFORM := linux/amd64
 PORT := 9710
 
-GOLANGCI_LINT_VERSION := v1.64.2
+GOLANGCI_LINT_VERSION := v2.13.2
 GOLANGCI_LINT_IMAGE := golangci/golangci-lint:$(GOLANGCI_LINT_VERSION)
 
 ACTIONLINT_VERSION := 1.7.12
@@ -129,7 +129,7 @@ test-helm-ci:
 .PHONY: generate-client
 generate-client:
 	@echo ">> Generating code for Kubernetes CRD types..."
-	docker run --rm -it \
+	docker run --rm $(DOCKER_INTERACTIVE) \
 		--platform $(CODEGEN_PLATFORM) \
 		-e GOTOOLCHAIN=auto \
 		-v $(PWD):$(WORKDIR) \
@@ -158,7 +158,7 @@ generate-crd:
 
 .PHONY: generate-go
 generate-go: image-dev-tools
-	docker run -ti --rm \
+	docker run --rm $(DOCKER_INTERACTIVE) \
 	  -v $(PWD):$(WORKDIR) \
 	  -u $(UID):$(UID) \
 	  --name $(SERVICE_NAME) $(REPOSITORY)-dev \
@@ -167,7 +167,7 @@ generate-go: image-dev-tools
 # Generate testing mocks
 .PHONY: generate-mocks
 generate-mocks: image-dev-tools
-	docker run -ti --rm \
+	docker run --rm $(DOCKER_INTERACTIVE) \
 	  -v $(PWD):$(WORKDIR) \
 	  -u $(UID):$(UID) \
 	  --name $(SERVICE_NAME) \
@@ -176,7 +176,7 @@ generate-mocks: image-dev-tools
 # Run lint
 .PHONY: lint
 lint:
-	docker run --rm -it \
+	docker run --rm $(DOCKER_INTERACTIVE) \
 	  -v $(PWD):$(WORKDIR) \
 	  -w $(WORKDIR) \
 	  $(GOLANGCI_LINT_IMAGE) \
