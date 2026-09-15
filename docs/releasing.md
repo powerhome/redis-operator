@@ -80,11 +80,18 @@ the chart publishes from the same tag.
    where that version is declared, and prints the push command with the tag it
    created. Nothing is published until those pushes run.
 
-   The chart gets a tag even though it publishes from the operator's, so that
-   anyone running a chart can read the source it was built from. Pushing it
-   republishes nothing: the publish script compares the packaged chart and skips
-   when it matches. The two publish paths share a concurrency group, so they
-   serialise.
+   **Push them in order.** The operator tag publishes the image; the chart tag
+   publishes the chart, and the chart publish refuses while the image it names
+   is not pullable. So:
+
+   ```
+   git push origin v<version>          # then wait for the image to finish building
+   git push origin chart-v<version>
+   ```
+
+   Pushing both together fails the chart publish, naming the image it could not
+   find. Nothing is broken by that: re-run the failed workflow once the image
+   exists.
 
    It refuses three things. A version origin has already tagged, a commit that
    is not merged into origin's master, and a commit that is not the one that set
@@ -111,10 +118,11 @@ the chart publishes from the same tag.
    chart's version was not moved. An operator release always changes what the
    chart installs, so its version moves with it.
 
-The tag runs the full pipeline. `dockerhub-image` builds and pushes the operator
-image to Docker Hub and ghcr, and `latest` moves to it. `chart-oci-publish` then
-publishes the chart, but only once the image exists and the chart's own gates
-pass. A published chart never names an image that is not there.
+The operator tag runs the full pipeline. `dockerhub-image` builds and pushes the
+operator image to Docker Hub and ghcr, and `latest` moves to it. The chart tag
+then publishes the chart, through the same workflow a chart-only release uses.
+It refuses if the image it names is not pullable, so a published chart never
+names an image that is not there.
 
 ## Releasing the chart alone
 
