@@ -44,17 +44,39 @@ if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
   exit 1
 fi
 
-# Tagging anything other than what origin's master points at means releasing
-# either less than has been merged, or more than the changelog describes.
+# A release tags the commit that set VERSION, which is not necessarily what
+# origin's master points at now. The two are the same commit only when nothing
+# merges between the release commit landing and the tag being cut, and a
+# release that waits on a person cannot assume that.
+#
+# CI cannot make this check. It compares the tag's name to VERSION, and
+# VERSION reads the same on every commit after the release one, so a tag cut
+# from a later commit passes while shipping changes no changelog describes.
 git fetch --quiet origin master
 head="$(git rev-parse HEAD)"
 master="$(git rev-parse FETCH_HEAD)"
-if [ "${head}" != "${master}" ]; then
-  echo "!! HEAD is not origin/master." >&2
+
+if ! git merge-base --is-ancestor "${head}" "${master}"; then
+  echo "!! HEAD is not merged into origin's master." >&2
   echo "   HEAD           ${head}" >&2
   echo "   origin/master  ${master}" >&2
-  echo "   A release tags what is on master. Check the release commit is merged," >&2
-  echo "   that nothing has merged after it, and that this clone has pulled." >&2
+  echo "   A release tags a reviewed commit. Merge it first, then pull." >&2
+  exit 1
+fi
+
+release="$(git log -1 --format=%H -G'^VERSION := ' "${master}" -- Makefile)"
+if [ -z "${release}" ]; then
+  echo "!! could not find the commit that set VERSION." >&2
+  exit 1
+fi
+
+if [ "${head}" != "${release}" ]; then
+  echo "!! HEAD is not the commit that set VERSION to ${VERSION}." >&2
+  echo "   HEAD          ${head}" >&2
+  echo "   release       ${release}  $(git log -1 --format=%s "${release}")" >&2
+  echo "   Tagging anything later ships changes the changelog does not describe." >&2
+  echo "   Tag the release commit:" >&2
+  echo "     git checkout ${release} && make tag-operator && git checkout -" >&2
   exit 1
 fi
 

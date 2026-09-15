@@ -86,12 +86,23 @@ the chart publishes from the same tag.
    when it matches. The two publish paths share a concurrency group, so they
    serialise.
 
-   It refuses two things. A version origin has already tagged, and any commit
-   other than the one origin's master points at.
+   It refuses three things. A version origin has already tagged, a commit that
+   is not merged into origin's master, and a commit that is not the one that set
+   `VERSION`.
 
-   That second check matters because CI cannot make it. CI compares the tag's
-   name to `VERSION`, and `VERSION` reads the same on every commit after the
-   release one, so a tag cut from a later commit passes. Only the commit differs.
+   That last check matters because CI cannot make it. CI compares the tag's name
+   to `VERSION`, and `VERSION` reads the same on every commit after the release
+   one, so a tag cut from a later commit passes while shipping changes the
+   changelog does not describe.
+
+   **If something merges between step 3 and here, `git pull` moves you past the
+   release commit and the tag targets refuse.** That is the point: the release
+   is the commit that set `VERSION`, not whatever master points at now. Tag it
+   where it is, and the refusal prints the command:
+
+   ```
+   git checkout <release commit> && make tag && git checkout -
+   ```
 
    Like `make tag-chart`, it asks origin about tags instead of reading local
    ones, and refuses when origin cannot be reached.
@@ -125,11 +136,12 @@ For a chart fix that needs no new operator: a template, a value, an RBAC rule.
    command with the tag it created, so the tag cannot name a version the chart
    does not declare and there is no number to copy.
 
-   It refuses the same two things `make tag-operator` does. A version origin
-   has already tagged, which means the chart's version was not moved, and any
-   commit other than the one origin's master points at. `helm.yml` cannot make
-   that second check: it compares the tag's name to the chart's version, and
-   both read the same on a branch as on master.
+   It refuses the same three things `make tag-operator` does, against the
+   chart's own version: one origin has already tagged, which means the version
+   was not moved; a commit not merged into origin's master; and a commit that is
+   not the one that set `version` in `Chart.yaml`. `helm.yml` cannot make those
+   last two: it compares the tag's name to the chart's version, and both read the
+   same on any commit after the bump.
 
    It asks origin about tags rather than reading local ones, since a clone can
    be configured not to follow them, and refuses when origin cannot be reached.
@@ -153,6 +165,7 @@ A push to `master` publishes nothing. The chart publishes from a `chart-v*` tag.
   nothing.
 - **A chart version that has not moved.** `make tag-chart` refuses before the
   tag exists.
-- **A tag on anything but origin's master.** Both `make tag-operator` and
-  `make tag-chart` refuse before the tag exists. Neither CI workflow can check
-  this, since every version marker reads the same on a branch as on master.
+- **A tag on a commit that is not the one that set the version, or that is not
+  merged into origin's master.** Both `make tag-operator` and `make tag-chart`
+  refuse before the tag exists. Neither CI workflow can check this, since every
+  version marker reads the same on every commit after the one that set it.
