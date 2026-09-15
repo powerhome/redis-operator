@@ -104,6 +104,10 @@ tag-operator:
 tag-chart:
 	@./scripts/tag-chart.sh
 
+# Tag a release: both the operator and the chart it publishes alongside it.
+.PHONY: tag
+tag: tag-operator tag-chart
+
 # Run unit tests in the development docker container (DEV)
 .PHONY: test-unit
 test-unit: image-dev-tools
