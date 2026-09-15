@@ -104,6 +104,10 @@ tag-operator:
 tag-chart:
 	@./scripts/tag-chart.sh
 
+# Tag a release: both the operator and the chart it publishes alongside it.
+.PHONY: tag
+tag: tag-operator tag-chart
+
 # Run unit tests in the development docker container (DEV)
 .PHONY: test-unit
 test-unit: image-dev-tools
@@ -150,13 +154,15 @@ generate-client:
 # `DOCKER_INTERACTIVE=` so `make generate-crd` works on a runner with no TTY.
 DOCKER_INTERACTIVE ?= -it
 
-# Make every version marker agree with VERSION above. The changelogs are left
-# alone: they want prose.
-#   make prepare-release                        after editing VERSION above
-#   make prepare-release CHART_VERSION=4.7.0    the chart patch-bumps otherwise
+# Make every version marker agree with VERSION above, after editing it.
+#
+# The chart's own version is not one of those markers. It is set by hand in
+# Chart.yaml, because it moves without the operator. Neither changelog is
+# written here either: both want prose. The script lists what it leaves for a
+# person when it finishes.
 .PHONY: prepare-release
 prepare-release:
-	@./scripts/prepare-release.sh "$(VERSION)" "$(CHART_VERSION)"
+	@./scripts/prepare-release.sh "$(VERSION)"
 
 # Generate kubernetes Custom Resource Definitions
 .PHONY: generate-crd

@@ -73,27 +73,53 @@ the chart publishes from the same tag.
 
    ```
    git checkout master && git pull --ff-only
-   make tag-operator
+   make tag
    ```
 
-   `make tag-operator` reads `VERSION` from the `Makefile` and prints the push command
-   with the tag it created. Nothing is published until that push runs.
+   `make tag` runs `tag-operator` and `tag-chart`. Each reads its version from
+   where that version is declared, and prints the push command with the tag it
+   created. Nothing is published until those pushes run.
 
-   It refuses two things. A version origin has already tagged, and any commit
-   other than the one origin's master points at.
+   Push both tags. The operator tag publishes the image and the chart. The
+   chart tag publishes nothing new, and exists so that anyone running a chart
+   version can read the source it was built from.
 
-   That second check matters because CI cannot make it. CI compares the tag's
-   name to `VERSION`, and `VERSION` reads the same on every commit after the
-   release one, so a tag cut from a later commit passes. Only the commit differs.
+   Pushing the chart tag does start a second chart publish, because a
+   `chart-v*` tag is what a chart-only release pushes. It finds the version
+   already there and stops:
+
+   ```
+   >> Chart redis-operator 4.6.2 already published with identical content; will not re-push.
+   ```
+
+   The two paths share a concurrency group, so the second runs after the first
+   rather than alongside it. It costs about half a minute and publishes
+   nothing.
+
+   It refuses three things. A version origin has already tagged, a commit that
+   is not merged into origin's master, and a commit that is not the one that set
+   `VERSION`.
+
+   That last check matters because CI cannot make it. CI compares the tag's name
+   to `VERSION`, and `VERSION` reads the same on every commit after the release
+   one, so a tag cut from a later commit passes while shipping changes the
+   changelog does not describe.
+
+   **If something merges between step 3 and here, `git pull` moves you past the
+   release commit and the tag targets refuse.** That is the point: the release
+   is the commit that set `VERSION`, not whatever master points at now. Tag it
+   where it is, and the refusal prints the command:
+
+   ```
+   git checkout <release commit> && make tag && git checkout -
+   ```
 
    Like `make tag-chart`, it asks origin about tags instead of reading local
    ones, and refuses when origin cannot be reached.
 
-   The chart publishes from this same tag, at the version `Chart.yaml` declares.
-   There is no chart tag to make. `make tag-chart` refuses a version an operator
-   release has already published. A chart released this way therefore has no
-   `chart-v*` tag, which is why some published chart versions have one and some
-   do not.
+   `make tag-chart` stops if `chart-v<version>` already exists, which means the
+   chart's version was not moved. An operator release always changes what the
+   chart installs, so its version moves with it.
 
 The tag runs the full pipeline. `dockerhub-image` builds and pushes the operator
 image to Docker Hub and ghcr, and `latest` moves to it. `chart-oci-publish` then
@@ -118,12 +144,17 @@ For a chart fix that needs no new operator: a template, a value, an RBAC rule.
 
    `make tag-chart` reads the version from `Chart.yaml` and prints the push
    command with the tag it created, so the tag cannot name a version the chart
-   does not declare and there is no number to copy. It refuses if that version
-   was already published by an operator release, which means the chart needs a
-   version of its own before it can be released alone.
+   does not declare and there is no number to copy.
 
-   It asks origin whether that operator release is tagged, since a clone can be
-   configured not to follow tags. It refuses when origin cannot be reached.
+   It refuses the same three things `make tag-operator` does, against the
+   chart's own version: one origin has already tagged, which means the version
+   was not moved; a commit not merged into origin's master; and a commit that is
+   not the one that set `version` in `Chart.yaml`. `helm.yml` cannot make those
+   last two: it compares the tag's name to the chart's version, and both read the
+   same on any commit after the bump.
+
+   It asks origin about tags rather than reading local ones, since a clone can
+   be configured not to follow them, and refuses when origin cannot be reached.
 
 A push to `master` publishes nothing. The chart publishes from a `chart-v*` tag.
 
@@ -142,7 +173,9 @@ A push to `master` publishes nothing. The chart publishes from a `chart-v*` tag.
 - **A chart version already published with different content.** Bump the chart
   version: publishing is idempotent on that version and would otherwise ship
   nothing.
-- **A `chart-v*` tag for a version an operator release already published.**
-  `make tag-chart` refuses before the tag exists.
-- **A release tag on anything but origin's master, or a version already tagged.**
-  `make tag-operator` refuses before the tag exists.
+- **A chart version that has not moved.** `make tag-chart` refuses before the
+  tag exists.
+- **A tag on a commit that is not the one that set the version, or that is not
+  merged into origin's master.** Both `make tag-operator` and `make tag-chart`
+  refuse before the tag exists. Neither CI workflow can check this, since every
+  version marker reads the same on every commit after the one that set it.

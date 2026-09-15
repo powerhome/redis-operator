@@ -12,11 +12,13 @@
 # This sets each of them to what the Makefile says. It does not need to know
 # what they held, and does not care whether they agreed with each other before.
 #
-# It does not touch the chart's own version. That is declared in Chart.yaml the
-# way the operator's is declared in the Makefile, and a release sets it there.
-# Forgetting to is caught at publish time: the publish script compares the
-# packaged chart against what is live and refuses a version already published
-# with different content.
+# It does not touch the chart's own version. Two of those markers live in the
+# chart, so an operator release is always a chart release, but what the chart's
+# next version should be is a judgement, and this makes none. It computes the
+# patch bump and says so, and a person sets it.
+#
+# Forgetting is caught before anything publishes: `make tag-chart` refuses a
+# version origin has already tagged.
 #
 # This writes neither changelog. They need prose, which needs a person.
 #
@@ -90,5 +92,10 @@ echo ">> running the chart validation CI runs"
 echo
 echo ">> still to do, by hand:"
 echo "   CHANGELOG.md                       a '## [${VERSION}] - $(date +%Y-%m-%d)' heading, and an upgrade note if behaviour changed"
-echo "   charts/redisoperator/Chart.yaml    bump 'version', since the chart's content changed"
-echo "   charts/redisoperator/CHANGELOG.md  an entry for that version, naming operator ${VERSION}"
+chart_now="$(sed -n 's/^version: //p' charts/redisoperator/Chart.yaml)"
+case "${chart_now}" in
+  [0-9]*.[0-9]*.[0-9]*) chart_next="${chart_now%.*}.$(( ${chart_now##*.} + 1 ))" ;;
+  *) chart_next="a version after ${chart_now}" ;;
+esac
+echo "   charts/redisoperator/Chart.yaml    set 'version: ${chart_next}', or higher if the chart changed by more"
+echo "   charts/redisoperator/CHANGELOG.md  an entry for it, naming operator ${VERSION}"

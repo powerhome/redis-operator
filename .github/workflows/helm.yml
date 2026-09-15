@@ -3,15 +3,25 @@ name: Publish Chart (OCI)
 # Publishes the Helm chart to ghcr.io as an OCI artifact under powerhome/charts.
 #
 # Operator releases publish from ci.yaml, on the operator `v*` tag, after the
-# operator image is built (so the chart never references an image that does not
-# exist yet). This workflow covers the two cases that are not an operator
-# release:
-#   - a chart-only version bump: push a `chart-v<semver>` tag, or
-#   - a manual re-publish: run it from the Actions tab (workflow_dispatch).
+# operator image is built, so the chart never references an image that does not
+# exist yet. This workflow publishes on a `chart-v<semver>` tag, or when run by
+# hand from the Actions tab.
 #
-# Both entry points call the same scripts/publish-oci-chart.sh, which is
-# idempotent (an already-published version is a no-op) and authenticates to
-# ghcr.io only with the built-in GITHUB_TOKEN -- no Docker Hub login.
+# A release pushes both tags, so on an operator release both paths run for the
+# same chart version. They share a concurrency group, so the second starts after
+# the first has finished and finds the version already published with identical
+# content, which publish-oci-chart.sh reports and skips. The duplicate run is
+# the cost of the `chart-v*` tag doing two jobs: triggering a chart-only
+# release, and recording the source a published chart was built from.
+#
+# Do not remove it by publishing only from this workflow. publish-oci-chart.sh
+# refuses a chart whose operator image is not pullable, so the two tags would
+# have to be pushed in order, with the image built in between: measured at ~15
+# minutes on v4.7.0, against the ~30 seconds this run costs.
+#
+# Both entry points call the same scripts/publish-oci-chart.sh, which
+# authenticates to ghcr.io only with the built-in GITHUB_TOKEN -- no Docker Hub
+# login.
 on:
   push:
     tags:
