@@ -24,11 +24,12 @@ organization. Install it directly from the registry:
 
 ```
 helm install redis-operator oci://ghcr.io/powerhome/charts/redis-operator
-# or pin a version:
-helm install redis-operator oci://ghcr.io/powerhome/charts/redis-operator --version 4.6.0
 ```
 
-You can inspect what is available with `helm show chart oci://ghcr.io/powerhome/charts/redis-operator`.
+That installs the newest chart version. Add `--version` to pin one.
+`helm show chart oci://ghcr.io/powerhome/charts/redis-operator` reports the
+newest, and the [chart changelog](/charts/redisoperator/CHANGELOG.md) lists
+what each version changed.
 
 #### Update helm chart
 
@@ -39,7 +40,8 @@ git tag, so pull the CRD from the chart, not from a branch) and pin the upgrade
 to that same version:
 
 ```
-CHART_VERSION=4.6.0
+# The chart version you are upgrading to, not the operator version.
+CHART_VERSION=<version>
 helm show crds oci://ghcr.io/powerhome/charts/redis-operator --version "${CHART_VERSION}" \
   | kubectl apply --server-side --force-conflicts -f -
 helm upgrade redis-operator oci://ghcr.io/powerhome/charts/redis-operator --version "${CHART_VERSION}"
