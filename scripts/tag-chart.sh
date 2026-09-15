@@ -45,8 +45,9 @@ fi
 if git rev-parse -q --verify "refs/tags/${APP_VERSION}" >/dev/null; then
   published_then="$(git show "${APP_VERSION}:charts/redisoperator/Chart.yaml" 2>/dev/null | sed -n 's/^version: //p' || true)"
   if [ "${published_then}" = "${CHART_VERSION}" ]; then
-    echo "!! chart ${CHART_VERSION} was published by operator release ${APP_VERSION}, which is already tagged." >&2
-    echo "   A chart-only release needs a version of its own. Bump 'version' in" >&2
+    echo "!! chart ${CHART_VERSION} ships with operator release ${APP_VERSION}, which is tagged." >&2
+    echo "   That release publishes the chart, so this tag would be redundant." >&2
+    echo "   A chart-only release needs a version of its own: bump 'version' in" >&2
     echo "   charts/redisoperator/Chart.yaml, leaving appVersion alone." >&2
     exit 1
   fi

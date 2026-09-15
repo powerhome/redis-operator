@@ -18,16 +18,26 @@ VERSION="$(sed -n 's/^VERSION := //p' Makefile | head -1)"
 
 # A clone configured not to follow tags, which this one is, can be missing a
 # release someone else cut. Ask origin rather than trusting what is local.
-if ! git ls-remote --tags origin >/dev/null 2>&1; then
-  echo "!! could not reach origin to check whether ${VERSION} is already released." >&2
-  echo "   Try again with a connection, or tag by hand if you are certain." >&2
-  exit 1
-fi
-if git ls-remote --exit-code --tags origin "${VERSION}" >/dev/null 2>&1; then
-  echo "!! ${VERSION} is already tagged on origin. It has been released." >&2
-  echo "   Prepare a new version: make prepare-release VERSION=vX.Y.Z" >&2
-  exit 1
-fi
+#
+# One request, named. Asking for every tag transfers the lot, which is slow
+# enough on a poor connection to look like a hang, and answers a question this
+# does not ask. The exit code says everything: 0 found it, 2 reached origin and
+# did not, anything else could not reach origin at all.
+found=0
+git ls-remote --exit-code --tags origin "${VERSION}" >/dev/null 2>&1 || found=$?
+case "${found}" in
+  0)
+    echo "!! ${VERSION} is already tagged on origin. It has been released." >&2
+    echo "   Prepare a new version: set VERSION in the Makefile, then make prepare-release" >&2
+    exit 1
+    ;;
+  2) ;;  # reached origin; the tag is not there
+  *)
+    echo "!! could not reach origin to check whether ${VERSION} is already released." >&2
+    echo "   Try again with a connection, or tag by hand if you are certain." >&2
+    exit 1
+    ;;
+esac
 if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
   echo "!! ${VERSION} already exists locally but not on origin." >&2
   echo "   Push it, or delete it and tag again: git tag -d ${VERSION}" >&2
