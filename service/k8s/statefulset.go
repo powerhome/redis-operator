@@ -165,6 +165,12 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 				if realUpdate {
 					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("resize statefulset pvcs from %d to %d Success", storedCapacity, stateCapacity)
 					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Infof("replacing statefulset to carry the resized pvcs; its pods keep running")
+					// A statefulset's volumeClaimTemplates cannot be changed, so
+					// a claim that grows reaches the set only by replacing it.
+					// Taking the pods along would stop every Redis in the
+					// failover at the same moment, so they are left running for
+					// the replacement to adopt. Only a pod that has to restart
+					// then does, one at a time.
 					return s.DeleteStatefulSetKeepingPods(namespace, statefulSet.Name)
 				} else {
 					s.logger.WithField("namespace", namespace).WithField("pvc", rfName).Warningf("set annotations,resize nothing")
@@ -183,23 +189,11 @@ func (s *StatefulSetService) DeleteStatefulSet(namespace, name string) error {
 	return s.deleteStatefulSet(namespace, name, metav1.DeletePropagationForeground)
 }
 
-// DeleteStatefulSetKeepingPods removes the statefulset and leaves the pods it
-// owned running, unowned, for the next reconcile to recreate the set and adopt
-// them.
+// DeleteStatefulSetKeepingPods removes the statefulset and leaves its pods
+// running and unowned, for the set that replaces it to adopt by selector.
 //
-// A statefulset's volumeClaimTemplates cannot be changed, so a claim that grows
-// can only reach the set by replacing it. Deleting the set the ordinary way
-// takes every pod with it at once, which for a failover is every Redis in it.
-// Orphaning leaves them serving while the set is absent, and the set that
-// replaces it adopts them by selector.
-//
-// Nothing restarts on adoption: the pods are governed by the OnDelete update
-// strategy, so the statefulset controller will not replace a pod it considers
-// stale. A claim size is not part of the pod template and so does not change
-// the revision the pods carry, which means a resize on its own restarts
-// nothing. Where the pod template changed as well, the adopted pods carry the
-// previous revision, and the operator replaces them one at a time, replicas
-// before the master.
+// Adoption alone restarts nothing, since these pods update on delete and the
+// statefulset controller replaces none of them on its own.
 func (s *StatefulSetService) DeleteStatefulSetKeepingPods(namespace, name string) error {
 	return s.deleteStatefulSet(namespace, name, metav1.DeletePropagationOrphan)
 }
@@ -213,13 +207,11 @@ func (s *StatefulSetService) deleteStatefulSet(namespace, name string, propagati
 // PodsWaitingOnFilesystemResize names the statefulset's pods whose volume has
 // grown but whose filesystem has not, and will not until the pod restarts.
 //
-// A claim that grows is expanded twice: the volume, then the filesystem on it.
-// A driver that can do the second while the volume is mounted does both and
-// leaves nothing behind. One that cannot marks the claim and waits for the pod
-// to go, and something has to make that happen: a claim size is not part of the
-// pod template, so no pod is stale by revision and nothing else would replace
-// it. The claim would read as resized, the volume would be larger, and the
-// filesystem the Redis writes to would still be the old size.
+// A claim grows in two steps, the volume and then the filesystem on it. A
+// driver that can grow a mounted filesystem does both. One that cannot marks
+// the claim and waits for the pod to go, and only the caller can make that
+// happen: a claim size is not part of the pod template, so nothing else reads
+// such a pod as needing replacement.
 func (s *StatefulSetService) PodsWaitingOnFilesystemResize(namespace, name string) (map[string]bool, error) {
 	waiting := map[string]bool{}
 
@@ -247,21 +239,24 @@ func (s *StatefulSetService) PodsWaitingOnFilesystemResize(namespace, name strin
 		if !pendingFilesystemResize(pvc) {
 			continue
 		}
-		// A statefulset names a claim `<template>-<pod>`, so what the template
-		// name does not account for is the pod holding it.
-		for _, template := range statefulSet.Spec.VolumeClaimTemplates {
-			prefix := template.Name + "-"
-			if !strings.HasPrefix(pvc.Name, prefix) {
-				continue
-			}
-			pod := strings.TrimPrefix(pvc.Name, prefix)
-			if strings.HasPrefix(pod, name+"-") {
-				waiting[pod] = true
-			}
+		if pod, ok := podHoldingClaim(pvc.Name, statefulSet); ok {
+			waiting[pod] = true
 		}
 	}
 
 	return waiting, nil
+}
+
+// podHoldingClaim names the pod a claim belongs to. A statefulset names a claim
+// `<template>-<pod>`, so what is left after the template name is the pod's.
+func podHoldingClaim(claimName string, statefulSet *appsv1.StatefulSet) (string, bool) {
+	for _, template := range statefulSet.Spec.VolumeClaimTemplates {
+		pod, found := strings.CutPrefix(claimName, template.Name+"-")
+		if found && strings.HasPrefix(pod, statefulSet.Name+"-") {
+			return pod, true
+		}
+	}
+	return "", false
 }
 
 func pendingFilesystemResize(pvc corev1.PersistentVolumeClaim) bool {

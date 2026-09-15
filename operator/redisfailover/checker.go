@@ -47,7 +47,7 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 	// A pod whose volume grew but whose filesystem has not is replaced on the
 	// same terms as one running an old pod template. Both need the pod to go
 	// and come back, and both are worth no more than one pod at a time.
-	resizing, err := r.rfChecker.GetRedisesPodsWaitingOnFilesystemResize(rf)
+	waitingOnResize, err := r.rfChecker.GetRedisesPodsWaitingOnFilesystemResize(rf)
 	if err != nil {
 		return err
 	}
@@ -58,7 +58,7 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		if err != nil {
 			return err
 		}
-		if revision != ssUR || resizing[pod] {
+		if revision != ssUR || waitingOnResize[pod] {
 			//Delete pod and wait next round to check if the new one is synced
 			err = r.rfHealer.DeletePod(pod, rf)
 			if err != nil {
@@ -79,7 +79,7 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		if err != nil {
 			return err
 		}
-		if masterRevision != ssUR || resizing[master] {
+		if masterRevision != ssUR || waitingOnResize[master] {
 			err = r.rfHealer.DeletePod(master, rf)
 			if err != nil {
 				return err
