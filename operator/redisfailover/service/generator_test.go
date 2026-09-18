@@ -1875,7 +1875,27 @@ func TestGenerateHaproxyConfig(t *testing.T) {
 			mustNotMatch: []string{
 				`frontend redis-master`,
 				`server-template redis 3 _redis\._tcp\.redis-expected-name\.test-ns\.svc\.cluster\.local:6379`,
+				`(?m)^\s*hold\s+\w+\s+\d+\s*$`,
 			},
+		},
+		{
+			// A bare number is milliseconds, so a missing unit turns a ten second
+			// grace into ten milliseconds and an NXDOMAIN blip empties the backend.
+			name: "gives every resolver hold an explicit unit",
+			rf: &redisfailoverv1.RedisFailover{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns", Name: "expected-name"},
+				Spec: redisfailoverv1.RedisFailoverSpec{
+					Redis: redisfailoverv1.RedisSettings{
+						Port:     6379,
+						Replicas: 3,
+					},
+					Haproxy: &redisfailoverv1.HaproxySettings{},
+				},
+			},
+			mustContain: []string{"hold nx 10s"},
+			// Catches the bug class rather than the single line: any hold whose
+			// value ends in a bare digit carries no unit.
+			mustNotMatch: []string{`(?m)^\s*hold\s+\w+\s+\d+\s*$`},
 		},
 	}
 
