@@ -9,10 +9,6 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
-### Upgrade note
-
-The generated HAProxy configuration changes, so every HAProxy this operator manages rolls once. Prefer an off-peak window.
-
 ### Fixed
 
 - [Give the NXDOMAIN resolver hold an explicit unit](https://github.com/powerhome/redis-operator/pull/129). Every hold in the generated `resolvers` block is ten seconds except `hold nx`, written as a bare `10`. HAProxy reads a unitless timer as milliseconds, so NXDOMAIN was granted a ten millisecond grace while every sibling failure was granted ten thousand times more. Once the grace expires HAProxy detaches every server from the SRV record, which empties the backend and severs its connections, so a DNS blip of any length emptied the backend rather than being ridden out. Against an eight second NXDOMAIN blip on HAProxy 3.1.7, the same configuration but for this line purged the backend at five seconds with `hold nx 10` and did not purge at all with `hold nx 10s`.
