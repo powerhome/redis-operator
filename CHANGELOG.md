@@ -11,7 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Upgrade note
 
-Every HAProxy this operator manages rolls once on upgrade, because the generated configuration changes and its checksum sits on the pod template. The same configuration carries `on-marked-down shutdown-sessions`, so each roll severs the Redis connections in flight through that proxy. There is also no readiness probe on the HAProxy container, so a replacement pod joins its Service endpoints before it has resolved SRV and passed a health check. Prefer an off-peak window.
+The generated HAProxy configuration changes, so every HAProxy this operator manages rolls once. Prefer an off-peak window.
 
 ### Fixed
 
