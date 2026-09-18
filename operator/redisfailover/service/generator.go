@@ -208,7 +208,7 @@ resolvers k8s
   parse-resolv-conf
   hold other 10s
   hold refused 10s
-  hold nx 10
+  hold nx 10s
   hold timeout 10s
   hold valid 10s
   hold obsolete 10s
