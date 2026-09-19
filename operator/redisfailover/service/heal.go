@@ -218,14 +218,27 @@ func (r *RedisFailoverHealer) SetExternalMasterOnAll(masterIP, masterPort string
 	}
 
 	port := rf.Spec.Redis.Port.ToString()
+
+	// A pod that cannot be reached is recorded and the loop carries on, so one
+	// unreachable pod does not stop the rest being demoted and relabelled. Every
+	// failure is joined into the returned error.
+	var demotionErr error
 	for _, pod := range ssp.Items {
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("Making pod %s slave of %s:%s", pod.Name, masterIP, masterPort)
 		if err := r.redisClient.MakeSlaveOfWithPort(pod.Status.PodIP, port, masterIP, masterPort, password); err != nil {
-			return err
+			demotionErr = errors.Join(demotionErr, err)
+			continue
 		}
 
+		// Every pod here follows a master outside this set, so none of them is
+		// this failover's master. The label comes after the demotion, so a pod
+		// that failed to demote keeps its old label rather than claiming a state
+		// it never reached.
+		if err := r.setSlaveLabelIfNecessary(rf.Namespace, pod); err != nil {
+			demotionErr = errors.Join(demotionErr, err)
+		}
 	}
-	return nil
+	return demotionErr
 }
 
 // NewSentinelMonitor changes the master that Sentinel has to monitor

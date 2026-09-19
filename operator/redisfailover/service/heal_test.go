@@ -345,10 +345,14 @@ func TestSetMasterOnAll(t *testing.T) {
 }
 
 func TestSetExternalMasterOnAll(t *testing.T) {
+	slaveLabel := map[string]string{"redisfailovers-role": "slave"}
+
 	tests := []struct {
 		name                  string
 		errorOnGetStatefulSet bool
 		errorOnMakeSlaveOf    bool
+		secondPodAlreadySlave bool
+		errorOnUpdateLabels   bool
 	}{
 		{
 			name: "makes all redis pods a slave of provided ip and port",
@@ -358,8 +362,19 @@ func TestSetExternalMasterOnAll(t *testing.T) {
 			errorOnGetStatefulSet: true,
 		},
 		{
-			name:               "errors on failure to make pod a slave",
+			// The pod that could not be demoted keeps whatever label it had,
+			// rather than claiming a state it never reached, and the pod behind
+			// it is still demoted and relabelled.
+			name:               "keeps going when one pod cannot be demoted",
 			errorOnMakeSlaveOf: true,
+		},
+		{
+			name:                  "leaves a pod that already carries the replica label alone",
+			secondPodAlreadySlave: true,
+		},
+		{
+			name:                "reports a failure to write the label",
+			errorOnUpdateLabels: true,
 		},
 	}
 
@@ -367,17 +382,21 @@ func TestSetExternalMasterOnAll(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			assert := assert.New(t)
 			rf := generateRF()
+
+			secondPodLabels := map[string]string{}
+			if test.secondPodAlreadySlave {
+				secondPodLabels = map[string]string{"redisfailovers-role": "slave"}
+			}
+
 			pods := &corev1.PodList{
 				Items: []corev1.Pod{
 					{
-						Status: corev1.PodStatus{
-							PodIP: "0.0.0.0",
-						},
+						ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0"},
+						Status:     corev1.PodStatus{PodIP: "0.0.0.0"},
 					},
 					{
-						Status: corev1.PodStatus{
-							PodIP: "1.1.1.1",
-						},
+						ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-1", Labels: secondPodLabels},
+						Status:     corev1.PodStatus{PodIP: "1.1.1.1"},
 					},
 				},
 			}
@@ -393,13 +412,28 @@ func TestSetExternalMasterOnAll(t *testing.T) {
 			}
 
 			mr := &mRedisService.Client{}
-			if !expectError {
+			if !test.errorOnGetStatefulSet {
 				mr.On("MakeSlaveOfWithPort", "0.0.0.0", "0", "5.5.5.5", "6379", "").Once().Return(nil)
+
+				if test.errorOnUpdateLabels {
+					expectError = true
+					ms.On("UpdatePodLabels", namespace, "rfr-test-0", slaveLabel).Once().Return(errors.New(""))
+				} else {
+					ms.On("UpdatePodLabels", namespace, "rfr-test-0", slaveLabel).Once().Return(nil)
+				}
+
 				if test.errorOnMakeSlaveOf {
 					expectError = true
+					// Demotion fails, so this pod is never relabelled.
 					mr.On("MakeSlaveOfWithPort", "1.1.1.1", "0", "5.5.5.5", "6379", "").Once().Return(errors.New(""))
 				} else {
 					mr.On("MakeSlaveOfWithPort", "1.1.1.1", "0", "5.5.5.5", "6379", "").Once().Return(nil)
+					if test.errorOnUpdateLabels {
+						ms.On("UpdatePodLabels", namespace, "rfr-test-1", slaveLabel).Once().Return(errors.New(""))
+					} else if !test.secondPodAlreadySlave {
+						ms.On("UpdatePodLabels", namespace, "rfr-test-1", slaveLabel).Once().Return(nil)
+					}
+					// When the pod already carries the label, no write is expected.
 				}
 			}
 

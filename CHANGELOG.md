@@ -11,6 +11,7 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Fixed
 
+- [Label every pod a replica while a failover follows an external master](https://github.com/powerhome/redis-operator/pull/130). A failover with `bootstrapNode` set replicates from a node outside its own stateful set, so none of its pods is that failover's master, but the role labels were left at whatever the last election set. The master service therefore selected a pod reporting `role:slave`, which serves reads and rejects writes, and the replica service omitted that pod and so listed fewer replicas than the failover had. Only a failover that once elected its own master is affected; one created with `bootstrapNode` already enabled labels every pod a replica correctly.
 - [Give the NXDOMAIN resolver hold an explicit unit](https://github.com/powerhome/redis-operator/pull/129). Every hold in the generated `resolvers` block is ten seconds except `hold nx`, written as a bare `10`. HAProxy reads a unitless timer as milliseconds, so NXDOMAIN was granted a ten millisecond grace while every sibling failure was granted ten thousand times more. Once the grace expires HAProxy detaches every server from the SRV record, which empties the backend and severs its connections, so a DNS blip of any length emptied the backend rather than being ridden out. Against an eight second NXDOMAIN blip on HAProxy 3.1.7, the same configuration but for this line purged the backend at five seconds with `hold nx 10` and did not purge at all with `hold nx 10s`.
 
 ## [v4.7.0] - 2026-09-15
