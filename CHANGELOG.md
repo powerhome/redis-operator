@@ -9,9 +9,19 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.7.1] - 2026-09-25
+
+### Upgrade note
+
+While bootstrapping, a `RedisFailover` publishes no master. Every one of its Redis pods is a replica of the external node, so the service selecting `redisfailovers-role: master` has no endpoints, where before it resolved to a pod reporting `role:slave`. A client connected there could read but not write; it now gets no endpoint at all. The service selecting `redisfailovers-role: slave` gains the pod it had been omitting, so it lists every replica.
+
+The clients that notice are those connecting to the master service directly. A client reaching Redis through the generated HAProxy is unaffected, because HAProxy resolves the headless `_redis._tcp.redis-<name>` SRV record rather than either role service.
+
+This applies only to a `RedisFailover` that elected its own master before it started bootstrapping. One created with `bootstrapNode` already enabled is unaffected, having never held an election.
+
 ### Fixed
 
-- [Label every pod a replica while a failover follows an external master](https://github.com/powerhome/redis-operator/pull/130). A failover with `bootstrapNode` set replicates from a node outside its own stateful set, so none of its pods is that failover's master, but the role labels were left at whatever the last election set. The master service therefore selected a pod reporting `role:slave`, which serves reads and rejects writes, and the replica service omitted that pod and so listed fewer replicas than the failover had. Only a failover that once elected its own master is affected; one created with `bootstrapNode` already enabled labels every pod a replica correctly.
+- [Label every pod a replica while a failover follows an external master](https://github.com/powerhome/redis-operator/pull/130). While bootstrapping, a `RedisFailover` replicates from a node outside its own stateful set, so none of its pods is its master, but the role labels were left at whatever the last election set. The master service therefore selected a pod reporting `role:slave`, which serves reads and rejects writes, and the replica service omitted that pod and so listed fewer replicas than it had. Only a `RedisFailover` that once elected its own master is affected; one created with `bootstrapNode` already enabled labels every pod a replica correctly.
 - [Give the NXDOMAIN resolver hold an explicit unit](https://github.com/powerhome/redis-operator/pull/129). Every hold in the generated `resolvers` block is ten seconds except `hold nx`, written as a bare `10`. HAProxy reads a unitless timer as milliseconds, so NXDOMAIN was granted a ten millisecond grace while every sibling failure was granted ten thousand times more. Once the grace expires HAProxy detaches every server from the SRV record, which empties the backend and severs its connections, so a DNS blip of any length emptied the backend rather than being ridden out. Against an eight second NXDOMAIN blip on HAProxy 3.1.7, the same configuration but for this line purged the backend at five seconds with `hold nx 10` and did not purge at all with `hold nx 10s`.
 
 ## [v4.7.0] - 2026-09-15
