@@ -80,21 +80,31 @@ the chart publishes from the same tag.
    where that version is declared, and prints the push command with the tag it
    created. Nothing is published until those pushes run.
 
-   Push both tags. The operator tag publishes the image and the chart. The
-   chart tag publishes nothing new, and exists so that anyone running a chart
-   version can read the source it was built from.
+   Push the operator tag first, and wait for its run to finish. It publishes
+   the image and the chart, and takes as long as the integration matrix does.
 
-   Pushing the chart tag does start a second chart publish, because a
-   `chart-v*` tag is what a chart-only release pushes. It finds the version
-   already there and stops:
+   Then push the chart tag. It publishes nothing new, and exists so that
+   anyone running a chart version can read the source it was built from.
+
+   **Pushing them together fails the chart publish.** A `chart-v*` tag is what
+   a chart-only release pushes, so its workflow goes straight to publishing,
+   while the operator tag's chart publish waits behind the integration matrix.
+   The chart tag wins that race and refuses, correctly, because the image it
+   would name does not exist yet:
 
    ```
-   >> Chart redis-operator 4.6.2 already published with identical content; will not re-push.
+   >> Checking operator image ghcr.io/powerhome/redis-operator:v4.7.1 is pullable
+   !! operator image ghcr.io/powerhome/redis-operator:v4.7.1 is not pullable yet
    ```
 
-   The two paths share a concurrency group, so the second runs after the first
-   rather than alongside it. It costs about half a minute and publishes
-   nothing.
+   Nothing is broken when this happens. The tag is pushed and serves its
+   purpose, and the operator tag's run publishes the chart. Re-run the failed
+   workflow to clear the mark against the tag; it finds the chart already
+   published and stops:
+
+   ```
+   >> Chart redis-operator 4.6.3 already published with identical content; will not re-push.
+   ```
 
    It refuses three things. A version origin has already tagged, a commit that
    is not merged into origin's master, and a commit that is not the one that set
@@ -125,6 +135,33 @@ The tag runs the full pipeline. `dockerhub-image` builds and pushes the operator
 image to Docker Hub and ghcr, and `latest` moves to it. `chart-oci-publish` then
 publishes the chart, but only once the image exists and the chart's own gates
 pass. A published chart never names an image that is not there.
+
+5. **Write the GitHub release.** Nothing creates it, and every operator release
+   has one.
+
+   Its body is the changelog entry for this version with the headings promoted
+   one level, so `### Fixed` becomes `## Fixed`, followed by the contributor
+   list GitHub generates. Taking the prose from `CHANGELOG.md` rather than
+   writing it again keeps the two saying the same thing:
+
+   ```
+   gh api repos/powerhome/redis-operator/releases/generate-notes \
+     -f tag_name=vX.Y.Z -f previous_tag_name=vA.B.C -q .body
+   ```
+
+   Draft it, read it, then publish:
+
+   ```
+   gh release create vX.Y.Z --draft --title vX.Y.Z --notes-file <file> --verify-tag
+   gh release edit vX.Y.Z --draft=false
+   ```
+
+   A draft is not bound to its tag until it is published, so its URL reads
+   `untagged-<hash>` until then. `--verify-tag` refuses to draft a release for
+   a tag that does not exist.
+
+   The chart has no GitHub release. Its tag exists to point at source, and its
+   changelog lives in the chart directory.
 
 ## Releasing the chart alone
 
