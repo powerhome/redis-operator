@@ -235,7 +235,11 @@ jobs:
       -
         name: Checkout
         uses: actions/checkout@v4
+      # Emulation is what lets the published image's final stage run apk and
+      # adduser for a foreign architecture. The pull request build targets
+      # linux/amd64 only, which the runner executes natively.
       - name: Set up QEMU
+        if: github.event_name != 'pull_request'
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -266,13 +270,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # A pull request builds linux/amd64 alone; master and release tags build
+      # every published platform. See the build-amd64 target in docker-bake.hcl.
       - name: Build
         uses: docker/bake-action@v5
         with:
           files: |
             ./docker-bake.hcl
             ${{ steps.meta.outputs.bake-file }}
-          targets: build
+          targets: ${{ github.event_name == 'pull_request' && 'build-amd64' || 'build' }}
           push: true
       - name: Verify the ghcr package is publicly pullable
         if: github.event_name != 'pull_request'
