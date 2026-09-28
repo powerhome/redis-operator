@@ -22,7 +22,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: false
+          # golangci-lint-action caches its own analysis results only and takes
+          # the Go module and build cache from this action, so the lint job needs
+          # it on: without it, every run downloads and recompiles every dependency.
+          cache: true
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
