@@ -59,14 +59,19 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Install conntrack
-        run: sudo apt-get install -y conntrack
       # medyagh/setup-minikube chmods /etc/cni/net.d without creating it, and the
       # runner image no longer ships that directory.
       # Upstream fix: https://github.com/medyagh/setup-minikube/pull/836
       - name: Ensure CNI config directory exists
         run: sudo mkdir -p /etc/cni/net.d
-      - uses: medyagh/setup-minikube@v0.0.18
+      # This action installs the none driver's dependencies itself: conntrack,
+      # socat, crictl, the CNI plugins and cri-dockerd.
+      #
+      # minikube is held at 1.38.1 because 1.39.0 makes containerd the default
+      # container runtime and the none driver here is set up for dockerd. Moving
+      # to 1.39.0 means either pinning container-runtime: docker or converting
+      # this job to containerd.
+      - uses: medyagh/setup-minikube@v0.0.21
         with:
           kubernetes-version: ${{ matrix.kubernetes }}
           minikube-version: 1.38.1
