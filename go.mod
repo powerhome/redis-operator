@@ -1,5 +1,8 @@
 module github.com/spotahome/redis-operator
 
+// The patch version named here is the one the GitHub Actions runner images
+// preinstall, so CI resolves the toolchain from the runner's tool cache. A patch
+// the images do not carry still works: every Go job downloads it instead.
 go 1.25.14
 
 require (
