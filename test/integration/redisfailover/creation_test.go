@@ -270,6 +270,13 @@ func TestRedisFailover(t *testing.T) {
 	// run last because each one restarts every Redis pod, and they run in
 	// sequence because each starts from where the previous one left the
 	// failover.
+	//
+	// Each one finishes by reaching a master through HAProxy on the password then
+	// in force, not only through the Redis pods. The proxy keeps the password its
+	// own pod started with, so the operator holds the Deployment write back until
+	// every Redis agrees with the configured password. A proxy restarted ahead of
+	// its backends can authenticate against none of them and routes nowhere,
+	// while the resources it is generated from read as correct the whole time.
 	t.Run("Check Rotating The Password Is Applied", clients.testPasswordRotation)
 	t.Run("Check Removing The Password Is Applied", clients.testPasswordRemoval)
 	t.Run("Check Adding The Password Back Is Applied", clients.testPasswordAddition)
@@ -435,14 +442,23 @@ func (c *clients) testHaproxyDeployment(t *testing.T) {
 	assert.Equal(haproxySize, int32(haproxyD.Status.Replicas))
 }
 
-// testHaproxyMaster reaches Redis through the HAProxy master proxy instead of
+func (c *clients) testHaproxyMaster(t *testing.T) {
+	c.waitForHaproxyMaster(t, testPass)
+}
+
+// waitForHaproxyMaster reaches Redis through the HAProxy master proxy instead of
 // through a Redis pod directly. Backends start DOWN and only join the pool once
-// the health check gets the reply it expects, and this failover sets
-// requirepass, so the check has to authenticate before Redis will answer it. An
+// the health check gets the reply it expects, so where the failover sets
+// requirepass the check has to authenticate before Redis will answer it. An
 // unauthenticated check leaves HAProxy with an empty pool and nothing to route
 // to, which is why this asserts on reaching a master rather than on the text of
 // the generated config.
-func (c *clients) testHaproxyMaster(t *testing.T) {
+//
+// An empty password means the failover is expected to be running without
+// authentication, and the proxy is expected to have given its own password up in
+// step with Redis.
+func (c *clients) waitForHaproxyMaster(t *testing.T, password string) {
+	t.Helper()
 	assert := assert.New(t)
 
 	haproxyD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfrm-haproxy-%s", name), metav1.GetOptions{})
@@ -477,7 +493,7 @@ func (c *clients) testHaproxyMaster(t *testing.T) {
 			return false, errors.New("no HAProxy pod has been assigned an address yet")
 		}
 
-		isMaster, err = c.redisClient.IsMaster(address, "6379", testPass)
+		isMaster, err = c.redisClient.IsMaster(address, "6379", password)
 		if err != nil {
 			return false, err
 		}
@@ -583,6 +599,7 @@ func (c *clients) testPasswordRotation(t *testing.T) {
 		return
 	}
 	c.waitForFailoverPassword(t, rotatedPass)
+	c.waitForHaproxyMaster(t, rotatedPass)
 }
 
 // testPasswordRemoval takes auth.secretPath away from a running failover.
@@ -596,6 +613,7 @@ func (c *clients) testPasswordRemoval(t *testing.T) {
 		return
 	}
 	c.waitForFailoverPassword(t, "")
+	c.waitForHaproxyMaster(t, "")
 }
 
 // testPasswordAddition points a running failover at a secret again.
@@ -607,6 +625,7 @@ func (c *clients) testPasswordAddition(t *testing.T) {
 		return
 	}
 	c.waitForFailoverPassword(t, rotatedPass)
+	c.waitForHaproxyMaster(t, rotatedPass)
 }
 
 func (c *clients) testAuth(t *testing.T) {
