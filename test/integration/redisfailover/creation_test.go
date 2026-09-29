@@ -47,6 +47,17 @@ const (
 	testPass       = "test-pass"
 	rotatedPass    = "rotated-pass"
 	redisAddr      = "redis://127.0.0.1:6379"
+
+	// Every wait in this file samples a condition on this interval. The operator
+	// reconciles on its own timer and Kubernetes reports readiness
+	// asynchronously, so there is no moment at which the cluster can be assumed
+	// settled; the only way to know is to look.
+	pollInterval = 2 * time.Second
+
+	// How long a wait gives the cluster before reporting what it was still
+	// doing. Generous, because it costs nothing when the condition is met
+	// sooner and a runner under load is slower than a workstation.
+	readyTimeout = 5 * time.Minute
 )
 
 type clients struct {
@@ -69,6 +80,89 @@ func (c *clients) prepareNS() error {
 func (c *clients) cleanup(stopC chan struct{}) {
 	c.k8sClient.CoreV1().Namespaces().Delete(context.Background(), namespace, metav1.DeleteOptions{})
 	close(stopC)
+}
+
+// waitFor samples condition until it holds, and returns the reason it did not
+// hold when the timeout runs out.
+//
+// The returned error is what makes this worth writing rather than reaching for
+// assert.Eventually: a wait that fails in CI has to say what the cluster was
+// still doing, because nobody can inspect the cluster afterwards. "redis
+// statefulset has 2 of 3 replicas ready" and "no HAProxy pod has been assigned
+// an address yet" send a reader to different places.
+func waitFor(timeout time.Duration, condition func() (bool, error)) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		ok, err := condition()
+		if ok {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			if err == nil {
+				err = errors.New("condition still did not hold when the deadline passed")
+			}
+			return err
+		}
+		time.Sleep(pollInterval)
+	}
+}
+
+// waitForNamespace waits for the namespace the test works in to be usable.
+func (c *clients) waitForNamespace(t *testing.T) {
+	t.Helper()
+
+	err := waitFor(readyTimeout, func() (bool, error) {
+		ns, err := c.k8sClient.CoreV1().Namespaces().Get(context.Background(), namespace, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		if ns.Status.Phase != corev1.NamespaceActive {
+			return false, fmt.Errorf("namespace is %s", ns.Status.Phase)
+		}
+		return true, nil
+	})
+	require.New(t).NoError(err, "the test namespace should become active")
+}
+
+// waitForWorkloadsReady waits until the operator has built every workload a
+// RedisFailover owns and each one reports all of its replicas ready.
+//
+// This is the gate the assertions below depend on, and it deliberately stops at
+// what Kubernetes reports. Whether Sentinel elected a single master, whether the
+// sentinels agree on it, and whether HAProxy routes to it are the questions those
+// assertions exist to answer, so each of them waits for its own condition rather
+// than having it guaranteed here.
+func (c *clients) waitForWorkloadsReady(t *testing.T) {
+	t.Helper()
+
+	err := waitFor(readyTimeout, func() (bool, error) {
+		redisSS, err := c.k8sClient.AppsV1().StatefulSets(namespace).Get(context.Background(), fmt.Sprintf("rfr-%s", name), metav1.GetOptions{})
+		if err != nil {
+			return false, fmt.Errorf("redis statefulset: %w", err)
+		}
+		if redisSS.Status.ReadyReplicas != redisSize {
+			return false, fmt.Errorf("redis statefulset has %d of %d replicas ready", redisSS.Status.ReadyReplicas, redisSize)
+		}
+
+		sentinelD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfs-%s", name), metav1.GetOptions{})
+		if err != nil {
+			return false, fmt.Errorf("sentinel deployment: %w", err)
+		}
+		if sentinelD.Status.ReadyReplicas != sentinelSize {
+			return false, fmt.Errorf("sentinel deployment has %d of %d replicas ready", sentinelD.Status.ReadyReplicas, sentinelSize)
+		}
+
+		haproxyD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfrm-haproxy-%s", name), metav1.GetOptions{})
+		if err != nil {
+			return false, fmt.Errorf("haproxy deployment: %w", err)
+		}
+		if haproxyD.Status.ReadyReplicas != haproxySize {
+			return false, fmt.Errorf("haproxy deployment has %d of %d replicas ready", haproxyD.Status.ReadyReplicas, haproxySize)
+		}
+
+		return true, nil
+	})
+	require.New(t).NoError(err, "the operator should bring up every workload the RedisFailover owns")
 }
 
 func TestRedisFailover(t *testing.T) {
@@ -104,8 +198,7 @@ func TestRedisFailover(t *testing.T) {
 	prepErr := clients.prepareNS()
 	require.NoError(prepErr)
 
-	// Give time to the namespace to be ready
-	time.Sleep(15 * time.Second)
+	clients.waitForNamespace(t)
 
 	// Create operator and run.
 	redisfailoverOperator, err := redisfailover.New(redisfailover.Config{}, k8sservice, k8sClient, namespace, redisClient, metrics.Dummy, log.Dummy)
@@ -117,9 +210,6 @@ func TestRedisFailover(t *testing.T) {
 
 	// Prepare cleanup for when the test ends
 	defer clients.cleanup(stopC)
-
-	// Give time to the operator to start
-	time.Sleep(15 * time.Second)
 
 	// Create secret
 	secret := &v1.Secret{
@@ -138,8 +228,12 @@ func TestRedisFailover(t *testing.T) {
 	ok := t.Run("Check Custom Resource Creation", clients.testCRCreation)
 	require.True(ok, "the custom resource has to be created to continue")
 
-	// Giving time to the operator to create the resources
-	time.Sleep(3 * time.Minute)
+	// Wait for the operator to build the failover. Nothing below this point
+	// depends on how long that takes, only on it having happened, and the
+	// operator has no reason to take the same time twice: it starts when it
+	// starts, images may or may not be cached, and a loaded runner schedules
+	// pods when it gets to them.
+	clients.waitForWorkloadsReady(t)
 
 	// Verify that auth is set and actually working
 	t.Run("Check that auth is set in sentinel and redis configs", clients.testAuth)
@@ -176,6 +270,13 @@ func TestRedisFailover(t *testing.T) {
 	// run last because each one restarts every Redis pod, and they run in
 	// sequence because each starts from where the previous one left the
 	// failover.
+	//
+	// Each one finishes by reaching a master through HAProxy on the password then
+	// in force, not only through the Redis pods. The proxy keeps the password its
+	// own pod started with, so the operator holds the Deployment write back until
+	// every Redis agrees with the configured password. A proxy restarted ahead of
+	// its backends can authenticate against none of them and routes nowhere,
+	// while the resources it is generated from read as correct the whole time.
 	t.Run("Check Rotating The Password Is Applied", clients.testPasswordRotation)
 	t.Run("Check Removing The Password Is Applied", clients.testPasswordRemoval)
 	t.Run("Check Adding The Password Back Is Applied", clients.testPasswordAddition)
@@ -232,59 +333,106 @@ func (c *clients) testSentinelDeployment(t *testing.T) {
 	assert.Equal(3, int(sentinelD.Status.Replicas))
 }
 
+// testRedisMaster asks every Redis pod who it is and expects exactly one to
+// answer that it is the master.
+//
+// Sentinel elects the master, and it does so once the pods are up rather than as
+// they come up, so this waits for the election instead of reading the roles the
+// instant every pod is ready. Two masters is a split brain and no master is a
+// failover nothing can write to; both are real failures, and both look like "not
+// yet" for a short window after the pods arrive.
 func (c *clients) testRedisMaster(t *testing.T) {
 	assert := assert.New(t)
-	masters := []string{}
 
-	redisSS, err := c.k8sClient.AppsV1().StatefulSets(namespace).Get(context.Background(), fmt.Sprintf("rfr-%s", name), metav1.GetOptions{})
-	assert.NoError(err)
-
-	listOptions := metav1.ListOptions{
-		LabelSelector: labels.FormatLabels(redisSS.Spec.Selector.MatchLabels),
-	}
-
-	redisPodList, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
-
-	assert.NoError(err)
-
-	for _, pod := range redisPodList.Items {
-		ip := pod.Status.PodIP
-		if ok, _ := c.redisClient.IsMaster(ip, "6379", testPass); ok {
-			masters = append(masters, ip)
+	var masters []string
+	err := waitFor(readyTimeout, func() (bool, error) {
+		redisSS, err := c.k8sClient.AppsV1().StatefulSets(namespace).Get(context.Background(), fmt.Sprintf("rfr-%s", name), metav1.GetOptions{})
+		if err != nil {
+			return false, err
 		}
-	}
+		listOptions := metav1.ListOptions{
+			LabelSelector: labels.FormatLabels(redisSS.Spec.Selector.MatchLabels),
+		}
+		redisPodList, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
+		if err != nil {
+			return false, err
+		}
 
-	assert.Equal(1, len(masters), "only one master expected")
+		masters = nil
+		for _, pod := range redisPodList.Items {
+			ip := pod.Status.PodIP
+			if ok, _ := c.redisClient.IsMaster(ip, "6379", testPass); ok {
+				masters = append(masters, ip)
+			}
+		}
+		if len(masters) != 1 {
+			return false, fmt.Errorf("%d of %d Redis pods report being the master", len(masters), len(redisPodList.Items))
+		}
+		return true, nil
+	})
+
+	assert.NoError(err, "the failover should elect exactly one master")
+	assert.Len(masters, 1, "only one master expected")
 }
 
+// testSentinelMonitoring asks every Sentinel which Redis it is monitoring and
+// expects them all to name the same one, and that one to be the master.
+//
+// Sentinels discover each other and agree among themselves, so a disagreement
+// here is either a transient mid-election reading or a real split in the quorum.
+// Waiting tells the two apart: the transient one resolves, and the real one is
+// still there when the deadline passes, reported as the disagreement it is.
 func (c *clients) testSentinelMonitoring(t *testing.T) {
 	assert := assert.New(t)
-	masters := []string{}
 
-	sentinelD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfs-%s", name), metav1.GetOptions{})
-	assert.NoError(err)
+	var monitored string
+	err := waitFor(readyTimeout, func() (bool, error) {
+		sentinelD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfs-%s", name), metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		listOptions := metav1.ListOptions{
+			LabelSelector: labels.FormatLabels(sentinelD.Spec.Selector.MatchLabels),
+		}
+		sentinelPodList, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
+		if err != nil {
+			return false, err
+		}
+		if len(sentinelPodList.Items) == 0 {
+			return false, errors.New("no Sentinel pods to ask")
+		}
 
-	listOptions := metav1.ListOptions{
-		LabelSelector: labels.FormatLabels(sentinelD.Spec.Selector.MatchLabels),
-	}
-	sentinelPodList, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
-	assert.NoError(err)
-
-	for _, pod := range sentinelPodList.Items {
-		ip := pod.Status.PodIP
 		port := strconv.FormatInt(int64(sentinelPort), 10)
+		monitored = ""
+		for _, pod := range sentinelPodList.Items {
+			master, _, err := c.redisClient.GetSentinelMonitor(pod.Status.PodIP, port)
+			if err != nil {
+				return false, fmt.Errorf("asking Sentinel %s what it monitors: %w", pod.Status.PodIP, err)
+			}
+			if monitored == "" {
+				monitored = master
+				continue
+			}
+			if master != monitored {
+				return false, fmt.Errorf("Sentinels disagree on the master: %s and %s", monitored, master)
+			}
+		}
+		if monitored == "" {
+			return false, errors.New("the Sentinels are not monitoring anything yet")
+		}
 
-		master, _, _ := c.redisClient.GetSentinelMonitor(ip, port)
-		masters = append(masters, master)
-	}
+		isMaster, err := c.redisClient.IsMaster(monitored, "6379", testPass)
+		if err != nil {
+			return false, fmt.Errorf("asking %s whether it is the master: %w", monitored, err)
+		}
+		if !isMaster {
+			return false, fmt.Errorf("the Sentinels monitor %s, which does not report being the master", monitored)
+		}
+		return true, nil
+	})
 
-	for _, masterIP := range masters {
-		assert.Equal(masters[0], masterIP, "all master ip monitoring should equal")
-	}
-
-	isMaster, err := c.redisClient.IsMaster(masters[0], "6379", testPass)
-	assert.NoError(err)
-	assert.True(isMaster, "Sentinel should monitor the Redis master")
+	assert.NoError(err, "every Sentinel should monitor the same Redis, and that Redis should be the master")
+	assert.NotEmpty(monitored, "Sentinel should monitor the Redis master")
 }
 
 func (c *clients) testHaproxyDeployment(t *testing.T) {
@@ -294,14 +442,23 @@ func (c *clients) testHaproxyDeployment(t *testing.T) {
 	assert.Equal(haproxySize, int32(haproxyD.Status.Replicas))
 }
 
-// testHaproxyMaster reaches Redis through the HAProxy master proxy instead of
+func (c *clients) testHaproxyMaster(t *testing.T) {
+	c.waitForHaproxyMaster(t, testPass)
+}
+
+// waitForHaproxyMaster reaches Redis through the HAProxy master proxy instead of
 // through a Redis pod directly. Backends start DOWN and only join the pool once
-// the health check gets the reply it expects, and this failover sets
-// requirepass, so the check has to authenticate before Redis will answer it. An
+// the health check gets the reply it expects, so where the failover sets
+// requirepass the check has to authenticate before Redis will answer it. An
 // unauthenticated check leaves HAProxy with an empty pool and nothing to route
 // to, which is why this asserts on reaching a master rather than on the text of
 // the generated config.
-func (c *clients) testHaproxyMaster(t *testing.T) {
+//
+// An empty password means the failover is expected to be running without
+// authentication, and the proxy is expected to have given its own password up in
+// step with Redis.
+func (c *clients) waitForHaproxyMaster(t *testing.T, password string) {
+	t.Helper()
 	assert := assert.New(t)
 
 	haproxyD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfrm-haproxy-%s", name), metav1.GetOptions{})
@@ -313,18 +470,16 @@ func (c *clients) testHaproxyMaster(t *testing.T) {
 	}
 
 	// Backends are discovered through SRV records and checked once a second, so
-	// poll for the pool to come up rather than reading it the instant the pod is
+	// wait for the pool to come up rather than reading it the instant the pod is
 	// scheduled. The pod is looked up each time round: one that has not been
 	// assigned an address yet, or one replaced while this waits, would otherwise
 	// leave every attempt dialling an address that can never answer, and report
 	// it as an authentication failure.
 	var isMaster bool
-	var lastErr error
-	for deadline := time.Now().Add(2 * time.Minute); time.Now().Before(deadline); time.Sleep(5 * time.Second) {
-		haproxyPods, listErr := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
-		if listErr != nil {
-			lastErr = listErr
-			continue
+	waitErr := waitFor(readyTimeout, func() (bool, error) {
+		haproxyPods, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
+		if err != nil {
+			return false, err
 		}
 
 		address := ""
@@ -335,17 +490,20 @@ func (c *clients) testHaproxyMaster(t *testing.T) {
 			}
 		}
 		if address == "" {
-			lastErr = errors.New("no HAProxy pod has been assigned an address yet")
-			continue
+			return false, errors.New("no HAProxy pod has been assigned an address yet")
 		}
 
-		isMaster, lastErr = c.redisClient.IsMaster(address, "6379", testPass)
-		if lastErr == nil && isMaster {
-			break
+		isMaster, err = c.redisClient.IsMaster(address, "6379", password)
+		if err != nil {
+			return false, err
 		}
-	}
+		if !isMaster {
+			return false, fmt.Errorf("HAProxy at %s routes to a Redis that does not report being the master", address)
+		}
+		return true, nil
+	})
 
-	assert.NoError(lastErr, "HAProxy should have a Redis backend to route to; without an authenticated health check every backend stays DOWN")
+	assert.NoError(waitErr, "HAProxy should have a Redis backend to route to; without an authenticated health check every backend stays DOWN")
 	assert.True(isMaster, "HAProxy should route to the Redis master")
 }
 
@@ -368,37 +526,38 @@ func (c *clients) waitForFailoverPassword(t *testing.T, password string) {
 	listOptions := metav1.ListOptions{LabelSelector: labels.FormatLabels(redisSS.Spec.Selector.MatchLabels)}
 
 	var master string
-	var lastErr error
-	for deadline := time.Now().Add(5 * time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Second) {
+	waitErr := waitFor(readyTimeout, func() (bool, error) {
 		pods, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
 		if err != nil {
-			lastErr = err
-			continue
+			return false, err
 		}
 
-		master, lastErr = "", nil
-		ready := 0
+		master = ""
+		accepted := 0
 		for _, pod := range pods.Items {
 			if pod.Status.PodIP == "" {
 				continue
 			}
 			isMaster, err := c.redisClient.IsMaster(pod.Status.PodIP, "6379", password)
 			if err != nil {
-				lastErr = err
-				break
+				return false, fmt.Errorf("Redis %s does not accept the configured password: %w", pod.Status.PodIP, err)
 			}
-			ready++
+			accepted++
 			if isMaster {
 				master = pod.Status.PodIP
 			}
 		}
 
-		if lastErr == nil && master != "" && ready == int(redisSize) {
-			return
+		if accepted != int(redisSize) {
+			return false, fmt.Errorf("%d of %d Redis pods accept the configured password", accepted, redisSize)
 		}
-	}
+		if master == "" {
+			return false, errors.New("no Redis reports being the master")
+		}
+		return true, nil
+	})
 
-	assert.NoError(lastErr, "every Redis pod should accept the configured password once the operator has applied it")
+	assert.NoError(waitErr, "every Redis pod should accept the configured password once the operator has applied it")
 	assert.NotEmpty(master, "the failover should have a master again after the change")
 }
 
@@ -440,6 +599,7 @@ func (c *clients) testPasswordRotation(t *testing.T) {
 		return
 	}
 	c.waitForFailoverPassword(t, rotatedPass)
+	c.waitForHaproxyMaster(t, rotatedPass)
 }
 
 // testPasswordRemoval takes auth.secretPath away from a running failover.
@@ -453,6 +613,7 @@ func (c *clients) testPasswordRemoval(t *testing.T) {
 		return
 	}
 	c.waitForFailoverPassword(t, "")
+	c.waitForHaproxyMaster(t, "")
 }
 
 // testPasswordAddition points a running failover at a secret again.
@@ -464,6 +625,7 @@ func (c *clients) testPasswordAddition(t *testing.T) {
 		return
 	}
 	c.waitForFailoverPassword(t, rotatedPass)
+	c.waitForHaproxyMaster(t, rotatedPass)
 }
 
 func (c *clients) testAuth(t *testing.T) {
