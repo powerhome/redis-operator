@@ -44,6 +44,26 @@ target "build" {
     "linux/arm64",
     "linux/386",
   ]
+  // No cache backend, deliberately. Measured on a runner: `go mod download`
+  // takes 2.8s, restoring that layer from the GitHub Actions cache takes 7.8s,
+  // and exporting a mode=max cache of this build stage takes 49s once the cache
+  // has content. The compile is 57s and misses on every commit that changes
+  // source, which is all of them, so a cache can only ever save the few seconds
+  // of dependency resolution and two apk calls. It costs an order of magnitude
+  // more than that to carry.
+}
+
+// What a pull request builds. The binary is pure Go, compiled with CGO disabled
+// and GOOS and GOARCH named, so the other four platforms drive the same source
+// down the same path and catch nothing linux/amd64 misses. One platform also
+// needs no emulation, because the runner is amd64 and the final stage's apk and
+// adduser calls run natively.
+//
+// Publishing still covers every platform: master and release tags build the
+// build target.
+target "build-amd64" {
+  inherits = ["build"]
+  platforms = ["linux/amd64"]
 }
 
 variable UID { default = 1000 }

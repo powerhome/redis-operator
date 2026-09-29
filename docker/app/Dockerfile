@@ -7,6 +7,13 @@ RUN apk --no-cache add \
   bash
 
 WORKDIR /src
+
+# Dependencies resolve in a layer of their own, before the source arrives, so the
+# layer is keyed on go.mod and go.sum alone and a source-only change reuses it
+# instead of fetching every module again.
+COPY go.mod go.sum ./
+RUN go mod download
+
 COPY . .
 
 ARG TARGETOS
