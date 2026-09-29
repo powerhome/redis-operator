@@ -22,7 +22,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: false
+          # golangci-lint-action caches its own analysis results only and takes
+          # the Go module and build cache from this action, so the lint job needs
+          # it on: without it, every run downloads and recompiles every dependency.
+          cache: true
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -56,14 +59,19 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Install conntrack
-        run: sudo apt-get install -y conntrack
       # medyagh/setup-minikube chmods /etc/cni/net.d without creating it, and the
       # runner image no longer ships that directory.
       # Upstream fix: https://github.com/medyagh/setup-minikube/pull/836
       - name: Ensure CNI config directory exists
         run: sudo mkdir -p /etc/cni/net.d
-      - uses: medyagh/setup-minikube@v0.0.18
+      # This action installs the none driver's dependencies itself: conntrack,
+      # socat, crictl, the CNI plugins and cri-dockerd.
+      #
+      # minikube is held at 1.38.1 because 1.39.0 makes containerd the default
+      # container runtime and the none driver here is set up for dockerd. Moving
+      # to 1.39.0 means either pinning container-runtime: docker or converting
+      # this job to containerd.
+      - uses: medyagh/setup-minikube@v0.0.21
         with:
           kubernetes-version: ${{ matrix.kubernetes }}
           minikube-version: 1.38.1
@@ -227,7 +235,11 @@ jobs:
       -
         name: Checkout
         uses: actions/checkout@v4
+      # Emulation is what lets the published image's final stage run apk and
+      # adduser for a foreign architecture. The pull request build targets
+      # linux/amd64 only, which the runner executes natively.
       - name: Set up QEMU
+        if: github.event_name != 'pull_request'
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -258,13 +270,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # A pull request builds linux/amd64 alone; master and release tags build
+      # every published platform. See the build-amd64 target in docker-bake.hcl.
       - name: Build
         uses: docker/bake-action@v5
         with:
           files: |
             ./docker-bake.hcl
             ${{ steps.meta.outputs.bake-file }}
-          targets: build
+          targets: ${{ github.event_name == 'pull_request' && 'build-amd64' || 'build' }}
           push: true
       - name: Verify the ghcr package is publicly pullable
         if: github.event_name != 'pull_request'

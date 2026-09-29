@@ -40,7 +40,6 @@ GOLANGCI_LINT_VERSION := v2.13.2
 GOLANGCI_LINT_IMAGE := golangci/golangci-lint:$(GOLANGCI_LINT_VERSION)
 
 ACTIONLINT_VERSION := 1.7.12
-ACTIONLINT_IMAGE := rhysd/actionlint:$(ACTIONLINT_VERSION)
 
 # workdir
 WORKDIR := /go/src/github.com/spotahome/redis-operator
@@ -48,6 +47,7 @@ WORKDIR := /go/src/github.com/spotahome/redis-operator
 # CMDs
 UNIT_TEST_CMD := go test `go list ./... | grep -v /vendor/` -v
 HELM_TEST_CMD := ./scripts/helm-tests.sh
+WORKFLOW_LINT_CMD := ./scripts/lint-workflows.sh
 GO_GENERATE_CMD := go generate `go list ./... | grep -v /vendor/`
 GO_INTEGRATION_TEST_CMD := go test `go list ./... | grep test/integration` -v -tags='integration'
 MOCKS_CMD := go generate ./mocks
@@ -207,11 +207,7 @@ lint:
 # Lint the GitHub Actions workflow files
 .PHONY: lint-workflows
 lint-workflows:
-	docker run --rm \
-	  -v $(PWD):$(WORKDIR) \
-	  -w $(WORKDIR) \
-	  $(ACTIONLINT_IMAGE) \
-	  -color
+	ACTIONLINT_VERSION=$(ACTIONLINT_VERSION) $(WORKFLOW_LINT_CMD)
 
 # Run all code generators
 .PHONY: generate
