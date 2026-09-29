@@ -131,10 +131,11 @@ the chart publishes from the same tag.
    chart's version was not moved. An operator release always changes what the
    chart installs, so its version moves with it.
 
-The tag runs the full pipeline. `dockerhub-image` builds and pushes the operator
-image to Docker Hub and ghcr, and `latest` moves to it. `chart-oci-publish` then
-publishes the chart, but only once the image exists and the chart's own gates
-pass. A published chart never names an image that is not there.
+   The tag runs the full pipeline. `dockerhub-image` builds and pushes the
+   operator image to Docker Hub and ghcr, and `latest` moves to it.
+   `chart-oci-publish` then publishes the chart, but only once the image
+   exists and the chart's own gates pass. A published chart never names an
+   image that is not there.
 
 5. **Write the GitHub release.** Nothing creates it, and every operator release
    has one.
