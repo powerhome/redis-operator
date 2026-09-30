@@ -50,13 +50,24 @@ name and an address used to dial once is an address, and holds the reasoning.
 - THEN the Sentinel pods SHOULD NOT be replaced, since nothing they read at
   startup has to change for them to take a name
 
-- GIVEN a replica that names the master pod as the node it replicates from
-- WHEN the operator checks that every replica follows the master
-- THEN it recognises the name and the address as the same pod
+- GIVEN a replica the operator has to point at the master
+- WHEN it points it
+- THEN the replica is given the master's name, so what it follows survives that
+  pod being replaced at another address
 
-- GIVEN a replica that names some other pod
+- GIVEN a replica following the master by name
+- WHEN the operator checks that every replica follows the master
+- THEN it matches
+
+- GIVEN a failover whose master has been established
+- WHEN the operator labels each pod with the role it is in
+- THEN the pod it labels master is the one the replication check names, because
+  both read the same name
+
+- GIVEN a replica following an address, including the `127.0.0.1` a pod starts
+  with and whatever a `v4.7.1` operator wrote
 - WHEN the operator runs the same check
-- THEN it reports the mismatch and repoints the replica
+- THEN it reports the mismatch and repoints the replica by name
 
 - GIVEN a failover replicating from `bootstrapNode.host`
 - WHEN its Redis pods start
@@ -94,6 +105,11 @@ name and an address used to dial once is an address, and holds the reasoning.
   so there is no order in which an entry becomes stuck as an address.
 - **`resolve-hostnames` and `announce-hostnames` need Redis 6.2 or newer**, and
   an unknown directive stops Sentinel starting. This project requires Redis 7.
+- **A replica has to resolve the name it is told to follow.** Redis resolves it
+  at connect time and again on every reconnect, so replication depends on the
+  cluster's DNS from the Redis pods as well as from the Sentinels. Sentinel
+  already repoints replicas by name after every failover, so this is the same
+  dependency rather than a new one.
 - **A StatefulSet's `serviceName` is immutable.** The service that names the
   pods has to be the one the set already points at.
 - **Sentinel resolves through the cluster's DNS.** A policy that denies these pods
@@ -130,14 +146,22 @@ the replicas were just given. The address the operator compares against what a
 Redis reports about itself, and the name it hands to Sentinel, describe one
 answer: the pod at that address.
 
-**The operator accepts a name or an address rather than resolving names
-itself.** A replica reports the master it was last told to follow, which is an
-address when the operator told it and a name when Sentinel did. Resolving the
-name from the operator's own pod would answer a different question, "what does
-this name mean here, now", and can disagree with what the replica is actually
-connected to. Treating both the master pod's address and its name as the master
-compares what was said against what was asked for, which is what the check is
-for.
+**Everything that writes a replication target writes a name, so the check reads
+one form.** A replica reports whatever it was last told to follow. Sentinel tells
+it a name, because `announce-hostnames` is in the generated configuration and so
+no Sentinel can start without it. The operator tells it a name for the same
+reason it tells Sentinel one: an address it writes down stops meaning that pod
+the moment the pod is replaced.
+
+Accepting an address as well would read as tolerance and act as a trap, since the
+only thing it could match is a pod that may already be somebody else. An address
+that is not the master's name is a mismatch, which is what it is: `127.0.0.1` on
+a pod that has just started, or what a `v4.7.1` operator left behind. Both are
+repointed, which is the repair either way.
+
+Resolving the name inside the operator was the alternative, and it answers a
+different question: what the name means in the operator's pod, now, rather than
+what the replica was told. The two can disagree.
 
 **The two Sentinel-wide settings are applied over the wire, not through a
 restart.** They are in the generated configuration as well, so a new pod starts

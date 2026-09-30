@@ -363,7 +363,7 @@ func TestCheckAllSlavesFromMasterGetStatefulSetError(t *testing.T) {
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
-	err := checker.CheckAllSlavesFromMaster("", rf)
+	err := checker.CheckAllSlavesFromMaster("rfr-test-0.rfr-test.testns.svc", rf)
 	assert.Error(err)
 }
 
@@ -391,64 +391,8 @@ func TestCheckAllSlavesFromMasterGetSlaveOfError(t *testing.T) {
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
-	err := checker.CheckAllSlavesFromMaster("", rf)
+	err := checker.CheckAllSlavesFromMaster("rfr-test-0.rfr-test.testns.svc", rf)
 	assert.Error(err)
-}
-
-func TestCheckAllSlavesFromMasterDifferentMaster(t *testing.T) {
-	assert := assert.New(t)
-
-	rf := generateRF()
-
-	pods := &corev1.PodList{
-		Items: []corev1.Pod{
-			{
-				Status: corev1.PodStatus{
-					PodIP: "0.0.0.0",
-					Phase: corev1.PodRunning,
-				},
-			},
-		},
-	}
-
-	ms := &mK8SService.Services{}
-	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
-	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Once().Return(nil)
-	mr := &mRedisService.Client{}
-	mr.On("GetSlaveOf", "0.0.0.0", "0", "").Once().Return("1.1.1.1", nil)
-
-	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-
-	err := checker.CheckAllSlavesFromMaster("0.0.0.0", rf)
-	assert.Error(err)
-}
-
-func TestCheckAllSlavesFromMaster(t *testing.T) {
-	assert := assert.New(t)
-
-	rf := generateRF()
-
-	pods := &corev1.PodList{
-		Items: []corev1.Pod{
-			{
-				Status: corev1.PodStatus{
-					PodIP: "0.0.0.0",
-					Phase: corev1.PodRunning,
-				},
-			},
-		},
-	}
-
-	ms := &mK8SService.Services{}
-	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
-	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Once().Return(nil)
-	mr := &mRedisService.Client{}
-	mr.On("GetSlaveOf", "0.0.0.0", "0", "").Once().Return("1.1.1.1", nil)
-
-	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-
-	err := checker.CheckAllSlavesFromMaster("1.1.1.1", rf)
-	assert.NoError(err)
 }
 
 func TestCheckSentinelNumberInMemoryGetDeploymentPodsError(t *testing.T) {
@@ -1512,71 +1456,6 @@ func TestClusterRunningWithBootstrapSentinels(t *testing.T) {
 
 }
 
-// A replica reports whatever it was told to replicate from. Sentinel tells it a
-// name, the operator tells it an address, and both describe the same pod.
-func TestCheckAllSlavesFromMasterToldTheMastersName(t *testing.T) {
-	assert := assert.New(t)
-
-	rf := generateRF()
-	masterHostname := rfservice.RedisPodHostname(rf, "rfr-test-0")
-
-	pods := &corev1.PodList{
-		Items: []corev1.Pod{
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0"},
-				Status:     corev1.PodStatus{PodIP: "1.1.1.1", Phase: corev1.PodRunning},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-1"},
-				Status:     corev1.PodStatus{PodIP: "0.0.0.0", Phase: corev1.PodRunning},
-			},
-		},
-	}
-
-	ms := &mK8SService.Services{}
-	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
-	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Return(nil)
-	mr := &mRedisService.Client{}
-	mr.On("GetSlaveOf", "1.1.1.1", "0", "").Once().Return("", nil)
-	mr.On("GetSlaveOf", "0.0.0.0", "0", "").Once().Return(masterHostname, nil)
-
-	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-
-	assert.NoError(checker.CheckAllSlavesFromMaster("1.1.1.1", rf))
-}
-
-// The name of another pod is still the wrong master, and saying so is the whole
-// point of this check.
-func TestCheckAllSlavesFromMasterToldAnotherPodsName(t *testing.T) {
-	assert := assert.New(t)
-
-	rf := generateRF()
-
-	pods := &corev1.PodList{
-		Items: []corev1.Pod{
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0"},
-				Status:     corev1.PodStatus{PodIP: "1.1.1.1", Phase: corev1.PodRunning},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-1"},
-				Status:     corev1.PodStatus{PodIP: "0.0.0.0", Phase: corev1.PodRunning},
-			},
-		},
-	}
-
-	ms := &mK8SService.Services{}
-	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
-	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Return(nil)
-	mr := &mRedisService.Client{}
-	mr.On("GetSlaveOf", "1.1.1.1", "0", "").Once().Return("", nil)
-	mr.On("GetSlaveOf", "0.0.0.0", "0", "").Once().Return(rfservice.RedisPodHostname(rf, "rfr-test-2"), nil)
-
-	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-
-	assert.Error(checker.CheckAllSlavesFromMaster("1.1.1.1", rf))
-}
-
 func TestRedisPodHostname(t *testing.T) {
 	assert := assert.New(t)
 
@@ -1585,7 +1464,10 @@ func TestRedisPodHostname(t *testing.T) {
 	assert.Equal("rfr-test-0.rfr-test.testns.svc", rfservice.RedisPodHostname(generateRF(), "rfr-test-0"))
 }
 
-func TestGetMasterHostname(t *testing.T) {
+// Which pod is the master is the caller's to establish. This names the pod at
+// the address it was given, so the ordinals and the addresses are crossed here:
+// an answer that went by pod order would name rfr-test-0.
+func TestGetRedisHostnameAtNamesThePodHoldingTheAddress(t *testing.T) {
 	assert := assert.New(t)
 
 	rf := generateRF()
@@ -1608,15 +1490,17 @@ func TestGetMasterHostname(t *testing.T) {
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
-	hostname, err := checker.GetMasterHostname(rf, "0.0.0.0")
+	hostname, err := checker.GetRedisHostnameAt(rf, "0.0.0.0")
 	assert.NoError(err)
-	assert.Equal("rfr-test-1.rfr-test.testns.svc", hostname)
-	// No Redis was asked who the master is: the caller established that, and
-	// asking again invites two answers to the same question.
+	// The shape itself is pinned by TestRedisPodHostname. What matters here is
+	// which pod was named.
+	assert.Equal(rfservice.RedisPodHostname(rf, "rfr-test-1"), hostname)
+	// No Redis was asked anything. Asking again invites a second answer to a
+	// question the caller has already answered.
 	mr.AssertExpectations(t)
 }
 
-func TestGetMasterHostnameAddressHeldByNoPod(t *testing.T) {
+func TestGetRedisHostnameAtAddressHeldByNoPod(t *testing.T) {
 	assert := assert.New(t)
 
 	rf := generateRF()
@@ -1634,7 +1518,7 @@ func TestGetMasterHostnameAddressHeldByNoPod(t *testing.T) {
 
 	checker := rfservice.NewRedisFailoverChecker(ms, &mRedisService.Client{}, log.DummyLogger{}, metrics.Dummy)
 
-	_, err := checker.GetMasterHostname(rf, "2.2.2.2")
+	_, err := checker.GetRedisHostnameAt(rf, "2.2.2.2")
 	assert.Error(err)
 }
 
@@ -1720,4 +1604,93 @@ func TestCheckSentinelsCanFailoverWithNoSentinels(t *testing.T) {
 	checker := rfservice.NewRedisFailoverChecker(ms, &mRedisService.Client{}, log.DummyLogger{}, metrics.Dummy)
 
 	assert.Error(checker.CheckSentinelsCanFailover(rf))
+}
+
+// The role labels select the master and replica services, so the pod they name
+// has to be the pod the replication check calls the master. Both read the same
+// name, so they cannot disagree about which one it is.
+func TestTheMasterIsLabelledByName(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+	master := rfservice.RedisPodHostname(rf, "rfr-test-1")
+
+	pods := &corev1.PodList{
+		Items: []corev1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0"},
+				Status:     corev1.PodStatus{PodIP: "0.0.0.0", Phase: corev1.PodRunning},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-1"},
+				Status:     corev1.PodStatus{PodIP: "1.1.1.1", Phase: corev1.PodRunning},
+			},
+		},
+	}
+
+	ms := &mK8SService.Services{}
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
+	ms.On("UpdatePodLabels", namespace, "rfr-test-1", map[string]string{"redisfailovers-role": "master"}).Once().Return(nil)
+	ms.On("UpdatePodLabels", namespace, "rfr-test-0", map[string]string{"redisfailovers-role": "slave"}).Once().Return(nil)
+
+	mr := &mRedisService.Client{}
+	mr.On("GetSlaveOf", "0.0.0.0", "0", "").Once().Return(master, nil)
+	mr.On("GetSlaveOf", "1.1.1.1", "0", "").Once().Return("", nil)
+
+	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+
+	assert.NoError(checker.CheckAllSlavesFromMaster(master, rf))
+	ms.AssertExpectations(t)
+}
+
+// Anything other than the master's name means the replica is following the
+// wrong master. That includes the master pod's own address, which stops meaning
+// that pod the moment the pod is replaced, and the localhost a Redis starts with.
+// See docs/adr/ADR-002.
+func TestCheckAllSlavesFromMasterRejectsAnythingButTheMastersName(t *testing.T) {
+	rf := generateRF()
+	master := rfservice.RedisPodHostname(rf, "rfr-test-0")
+
+	tests := []struct {
+		name     string
+		reported string
+	}{
+		{name: "the master pod's own address", reported: "1.1.1.1"},
+		{name: "another pod's name", reported: rfservice.RedisPodHostname(rf, "rfr-test-2")},
+		{name: "the localhost a Redis starts with", reported: "127.0.0.1"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pods := &corev1.PodList{
+				Items: []corev1.Pod{
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0"},
+						Status:     corev1.PodStatus{PodIP: "1.1.1.1", Phase: corev1.PodRunning},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-1"},
+						Status:     corev1.PodStatus{PodIP: "0.0.0.0", Phase: corev1.PodRunning},
+					},
+				},
+			}
+
+			ms := &mK8SService.Services{}
+			ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
+			ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Return(nil)
+
+			mr := &mRedisService.Client{}
+			mr.On("GetSlaveOf", "1.1.1.1", "0", "").Once().Return("", nil)
+			mr.On("GetSlaveOf", "0.0.0.0", "0", "").Once().Return(test.reported, nil)
+
+			checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+
+			err := checker.CheckAllSlavesFromMaster(master, rf)
+
+			if assert.Error(t, err) {
+				assert.Contains(t, err.Error(), "rfr-test-1")
+				assert.Contains(t, err.Error(), test.reported)
+			}
+		})
+	}
 }

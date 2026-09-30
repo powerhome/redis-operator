@@ -202,27 +202,9 @@ func (_m *Client) MakeMaster(ip string, port string, password string) error {
 	return r0
 }
 
-// MakeSlaveOf provides a mock function with given fields: ip, masterIP, password
-func (_m *Client) MakeSlaveOf(ip string, masterIP string, password string) error {
-	ret := _m.Called(ip, masterIP, password)
-
-	if len(ret) == 0 {
-		panic("no return value specified for MakeSlaveOf")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string, string) error); ok {
-		r0 = rf(ip, masterIP, password)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MakeSlaveOfWithPort provides a mock function with given fields: ip, port, masterIP, masterPort, password
-func (_m *Client) MakeSlaveOfWithPort(ip string, port string, masterIP string, masterPort string, password string) error {
-	ret := _m.Called(ip, port, masterIP, masterPort, password)
+// MakeSlaveOfWithPort provides a mock function with given fields: ip, port, masterHost, masterPort, password
+func (_m *Client) MakeSlaveOfWithPort(ip string, port string, masterHost string, masterPort string, password string) error {
+	ret := _m.Called(ip, port, masterHost, masterPort, password)
 
 	if len(ret) == 0 {
 		panic("no return value specified for MakeSlaveOfWithPort")
@@ -230,7 +212,7 @@ func (_m *Client) MakeSlaveOfWithPort(ip string, port string, masterIP string, m
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string, string, string, string) error); ok {
-		r0 = rf(ip, port, masterIP, masterPort, password)
+		r0 = rf(ip, port, masterHost, masterPort, password)
 	} else {
 		r0 = ret.Error(0)
 	}

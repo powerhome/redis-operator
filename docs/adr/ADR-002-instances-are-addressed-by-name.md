@@ -43,9 +43,19 @@ asking each one at its address.
 
 Both forms therefore exist, and the rule for which to use is what the value is
 for. A value that will be stored and acted on later is a name. A value used to
-dial once, now, is an address. Anything that reads a value written by another
-party accepts either form, because which party wrote it decides which form it
-is.
+dial once, now, is an address.
+
+A value read back is a name, because every party that writes one writes a name.
+Reading either form would mean accepting an address as though it meant a pod,
+which is the thing this decision exists to stop. An address found where a name
+belongs is therefore a mismatch and gets corrected, whether it is the `127.0.0.1`
+a Redis starts with or what an earlier release left behind.
+
+The operator's own connections are the exception that proves the rule. It dials a
+pod it is already holding, name and address together, so resolving the name would
+return what it has and add a resolver to the path. It would also go blind
+whenever that resolver did, which is the moment a failover most needs something
+able to look at it and say so.
 
 ## Consequences
 
