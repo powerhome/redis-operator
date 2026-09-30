@@ -1098,9 +1098,18 @@ spec:
                   type: string
                 type: array
               networkPolicyNsList:
+                description: |-
+                  NetworkPolicyNsList is accepted and ignored. The operator writes no
+                  NetworkPolicy for the Sentinels, and removes the one earlier releases
+                  wrote. Confine these pods with a policy of your own if you want one.
+                  This field will be removed in a later release; take it out of your
+                  RedisFailover.
                 items:
-                  description: NetworkPolicyNamespaceEntry represents the the key
-                    value of a label
+                  description: |-
+                    NetworkPolicyNamespaceEntry represents the key value of a label.
+
+                    Accepted and ignored, along with the field that holds it. See
+                    NetworkPolicyNsList.
                   properties:
                     matchLabelKey:
                       type: string

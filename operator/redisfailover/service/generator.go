@@ -17,8 +17,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	np "k8s.io/api/networking/v1"
-
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	"github.com/spotahome/redis-operator/operator/redisfailover/util"
 )
@@ -374,73 +372,6 @@ func generateHAProxyRedisMasterService(rf *redisfailoverv1.RedisFailover, labels
 			OwnerReferences: ownerRefs,
 		},
 		Spec: spec,
-	}
-}
-
-func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *np.NetworkPolicy {
-	name := GetSentinelNetworkPolicyName(rf)
-	namespace := rf.Namespace
-
-	networkPolicyNsList := rf.Spec.NetworkPolicyNsList
-
-	selectorLabels := generateSelectorLabels(sentinelRoleName, rf.Name)
-	labels = util.MergeLabels(labels, selectorLabels)
-
-	sentinelTargetPort := intstr.FromInt(int(rf.Spec.Sentinel.Port))
-
-	peers := []np.NetworkPolicyPeer{}
-
-	for _, inputPeer := range networkPolicyNsList {
-
-		labelKey := inputPeer.MatchLabelKey
-		labelValue := inputPeer.MatchLabelValue
-
-		peers = append(peers, np.NetworkPolicyPeer{
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{labelKey: labelValue},
-			},
-		})
-	}
-
-	ports := make([]np.NetworkPolicyPort, 0)
-	ports = append(ports, np.NetworkPolicyPort{
-		Port: &sentinelTargetPort,
-	})
-
-	redisfailoverLabels := map[string]string{"redisfailovers.databases.spotahome.com/name": rf.Name}
-
-	return &np.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            name,
-			Namespace:       namespace,
-			Labels:          labels,
-			OwnerReferences: ownerRefs,
-		},
-		Spec: np.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchLabels: util.MergeLabels(
-					redisfailoverLabels,
-					generateComponentLabel("sentinel"),
-				),
-			},
-			Ingress: []np.NetworkPolicyIngressRule{
-				{
-					From:  peers,
-					Ports: ports,
-				},
-			},
-			Egress: []np.NetworkPolicyEgressRule{
-				{
-					To: []np.NetworkPolicyPeer{
-						{
-							PodSelector: &metav1.LabelSelector{
-								MatchLabels: redisfailoverLabels,
-							},
-						},
-					},
-				},
-			},
-		},
 	}
 }
 

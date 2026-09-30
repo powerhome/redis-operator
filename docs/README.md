@@ -142,6 +142,8 @@ This redis-failover will be managed by the operator, resulting in the following 
 - `rfs-<NAME>`: Sentinel deployment
 - `rfs-<NAME>`: Sentinel service
 
+No `NetworkPolicy` is among them. See [Network isolation](#network-isolation).
+
 **NOTE**: `NAME` is the named provided when creating the RedisFailover.
 **IMPORTANT**: the name of the redis-failover to be created cannot be longer that 48 characters, due to prepend of redis/sentinel identification and statefulset limitation.
 
@@ -322,6 +324,29 @@ spec:
 ```
 
 
+
+## Network isolation
+
+The operator writes no `NetworkPolicy`, and deletes the one earlier releases wrote
+for the Sentinels. Nothing restricts traffic to or from these pods unless you
+write a policy yourself.
+
+Two `RedisFailover`s do not interfere with one another by default: a Sentinel
+gossips only on the instances it monitors and ignores what it hears about a master
+it does not hold, so two failovers that share no Redis never meet. They can
+interfere if you make them share one, which is what `bootstrapNode` with
+`allowSentinels` does when the source is another `RedisFailover`. The operator
+notices and repairs that within a reconcile, and logs it, but for that window a
+Sentinel from the other failover can take part in this one's elections. Write a
+policy of your own if you need that window closed.
+
+Sentinel resolves the names it is given, so these pods need the cluster's DNS. A
+policy of your own that denies them the DNS port leaves Sentinel unable to accept
+any address the operator offers it.
+
+`spec.networkPolicyNsList` is still accepted so that a resource written against an
+earlier release applies unchanged. It decides nothing, and it will be removed in a
+later release; take it out.
 
 ## Connection to the created Redis Failovers
 

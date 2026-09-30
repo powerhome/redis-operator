@@ -42,6 +42,10 @@ type RedisFailoverHandler struct {
 	// Which failovers have already been told that hostNetwork and dnsPolicy are
 	// going away, keyed by namespace and name.
 	warnedPodNetworking sync.Map
+
+	// Which failovers have already been told that networkPolicyNsList decides
+	// nothing, keyed by namespace and name.
+	warnedNetworkPolicyNsList sync.Map
 }
 
 // NewRedisFailoverHandler returns a new RF handler
