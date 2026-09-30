@@ -46,6 +46,20 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		return false, err
 	}
 
+	// Taking any Redis away asks something of the Sentinels. Replacing the master
+	// asks them to promote a replica. Replacing a replica is not a failover, but
+	// it removes the candidate they would promote and leaves them nothing while
+	// the replacement syncs, so both wait on the same condition.
+	//
+	// A failover of one Redis has no replica to promote and never will, and one
+	// following an external master may have no Sentinels at all.
+	failoverPossible := func() error {
+		if rf.Spec.Redis.Replicas <= 1 || rf.Bootstrapping() {
+			return nil
+		}
+		return r.rfChecker.CheckSentinelsCanFailover(rf)
+	}
+
 	// A pod waiting on its filesystem needs replacing, the same as one running
 	// an old pod template. Either way, one pod at a time.
 	waitingOnResize, err := r.rfChecker.GetRedisesPodsWaitingOnFilesystemResize(rf)
@@ -60,6 +74,10 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 			return false, err
 		}
 		if revision != ssUR || waitingOnResize[pod] {
+			if err := failoverPossible(); err != nil {
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace %s: %s", pod, err.Error())
+				return false, nil
+			}
 			//Delete pod and wait next round to check if the new one is synced
 			err = r.rfHealer.DeletePod(pod, rf)
 			if err != nil {
@@ -92,11 +110,9 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 			// keeps localhost, and neither the Sentinels nor the operator will act
 			// again. Holding the master back leaves it serving, which is visible
 			// and recoverable.
-			if rf.Spec.Redis.Replicas > 1 {
-				if err := r.rfChecker.CheckSentinelsCanFailover(rf); err != nil {
-					r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace the master %s: %s", master, err.Error())
-					return false, nil
-				}
+			if err := failoverPossible(); err != nil {
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace the master %s: %s", master, err.Error())
+				return false, nil
 			}
 			err = r.rfHealer.DeletePod(master, rf)
 			if err != nil {
