@@ -740,14 +740,14 @@ func TestSentinelDeploymentCommands(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-			d := args.Get(1).(*appsv1.Deployment)
-			gotCommands = d.Spec.Template.Spec.Containers[0].Command
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+			ss := args.Get(1).(*appsv1.StatefulSet)
+			gotCommands = ss.Spec.Template.Spec.Containers[0].Command
 		}).Return(nil)
 
 		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-		err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+		err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 
 		assert.Equal(test.expectedCommands, gotCommands)
 		assert.NoError(err)
@@ -838,14 +838,14 @@ func TestSentinelDeploymentPodAnnotations(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-			d := args.Get(1).(*appsv1.Deployment)
-			gotPodAnnotations = d.Spec.Template.ObjectMeta.Annotations
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+			ss := args.Get(1).(*appsv1.StatefulSet)
+			gotPodAnnotations = ss.Spec.Template.ObjectMeta.Annotations
 		}).Return(nil)
 
 		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-		err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+		err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 
 		assert.Equal(test.expectedPodAnnotations, gotPodAnnotations)
 		assert.NoError(err)
@@ -924,14 +924,14 @@ func TestSentinelDeploymentServiceAccountName(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-			d := args.Get(1).(*appsv1.Deployment)
-			gotServiceAccountName = d.Spec.Template.Spec.ServiceAccountName
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+			ss := args.Get(1).(*appsv1.StatefulSet)
+			gotServiceAccountName = ss.Spec.Template.Spec.ServiceAccountName
 		}).Return(nil)
 
 		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-		err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+		err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 
 		assert.Equal(test.expectedServiceAccountName, gotServiceAccountName)
 		assert.NoError(err)
@@ -2623,15 +2623,15 @@ func TestSentinelHostNetworkAndDnsPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-			d := args.Get(1).(*appsv1.Deployment)
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+			d := args.Get(1).(*appsv1.StatefulSet)
 			actualHostNetwork = d.Spec.Template.Spec.HostNetwork
 			actualDnsPolicy = d.Spec.Template.Spec.DNSPolicy
 		}).Return(nil)
 
 		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-		err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+		err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 		assert.NoError(err)
 
 		assert.Equal(test.expectedHostNetwork, actualHostNetwork)
@@ -2721,15 +2721,15 @@ func TestSentinelImagePullPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-			d := args.Get(1).(*appsv1.Deployment)
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+			d := args.Get(1).(*appsv1.StatefulSet)
 			policy = d.Spec.Template.Spec.Containers[0].ImagePullPolicy
 			configPolicy = d.Spec.Template.Spec.InitContainers[0].ImagePullPolicy
 		}).Return(nil)
 
 		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-		err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+		err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 
 		assert.NoError(err)
 		assert.Equal(string(test.expectedPolicy), string(policy))
@@ -2873,15 +2873,15 @@ func TestSentinelExtraVolumeMounts(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-			d := args.Get(1).(*appsv1.Deployment)
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+			d := args.Get(1).(*appsv1.StatefulSet)
 			extraVolume = d.Spec.Template.Spec.Volumes[2]
 			extraVolumeMount = d.Spec.Template.Spec.Containers[0].VolumeMounts[1]
 		}).Return(nil)
 
 		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-		err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+		err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 
 		assert.NoError(err)
 		assert.Equal(test.expectedVolumes[0], extraVolume)
@@ -3227,15 +3227,15 @@ func TestSentinelStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-			d := args.Get(1).(*appsv1.Deployment)
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+			d := args.Get(1).(*appsv1.StatefulSet)
 			startupVolumes = d.Spec.Template.Spec.Volumes
 			startupVolumeMounts = d.Spec.Template.Spec.Containers[0].VolumeMounts
 		}).Return(nil)
 
 		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-		err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+		err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 
 		assert.NoError(err)
 		assert.Contains(startupVolumes, test.expectedVolume)
@@ -3392,14 +3392,14 @@ func TestSentinelCustomLivenessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-			d := args.Get(1).(*appsv1.Deployment)
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+			d := args.Get(1).(*appsv1.StatefulSet)
 			livenessProbe = d.Spec.Template.Spec.Containers[0].LivenessProbe
 		}).Return(nil)
 
 		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-		err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+		err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 
 		assert.NoError(err)
 		assert.Equal(test.expectedLivenessProbe, livenessProbe)
@@ -3540,14 +3540,14 @@ func TestSentinelCustomReadinessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-			d := args.Get(1).(*appsv1.Deployment)
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+			d := args.Get(1).(*appsv1.StatefulSet)
 			readinessProbe = d.Spec.Template.Spec.Containers[0].ReadinessProbe
 		}).Return(nil)
 
 		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-		err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+		err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 
 		assert.NoError(err)
 		assert.Equal(test.expectedReadinessProbe, readinessProbe)
@@ -3668,14 +3668,14 @@ func TestSentinelCustomStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-		ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-			d := args.Get(1).(*appsv1.Deployment)
+		ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+			d := args.Get(1).(*appsv1.StatefulSet)
 			startupProbe = d.Spec.Template.Spec.Containers[0].StartupProbe
 		}).Return(nil)
 
 		client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-		err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+		err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 
 		assert.NoError(err)
 		assert.Equal(test.expectedStartupProbe, startupProbe)
@@ -3827,59 +3827,59 @@ func TestEnsureRedisStatefulSetUpdatesWhenAnnotationAbsent(t *testing.T) {
 // that a second reconcile with an identical CR does not call
 // CreateOrUpdateDeployment, which is what prevents
 // metadata.generation from incrementing on every reconcile cycle.
-func TestEnsureSentinelDeploymentSkipsUpdateWhenDigestUnchanged(t *testing.T) {
+func TestEnsureSentinelStatefulSetSkipsUpdateWhenDigestUnchanged(t *testing.T) {
 	assert := assert.New(t)
 	rf := generateRF()
 
 	// First reconcile: resource does not exist — create it and
 	// capture the stored digest.
-	var firstDeployment *appsv1.Deployment
+	var firstSet *appsv1.StatefulSet
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-		firstDeployment = args.Get(1).(*appsv1.Deployment).DeepCopy()
+	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+	ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		firstSet = args.Get(1).(*appsv1.StatefulSet).DeepCopy()
 	}).Return(nil)
 
 	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-	err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+	err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 	assert.NoError(err)
 	ms.AssertExpectations(t)
 
 	// Second reconcile: same CR, resource already exists with the
-	// stored digest. CreateOrUpdateDeployment must NOT be called
+	// stored digest. CreateOrUpdateStatefulSet must NOT be called
 	// — if it were, k8s would increment metadata.generation and
 	// trigger a KubeDeploymentGenerationMismatch alert.
 	ms2 := &mK8SService.Services{}
 	ms2.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms2.On("GetDeployment", namespace, mock.Anything).Once().Return(firstDeployment, nil)
+	ms2.On("GetStatefulSet", namespace, mock.Anything).Once().Return(firstSet, nil)
 
 	client2 := rfservice.NewRedisFailoverKubeClient(ms2, log.Dummy, metrics.Dummy)
-	err = client2.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+	err = client2.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 	assert.NoError(err)
-	ms2.AssertNotCalled(t, "CreateOrUpdateDeployment")
+	ms2.AssertNotCalled(t, "CreateOrUpdateStatefulSet")
 	ms2.AssertExpectations(t)
 }
 
-// TestEnsureSentinelDeploymentUpdatesWhenSpecChanges verifies that
+// TestEnsureSentinelStatefulSetUpdatesWhenSpecChanges verifies that
 // changing the CR causes a real API call with the updated spec and a
 // new digest — i.e. that the skip logic doesn't suppress legitimate
 // updates.
-func TestEnsureSentinelDeploymentUpdatesWhenSpecChanges(t *testing.T) {
+func TestEnsureSentinelStatefulSetUpdatesWhenSpecChanges(t *testing.T) {
 	assert := assert.New(t)
 	rf := generateRF()
 
 	// First reconcile: create and capture the annotated resource.
-	var firstDeployment *appsv1.Deployment
+	var firstSet *appsv1.StatefulSet
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-		firstDeployment = args.Get(1).(*appsv1.Deployment).DeepCopy()
+	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+	ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		firstSet = args.Get(1).(*appsv1.StatefulSet).DeepCopy()
 	}).Return(nil)
 
 	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-	err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+	err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 	assert.NoError(err)
 	ms.AssertExpectations(t)
 
@@ -3889,16 +3889,16 @@ func TestEnsureSentinelDeploymentUpdatesWhenSpecChanges(t *testing.T) {
 	// Second reconcile: digest mismatch —
 	// CreateOrUpdateDeployment must be called with the updated
 	// spec and a different digest annotation.
-	var secondDeployment *appsv1.Deployment
+	var secondDeployment *appsv1.StatefulSet
 	ms2 := &mK8SService.Services{}
 	ms2.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms2.On("GetDeployment", namespace, mock.Anything).Once().Return(firstDeployment, nil)
-	ms2.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-		secondDeployment = args.Get(1).(*appsv1.Deployment).DeepCopy()
+	ms2.On("GetStatefulSet", namespace, mock.Anything).Once().Return(firstSet, nil)
+	ms2.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		secondDeployment = args.Get(1).(*appsv1.StatefulSet).DeepCopy()
 	}).Return(nil)
 
 	client2 := rfservice.NewRedisFailoverKubeClient(ms2, log.Dummy, metrics.Dummy)
-	err = client2.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+	err = client2.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 	assert.NoError(err)
 	ms2.AssertExpectations(t)
 
@@ -3908,30 +3908,30 @@ func TestEnsureSentinelDeploymentUpdatesWhenSpecChanges(t *testing.T) {
 	// The digest must have changed so that the next reconcile
 	// also detects it correctly.
 	assert.NotEqual(
-		firstDeployment.Annotations["checksum/sentinel-deployment-spec"],
+		firstSet.Annotations["checksum/sentinel-deployment-spec"],
 		secondDeployment.Annotations["checksum/sentinel-deployment-spec"],
 	)
 }
 
-// TestEnsureSentinelDeploymentWritesDigestAnnotation verifies that
+// TestEnsureSentinelStatefulSetWritesDigestAnnotation verifies that
 // the operator stores a well-formed SHA-256 hex digest on the
 // Deployment's metadata annotations after creation. That annotation
 // is what subsequent reconciles compare against to decide whether to
 // skip.
-func TestEnsureSentinelDeploymentWritesDigestAnnotation(t *testing.T) {
+func TestEnsureSentinelStatefulSetWritesDigestAnnotation(t *testing.T) {
 	assert := assert.New(t)
 	rf := generateRF()
 
-	var createdDeployment *appsv1.Deployment
+	var createdDeployment *appsv1.StatefulSet
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(nil, notFound("deployments", name))
-	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-		createdDeployment = args.Get(1).(*appsv1.Deployment).DeepCopy()
+	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+	ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		createdDeployment = args.Get(1).(*appsv1.StatefulSet).DeepCopy()
 	}).Return(nil)
 
 	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-	err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+	err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 	assert.NoError(err)
 	ms.AssertExpectations(t)
 
@@ -3940,26 +3940,26 @@ func TestEnsureSentinelDeploymentWritesDigestAnnotation(t *testing.T) {
 	assert.Regexp(regexp.MustCompile(`^[0-9a-f]{64}$`), digest, "digest must be a lowercase SHA-256 hex string")
 }
 
-// TestEnsureSentinelDeploymentUpdatesWhenAnnotationAbsent covers the
+// TestEnsureSentinelStatefulSetUpdatesWhenAnnotationAbsent covers the
 // upgrade path: a Deployment that exists in the cluster but pre-dates
 // the digest annotation (written before this operator version was
 // deployed) must still be updated so that the annotation is stored
 // and future reconciles can skip correctly.
-func TestEnsureSentinelDeploymentUpdatesWhenAnnotationAbsent(t *testing.T) {
+func TestEnsureSentinelStatefulSetUpdatesWhenAnnotationAbsent(t *testing.T) {
 	assert := assert.New(t)
 	rf := generateRF()
 
-	// Simulate a pre-existing Deployment with no digest
+	// Simulate a pre-existing StatefulSet with no digest
 	// annotation.
-	existingDeployment := &appsv1.Deployment{}
+	existingSet := &appsv1.StatefulSet{}
 
 	ms := &mK8SService.Services{}
 	ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-	ms.On("GetDeployment", namespace, mock.Anything).Once().Return(existingDeployment, nil)
-	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Return(nil)
+	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(existingSet, nil)
+	ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Return(nil)
 
 	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-	err := client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{})
+	err := client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{})
 	assert.NoError(err)
 	ms.AssertExpectations(t)
 }

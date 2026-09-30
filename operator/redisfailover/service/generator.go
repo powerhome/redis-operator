@@ -922,25 +922,29 @@ func generateSentinelHeadlessService(rf *redisfailoverv1.RedisFailover, labels m
 	}
 }
 
-// generateSentinelStatefulSet runs the Sentinels as a set with a volume each,
-// so what a Sentinel learns survives it.
+// generateSentinelStatefulSet runs the Sentinels as a set, which is what gives
+// each pod a name of its own in DNS. Everything the operator and the Sentinels
+// exchange is then a name that resolves inside this namespace or to nothing.
 //
-// The pods are the ones the Deployment would have produced. What differs is
-// where the configuration lives: a claim per pod rather than scratch space, and
-// an identity that outlives the pod holding it, which is what the configuration
-// is worth keeping for.
+// Given storage, each pod keeps its configuration on a claim, so what a Sentinel
+// learns survives it. Without, the configuration sits on scratch space and a
+// restarted Sentinel is told the topology again, as it always has been.
 func generateSentinelStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.StatefulSet {
 	d := generateSentinelDeployment(rf, labels, ownerRefs)
 
-	// The claim provides the writable configuration, so the scratch volume the
-	// Deployment mounts in its place is dropped.
-	volumes := []corev1.Volume{}
-	for _, v := range d.Spec.Template.Spec.Volumes {
-		if v.Name != sentinelConfigWritableVolumeName {
-			volumes = append(volumes, v)
+	var claims []corev1.PersistentVolumeClaim
+	if rf.Spec.Sentinel.Storage.PersistentVolumeClaim != nil {
+		// The claim provides the writable configuration, so the scratch volume
+		// mounted in its place is dropped.
+		volumes := []corev1.Volume{}
+		for _, v := range d.Spec.Template.Spec.Volumes {
+			if v.Name != sentinelConfigWritableVolumeName {
+				volumes = append(volumes, v)
+			}
 		}
+		d.Spec.Template.Spec.Volumes = volumes
+		claims = []corev1.PersistentVolumeClaim{sentinelConfigClaim(rf, ownerRefs)}
 	}
-	d.Spec.Template.Spec.Volumes = volumes
 
 	return &appsv1.StatefulSet{
 		ObjectMeta: d.ObjectMeta,
@@ -958,9 +962,7 @@ func generateSentinelStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[s
 			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
 				Type: appsv1.OnDeleteStatefulSetStrategyType,
 			},
-			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
-				sentinelConfigClaim(rf, ownerRefs),
-			},
+			VolumeClaimTemplates: claims,
 		},
 	}
 }
