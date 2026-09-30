@@ -1226,7 +1226,7 @@ func TestUpdate(t *testing.T) {
 				for _, pod := range test.pods {
 					mrfc.On("GetRedisRevisionHash", pod.pod.ObjectMeta.Name, rf).Once().Return(pod.pod.ObjectMeta.Labels[appsv1.ControllerRevisionHashLabelKey], nil)
 					if pod.pod.ObjectMeta.Labels[appsv1.ControllerRevisionHashLabelKey] != test.ssVersion {
-						if pod.master && !test.bootstrapping {
+						if !test.bootstrapping {
 							var noCandidate error
 							if test.noFailoverCandidate {
 								noCandidate = errors.New("sentinel 0.0.0.0 holds no replica it could promote")
@@ -1326,7 +1326,7 @@ func TestUpdateRedisesPodsWaitingOnFilesystemResize(t *testing.T) {
 			if len(test.expected) == 0 || test.expected[0] == "master" {
 				mrfc.On("GetRedisesMasterPod", rf).Once().Return("master", nil)
 			}
-			if len(test.expected) > 0 && test.expected[0] == "master" {
+			if len(test.expected) > 0 {
 				mrfc.On("CheckSentinelsCanFailover", rf).Once().Return(nil)
 			}
 			for _, pod := range test.expected {
