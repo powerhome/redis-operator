@@ -1,14 +1,15 @@
-# CIR-009: Sentinels keep what they learn
+# CIR-009: Sentinels keep what they learn, and answer to names
 
 ## Intent
 
-Let a Sentinel come back from a restart still knowing the failover.
+Let a Sentinel come back from a restart still knowing the failover, and let the
+operator seed a master from what the Sentinels remember rather than from pod
+order.
 
 Carries out [ADR-001](../adr/ADR-001-sentinel-owns-leader-election.md), which
 decides that Sentinel owns leader election and the operator only steps in when
-Sentinel cannot.
-
-Seeding a master from what the Sentinels remember is a separate change.
+Sentinel cannot, and [ADR-002](../adr/ADR-002-instances-are-addressed-by-name.md),
+which decides that an instance written down somewhere is written down by name.
 
 ## Behavior
 
@@ -39,12 +40,16 @@ Seeding a master from what the Sentinels remember is a separate change.
   the restart happens when the operator is able to point the replacement at a
   master
 
+- GIVEN a failover with no master and Sentinels that remember one
+- WHEN the operator seeds a master
+- THEN it promotes the instance the Sentinels remember, and falls back to pod
+  order only when they remember nothing
+
 ## Constraints
 
 - **Only a StatefulSet gives a pod a name in DNS.** A Deployment's pods can be
-  reached at an address and nothing else. A pod's address outlives the pod and
-  can be reissued to an unrelated pod, so nothing durable can be written down
-  about a Sentinel while it runs under a Deployment.
+  reached at an address and nothing else, so no addressing decision can be held
+  for Sentinels while they run under one.
 - **A Sentinel monitoring `127.0.0.1` never reports ready**, because its
   readiness is that it monitors something else. Only the operator can change
   that, so nothing that waits on Sentinel readiness may sit between the operator
@@ -66,8 +71,8 @@ Seeding a master from what the Sentinels remember is a separate change.
 
 **The Sentinels run as a set whether or not they have storage.** Making it
 conditional on storage would leave most failovers with Sentinels reachable only
-at an address, which is the thing a name exists to replace. It cannot be replaced
-on a path that only some failovers take.
+at an address, and an address a stranger can answer is what ADR-002 exists to
+remove. It cannot be removed from a path that only some failovers take.
 
 It also carried a second code path for as long as both were possible: a branch in
 the ensurer, a branch in the pod lookup, a generator for each workload, and a
@@ -78,9 +83,10 @@ The cost is a window on upgrade with no Sentinel able to elect. Measured on a tw
 node failover with 20000 keys, upgrading from `v4.7.1`: 30 seconds, all of it the
 operator waiting for its next reconcile to point the new Sentinels at a master.
 That figure assumes the rollout waits for a promotable replica before replacing
-any Redis, which is a separate change. Without it the same upgrade measured 60
-seconds, because the replica the Sentinels needed to find was replaced while they
-were already blind.
+any Redis, which
+[CIR-008](CIR-008-hold-the-master-until-a-failover-could-succeed.md) decides.
+Without it the same upgrade measured 60 seconds, because the replica the Sentinels
+needed to find was replaced while they were already blind.
 Nothing a client sees depends on it, because HAProxy selects the master by asking
 each Redis for `role:master` rather than by asking Sentinel: of 3548 writes
 through it during the upgrade, none were refused during the migration, and the
@@ -98,8 +104,9 @@ just created, on a fresh install as much as an upgrade.
 pod addresses whether the pods come from a set or a Deployment, so every
 `SENTINEL MONITOR`, `RESET` and `CONFIG SET` goes to an address. What this change
 buys is that a name now exists for every Sentinel, so a later change can use it.
-Until then every such write is bounded by a pod list read in the same pass,
-rather than by an address remembered from an earlier one.
+Until then the operator's own writes keep the exposure ADR-002 removed everywhere
+else, bounded by a pod list read in the same pass rather than by anything
+remembered.
 
 ## Date
 
