@@ -1256,7 +1256,7 @@ func TestUpdate(t *testing.T) {
 			mk := &mK8SService.Services{}
 
 			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
-			err := handler.UpdateRedisesPods(rf)
+			_, err := handler.UpdateRedisesPods(rf)
 
 			if test.errExpected {
 				assert.Error(err)
@@ -1334,7 +1334,7 @@ func TestUpdateRedisesPodsWaitingOnFilesystemResize(t *testing.T) {
 			}
 
 			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
-			err := handler.UpdateRedisesPods(rf)
+			_, err := handler.UpdateRedisesPods(rf)
 
 			assert.NoError(err)
 			mrfh.AssertExpectations(t)
@@ -1379,7 +1379,47 @@ func TestTheOnlyRedisIsReplacedWithoutAskingTheSentinels(t *testing.T) {
 
 	handler := rfOperator.NewRedisFailoverHandler(generateConfig(), &mRFService.RedisFailoverClient{}, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
 
-	assert.NoError(handler.UpdateRedisesPods(rf))
+	replacedMaster, err := handler.UpdateRedisesPods(rf)
+	assert.NoError(err)
+	assert.True(replacedMaster)
 	mrfh.AssertExpectations(t)
 	mrfc.AssertNotCalled(t, "CheckSentinelsCanFailover", rf)
+}
+
+// Once the master pod is gone, the rest of the pass would be reading a failover
+// that no longer exists. Pointing the sentinels at the departed master, and
+// resetting the ones whose counts no longer add up, throws away the replica list
+// that the promotion about to happen depends on.
+func TestReplacingTheMasterEndsTheReconcile(t *testing.T) {
+	assert := assert.New(t)
+
+	master := "1.1.1.1"
+	rf := generateRF(false, false)
+
+	mrfc := &mRFService.RedisFailoverCheck{}
+	mrfc.On("IsRedisRunning", rf).Once().Return(true)
+	mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+	mrfc.On("GetNumberMasters", rf).Once().Return(1, nil)
+	mrfc.On("GetMasterIP", rf).Return(master, nil)
+	mrfc.On("CheckAllSlavesFromMaster", master, rf).Once().Return(nil)
+	mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)
+	mrfc.On("GetRedisesIPs", rf).Return([]string{master}, nil)
+	mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("2", nil)
+	mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+	mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+	mrfc.On("GetRedisesMasterPod", rf).Once().Return("master", nil)
+	mrfc.On("GetRedisRevisionHash", "master", rf).Once().Return("1", nil)
+	mrfc.On("CheckSentinelsCanFailover", rf).Once().Return(nil)
+
+	mrfh := &mRFService.RedisFailoverHeal{}
+	mrfh.On("SetRedisCustomConfig", master, rf).Once().Return(nil)
+	mrfh.On("DeletePod", "master", rf).Once().Return(nil)
+
+	handler := rfOperator.NewRedisFailoverHandler(generateConfig(), &mRFService.RedisFailoverClient{}, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
+
+	assert.NoError(handler.CheckAndHeal(rf))
+
+	mrfh.AssertExpectations(t)
+	mrfc.AssertNotCalled(t, "GetSentinelsIPs", rf)
+	mrfc.AssertNotCalled(t, "GetMasterHostname", rf, master)
 }
