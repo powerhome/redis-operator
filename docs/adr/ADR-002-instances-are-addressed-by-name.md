@@ -58,7 +58,7 @@ a degraded failover but one with no failover protection at all.
 **Sentinel has to reach a resolver.** A cluster that denies these pods the DNS
 port leaves Sentinel unable to accept any address it is given, and it says so
 with `ERR Invalid IP address or hostname specified` rather than by degrading
-quietly.
+quietly. Whether that port is open is the cluster's to say: see ADR-003.
 
 **Any check that reads a replication target has to handle both forms.** A
 replica answers with whatever it was told, so `master_host` is a name where

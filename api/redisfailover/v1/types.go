@@ -59,16 +59,24 @@ type RedisFailoverStatus struct {
 
 // RedisFailoverSpec represents a Redis failover spec
 type RedisFailoverSpec struct {
-	Redis               RedisSettings                 `json:"redis,omitempty"`
-	Sentinel            SentinelSettings              `json:"sentinel,omitempty"`
-	Haproxy             *HaproxySettings              `json:"haproxy,omitempty"`
-	Auth                AuthSettings                  `json:"auth,omitempty"`
-	LabelWhitelist      []string                      `json:"labelWhitelist,omitempty"`
-	BootstrapNode       *BootstrapSettings            `json:"bootstrapNode,omitempty"`
+	Redis          RedisSettings      `json:"redis,omitempty"`
+	Sentinel       SentinelSettings   `json:"sentinel,omitempty"`
+	Haproxy        *HaproxySettings   `json:"haproxy,omitempty"`
+	Auth           AuthSettings       `json:"auth,omitempty"`
+	LabelWhitelist []string           `json:"labelWhitelist,omitempty"`
+	BootstrapNode  *BootstrapSettings `json:"bootstrapNode,omitempty"`
+	// NetworkPolicyNsList is accepted and ignored. The operator writes no
+	// NetworkPolicy for the Sentinels, and removes the one earlier releases
+	// wrote. Confine these pods with a policy of your own if you want one.
+	// This field will be removed in a later release; take it out of your
+	// RedisFailover.
 	NetworkPolicyNsList []NetworkPolicyNamespaceEntry `json:"networkPolicyNsList,omitempty"`
 }
 
-// NetworkPolicyNamespaceEntry represents the the key value of a label
+// NetworkPolicyNamespaceEntry represents the key value of a label.
+//
+// Accepted and ignored, along with the field that holds it. See
+// NetworkPolicyNsList.
 type NetworkPolicyNamespaceEntry struct {
 	MatchLabelKey   string `json:"matchLabelKey,omitempty"`
 	MatchLabelValue string `json:"matchLabelValue,omitempty"`

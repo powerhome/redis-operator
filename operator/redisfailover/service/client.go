@@ -25,7 +25,6 @@ type RedisFailoverClient interface {
 	EnsureHAProxyRedisMasterConfigmap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureHAProxyRedisMasterService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisHeadlessService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
-	EnsureSentinelNetworkPolicy(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureSentinelDeployment(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
@@ -42,6 +41,7 @@ type RedisFailoverClient interface {
 	UpdateStatus(rFailover *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error)
 
 	DestroydOrphanedRedisNetworkPolicy(rFailover *redisfailoverv1.RedisFailover) error
+	DestroyOrphanedSentinelNetworkPolicy(rFailover *redisfailoverv1.RedisFailover) error
 	DestroyOrphanedRedisSlaveHaProxy(rFailover *redisfailoverv1.RedisFailover) error
 }
 
@@ -89,14 +89,6 @@ func generateComponentLabel(componentType string) map[string]string {
 	return map[string]string{
 		"redisfailovers.databases.spotahome.com/component": componentType,
 	}
-}
-
-// EnsureSentinelNetworkPolicy makes sure the redis network policy exists
-func (r *RedisFailoverKubeClient) EnsureSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	svc := generateSentinelNetworkPolicy(rf, labels, ownerRefs)
-	err := r.K8SService.CreateOrUpdateNetworkPolicy(rf.Namespace, svc)
-	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "EnsureSentinelNetworkPolicy", rf.Name, err)
-	return err
 }
 
 // EnsureHAProxyRedisMasterService makes sure the HAProxy service exists
@@ -336,19 +328,26 @@ func (r *RedisFailoverKubeClient) DestroyHaproxyMasterResources(rf *redisfailove
 }
 
 func (r *RedisFailoverKubeClient) DestroydOrphanedRedisNetworkPolicy(rf *redisfailoverv1.RedisFailover) error {
+	return r.destroyNetworkPolicy(rf.Namespace, GetRedisNetworkPolicyName(rf))
+}
 
-	name := GetRedisNetworkPolicyName(rf)
+// DestroyOrphanedSentinelNetworkPolicy removes the policy earlier releases wrote
+// around a failover's Sentinels. See docs/adr/ADR-003.
+func (r *RedisFailoverKubeClient) DestroyOrphanedSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover) error {
+	return r.destroyNetworkPolicy(rf.Namespace, GetSentinelNetworkPolicyName(rf))
+}
 
-	if _, err := r.K8SService.GetNetworkPolicy(rf.Namespace, name); err != nil {
+// destroyNetworkPolicy removes a policy the operator no longer manages, and is
+// content to find it already gone.
+func (r *RedisFailoverKubeClient) destroyNetworkPolicy(namespace, name string) error {
+	if _, err := r.K8SService.GetNetworkPolicy(namespace, name); err != nil {
 		if errors.IsNotFound(err) {
 			return nil
-		} else {
-			return err
 		}
+		return err
 	}
 
-	err := r.K8SService.DeleteNetworkPolicy(rf.Namespace, name)
-	return err
+	return r.K8SService.DeleteNetworkPolicy(namespace, name)
 }
 
 func (r *RedisFailoverKubeClient) DestroyOrphanedRedisSlaveHaProxy(rf *redisfailoverv1.RedisFailover) error {
