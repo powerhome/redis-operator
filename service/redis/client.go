@@ -26,8 +26,7 @@ type Client interface {
 	MonitorRedisWithPort(ip, monitor, port, quorum, password string, sentinelPort string) error
 	MakeMaster(ip, port, password string) error
 	ResetReplicaConnections(ip, port, password string) error
-	MakeSlaveOf(ip, masterIP, password string) error
-	MakeSlaveOfWithPort(ip, port, masterIP, masterPort, password string) error
+	MakeSlaveOfWithPort(ip, port, masterHost, masterPort, password string) error
 	GetSentinelMonitor(ip string, port string) (string, string, error)
 	SetCustomSentinelConfig(ip string, port string, configs []string) error
 	SetCustomRedisConfig(ip string, port string, configs []string, password string) error
@@ -392,19 +391,19 @@ func (c client) ResetReplicaConnections(ip string, port string, password string)
 	return nil
 }
 
-func (c *client) MakeSlaveOf(ip, masterIP, password string) error {
-	return c.MakeSlaveOfWithPort(ip, redisPort, masterIP, redisPort, password)
-}
-
-func (c *client) MakeSlaveOfWithPort(ip, port, masterIP, masterPort, password string) error {
+// MakeSlaveOfWithPort tells the Redis at ip to replicate from masterHost, which
+// Redis resolves when it connects and again whenever it reconnects. Callers give
+// it the master's name, so the pod it follows survives that pod being replaced
+// at another address. See docs/adr/ADR-002.
+func (c *client) MakeSlaveOfWithPort(ip, port, masterHost, masterPort, password string) error {
 	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, port), // this is IP and Port for the RedisFailover redis
+		Addr:     net.JoinHostPort(ip, port),
 		Password: password,
 		DB:       0,
 	}
 	rClient := rediscli.NewClient(options)
 	defer rClient.Close()
-	if res := rClient.SlaveOf(context.TODO(), masterIP, masterPort); res.Err() != nil {
+	if res := rClient.SlaveOf(context.TODO(), masterHost, masterPort); res.Err() != nil {
 		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MAKE_SLAVE_OF, metrics.FAIL, getRedisError(res.Err()))
 		return res.Err()
 	}

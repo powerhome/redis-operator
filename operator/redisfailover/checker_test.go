@@ -374,21 +374,21 @@ func TestCheckAndHeal(t *testing.T) {
 				}
 				if !expErr && continueTests {
 					mrfc.On("GetMasterIP", rf).Twice().Return(master, nil)
-					// The sentinel monitor path names the master the checks
-					// above established, rather than asking again.
-					mrfc.On("GetMasterHostname", rf, master).Once().Return(masterHostname, nil)
+					// Established once, next to the address, and used by both the
+					// replica check and the sentinel monitor path.
+					mrfc.On("GetRedisHostnameAt", rf, master).Once().Return(masterHostname, nil)
 					if test.slavesOK {
-						mrfc.On("CheckAllSlavesFromMaster", master, rf).Once().Return(nil)
+						mrfc.On("CheckAllSlavesFromMaster", masterHostname, rf).Once().Return(nil)
 						mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)
 					} else {
-						mrfc.On("CheckAllSlavesFromMaster", master, rf).Once().Return(errors.New(""))
+						mrfc.On("CheckAllSlavesFromMaster", masterHostname, rf).Once().Return(errors.New(""))
 						mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(errors.New(""))
 						mrfh.On("ResetReplicaConnections", master, rf).Once().Return(nil)
 						if test.redisSetMasterOnAllOK {
-							mrfh.On("SetMasterOnAll", master, rf).Once().Return(nil)
+							mrfh.On("SetMasterOnAll", master, masterHostname, rf).Once().Return(nil)
 						} else {
 							expErr = true
-							mrfh.On("SetMasterOnAll", master, rf).Once().Return(errors.New(""))
+							mrfh.On("SetMasterOnAll", master, masterHostname, rf).Once().Return(errors.New(""))
 						}
 
 					}
@@ -1401,7 +1401,8 @@ func TestReplacingTheMasterEndsTheReconcile(t *testing.T) {
 	mrfc.On("IsSentinelRunning", rf).Once().Return(true)
 	mrfc.On("GetNumberMasters", rf).Once().Return(1, nil)
 	mrfc.On("GetMasterIP", rf).Return(master, nil)
-	mrfc.On("CheckAllSlavesFromMaster", master, rf).Once().Return(nil)
+	mrfc.On("GetRedisHostnameAt", rf, master).Once().Return("rfr-test-0.rfr-test.testns.svc", nil)
+	mrfc.On("CheckAllSlavesFromMaster", "rfr-test-0.rfr-test.testns.svc", rf).Once().Return(nil)
 	mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)
 	mrfc.On("GetRedisesIPs", rf).Return([]string{master}, nil)
 	mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("2", nil)
@@ -1421,5 +1422,4 @@ func TestReplacingTheMasterEndsTheReconcile(t *testing.T) {
 
 	mrfh.AssertExpectations(t)
 	mrfc.AssertNotCalled(t, "GetSentinelsIPs", rf)
-	mrfc.AssertNotCalled(t, "GetMasterHostname", rf, master)
 }

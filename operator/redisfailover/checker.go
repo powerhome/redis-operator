@@ -327,16 +327,23 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		return errors.New("more than one master, fix manually")
 	}
 
+	// The master is established once and described two ways: the address to reach
+	// it at, and the name every other instance is given for it. See
+	// docs/adr/ADR-002.
 	master, err := r.rfChecker.GetMasterIP(rf)
 	if err != nil {
 		return err
 	}
+	masterHostname, err := r.rfChecker.GetRedisHostnameAt(rf, master)
+	if err != nil {
+		return err
+	}
 
-	err = r.rfChecker.CheckAllSlavesFromMaster(master, rf)
+	err = r.rfChecker.CheckAllSlavesFromMaster(masterHostname, rf)
 	setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.SLAVE_WRONG_MASTER, metrics.NOT_APPLICABLE, err)
 	if err != nil {
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Slave not associated to master: %s", err.Error())
-		if err = r.rfHealer.SetMasterOnAll(master, rf); err != nil {
+		if err = r.rfHealer.SetMasterOnAll(master, masterHostname, rf); err != nil {
 			return err
 		}
 	}
@@ -370,14 +377,6 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 	}
 
 	sentinels, err := r.rfChecker.GetSentinelsIPs(rf)
-	if err != nil {
-		return err
-	}
-
-	// Sentinel is told a name rather than an address, because it keeps what it is
-	// told. See docs/adr/ADR-002. This names the master established above rather
-	// than looking for one again.
-	masterHostname, err := r.rfChecker.GetMasterHostname(rf, master)
 	if err != nil {
 		return err
 	}
