@@ -33,6 +33,7 @@ type Client interface {
 	SetCustomRedisConfig(ip string, port string, configs []string, password string) error
 	SlaveIsReady(ip, port, password string) (bool, error)
 	SentinelCheckQuorum(ip string, port string) error
+	ReplicasUp(ip string, port string) (int32, error)
 }
 
 type client struct {
@@ -141,6 +142,71 @@ func (c *client) GetNumberSentinelSlavesInMemory(ip string, sentinelPort string)
 }
 
 // GetNumberRedisConnectedSlaves return the number of slaves that the requested redis has
+// ReplicasUp returns how many replicas of the monitored master this Sentinel
+// both knows about and can currently reach. Sentinel promotes one of these when
+// the master goes away, and it knows none until it has read the master's replica
+// list, which SENTINEL REMOVE and SENTINEL RESET both discard.
+func (c *client) ReplicasUp(ip string, sentinelPort string) (int32, error) {
+	options := &rediscli.Options{
+		Addr:     net.JoinHostPort(ip, sentinelPort),
+		Password: "",
+		DB:       0,
+	}
+	rClient := rediscli.NewClient(options)
+	defer rClient.Close()
+
+	cmd := rediscli.NewSliceCmd(context.TODO(), "SENTINEL", "replicas", masterName)
+	if err := rClient.Process(context.TODO(), cmd); err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, getRedisError(err))
+		return 0, err
+	}
+	replicas, err := cmd.Result()
+	if err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, getRedisError(err))
+		return 0, err
+	}
+
+	var up int32
+	for _, replica := range replicas {
+		described, ok := replica.([]interface{})
+		if !ok {
+			c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, metrics.MISC)
+			return 0, fmt.Errorf("sentinel described a replica as %T, expected a list of fields", replica)
+		}
+		if isReachable(fieldsOf(described)["flags"]) {
+			up++
+		}
+	}
+	c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.SUCCESS, metrics.NOT_APPLICABLE)
+	return up, nil
+}
+
+// Sentinel describes an instance as a flat list of alternating names and values.
+func fieldsOf(described []interface{}) map[string]string {
+	fields := map[string]string{}
+	for i := 0; i+1 < len(described); i += 2 {
+		name, nameOk := described[i].(string)
+		value, valueOk := described[i+1].(string)
+		if nameOk && valueOk {
+			fields[name] = value
+		}
+	}
+	return fields
+}
+
+// Sentinel will not promote a replica it has stopped hearing from, whether it
+// decided that alone (s_down), agreed it with the other Sentinels (o_down), or
+// simply has no connection to it.
+func isReachable(flags string) bool {
+	for _, flag := range strings.Split(flags, ",") {
+		switch flag {
+		case "s_down", "o_down", "disconnected":
+			return false
+		}
+	}
+	return flags != ""
+}
+
 func (c *client) GetNumberRedisConnectedSlaves(ip, port, password string) (int32, error) {
 	options := &rediscli.Options{
 		Addr:     net.JoinHostPort(ip, port),

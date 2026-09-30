@@ -79,6 +79,23 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 			return err
 		}
 		if masterRevision != ssUR || waitingOnResize[master] {
+			// Deleting the master is a failover, and only the Sentinels can carry
+			// one out. A replica that reports itself synced is not enough: it has
+			// been synced for as long as it takes to answer, which for an empty
+			// dataset is no time at all, and the Sentinels may not have read the
+			// master's replica list since it changed.
+			//
+			// A failover that has nothing to promote does not resolve later. The
+			// replica keeps the address of a pod that is gone, the replacement
+			// keeps localhost, and neither the Sentinels nor the operator will act
+			// again. Holding the master back leaves it serving, which is visible
+			// and recoverable.
+			if rf.Spec.Redis.Replicas > 1 {
+				if err := r.rfChecker.CheckSentinelsCanFailover(rf); err != nil {
+					r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace the master %s: %s", master, err.Error())
+					return nil
+				}
+			}
 			err = r.rfHealer.DeletePod(master, rf)
 			if err != nil {
 				return err

@@ -15,6 +15,8 @@ Upgrading replaces the Redis pods, one at a time, because the Redis container's 
 
 Expect a short window with no master while the pod holding that role is replaced and Sentinel elects one of the others. On a two node failover that window is around twenty seconds. Clients reconnect as they would for any failover.
 
+The master is replaced last, and only once every Sentinel reports a replica it could promote, so an upgrade can pause with one pod still on the old pod template. The failover keeps serving while it waits, and the operator logs which Sentinel it is waiting on.
+
 A Sentinel-aware client asking `SENTINEL get-master-addr-by-name` receives a name such as `rfr-example-0.rfr-example.default.svc` rather than an address. Such clients connect to whatever Sentinel gives them, so this costs them nothing, but a client that assumes an address, or one running where cluster DNS does not resolve, cannot reach the master.
 
 The operator no longer writes a `NetworkPolicy` for the Sentinels, and deletes the one earlier releases wrote. Nothing confines these pods afterwards unless you write a policy yourself. `spec.networkPolicyNsList` is still accepted so that existing resources apply unchanged, decides nothing, and will be removed in a later release; the operator says so in its logs once per failover. See [ADR-003](docs/adr/ADR-003-network-isolation-is-not-the-operators.md).
@@ -31,6 +33,7 @@ The operator no longer writes a `NetworkPolicy` for the Sentinels, and deletes t
 
 ### Fixed
 
+- [Replace the master only once the Sentinels could promote a replica](https://github.com/powerhome/redis-operator/pull/136). The rolling update asked each replica whether it had finished syncing, which a replica holding no data answers within milliseconds of being told to replicate. A Sentinel that has just been reset, or has just been given a different master to watch, holds no replica it would promote, so removing the master left the failover with none: Sentinel answered `-failover-abort-no-good-slave`, the surviving replica kept the address of a pod that no longer existed, and the operator seeds a master only when every Redis reports `127.0.0.1`, so neither acted again. See [CIR-008](docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md)
 - [Point every Sentinel at the master before reporting a failure](https://github.com/powerhome/redis-operator/pull/136). One Sentinel that could not be reconfigured aborted the pass, leaving the rest watching whatever they had. Each is now attempted and the failures are reported together
 
 ## [v4.8.0] - 2026-10-02

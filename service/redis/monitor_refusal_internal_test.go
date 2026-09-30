@@ -207,3 +207,48 @@ func readCommand(reader *bufio.Reader) ([]string, error) {
 	}
 	return args, nil
 }
+
+// Sentinel promotes a replica it can still reach. One it has given up on, alone
+// or by agreement with the other Sentinels, stays where it is, so counting
+// every replica Sentinel remembers would report a failover that cannot happen.
+func TestOnlyReachableReplicasAreCounted(t *testing.T) {
+	tests := []struct {
+		name     string
+		flags    []string
+		expected int32
+	}{
+		{name: "none at all", flags: nil, expected: 0},
+		{name: "one reachable", flags: []string{"slave"}, expected: 1},
+		{name: "two reachable", flags: []string{"slave", "slave"}, expected: 2},
+		{name: "one it cannot reach", flags: []string{"s_down,slave"}, expected: 0},
+		{name: "one the others agree is gone", flags: []string{"s_down,o_down,slave"}, expected: 0},
+		{name: "one with no connection", flags: []string{"slave,disconnected"}, expected: 0},
+		{name: "one of each", flags: []string{"s_down,slave", "slave"}, expected: 1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sentinel := startFakeSentinel(t, func(args []string) string {
+				return describeReplicas(test.flags)
+			})
+
+			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port)
+
+			require.NoError(t, err)
+			assert.Equal(t, test.expected, up)
+		})
+	}
+}
+
+// SENTINEL replicas answers with one list of fields per replica.
+func describeReplicas(flags []string) string {
+	reply := fmt.Sprintf("*%d\r\n", len(flags))
+	for i, flag := range flags {
+		fields := []string{"name", fmt.Sprintf("replica-%d", i), "flags", flag}
+		reply += fmt.Sprintf("*%d\r\n", len(fields))
+		for _, field := range fields {
+			reply += fmt.Sprintf("$%d\r\n%s\r\n", len(field), field)
+		}
+	}
+	return reply
+}
