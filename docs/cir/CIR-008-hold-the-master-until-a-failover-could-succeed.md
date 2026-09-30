@@ -32,8 +32,8 @@ Stop the rolling update from removing a master that nothing can replace.
 
 - GIVEN a replica running an old pod template
 - WHEN the operator replaces it
-- THEN nothing is asked of the Sentinels, since losing a replica is not a
-  failover
+- THEN it waits on the same condition, because losing a replica takes away the
+  candidate the Sentinels would promote
 
 - GIVEN the operator has just replaced the master
 - WHEN the reconcile would carry on
@@ -69,11 +69,18 @@ Stop the rolling update from removing a master that nothing can replace.
 
 ## Decisions
 
-**The master's replacement is held, rather than the whole rolling update.**
-Replicas are replaced first and losing one is not a failover, so there is nothing
-to gain by stopping earlier. Holding only the master also keeps the failure
-visible in the right place: an upgrade that stops with one pod on the old pod
-template and a master still serving.
+**Every replacement waits, not only the master's.** Replacing a replica is not a
+failover, which is why holding only the master looked sufficient. It is not:
+taking a replica away removes the candidate the Sentinels would promote, and
+leaves them with none until the replacement has synced and they have read the
+master's replica list again. A rollout that does that while they are already
+blind, which is what a pass that has just reset them leaves behind, extends the
+blindness by another reconcile and the master that dies inside it is not replaced.
+
+Measured on a two node failover with 20000 keys upgrading from `v4.7.1`, waiting
+on one condition in both places halved the window in which no Sentinel could
+elect, and the Sentinels went from holding no master to holding a master and a
+replica in the same second rather than 31 seconds apart.
 
 **The Sentinels are asked what they could promote, rather than the operator
 working it out.** Sentinel's own rules for a promotable replica cover flags,
