@@ -35,6 +35,11 @@ Stop the rolling update from removing a master that nothing can replace.
 - THEN nothing is asked of the Sentinels, since losing a replica is not a
   failover
 
+- GIVEN the operator has just replaced the master
+- WHEN the reconcile would carry on
+- THEN it ends instead, so nothing further in that pass points a Sentinel at the
+  departed master or resets one
+
 ## Constraints
 
 - **A replica reports itself synced as soon as it is.** `SlaveIsReady` reads the
@@ -54,6 +59,13 @@ Stop the rolling update from removing a master that nothing can replace.
   so neither party acts again.
 - **Any Sentinel may be the one elected to carry out a promotion**, so the
   question has to be asked of all of them.
+- **`SENTINEL RESET` discards the replica list**, and a Sentinel rebuilds that
+  list only by reading it from a master that answers. The operator resets a
+  Sentinel whose counts do not match what the spec says to expect, which during a
+  rolling update they do not.
+- **A reconcile that finds no master returns before it reaches the Sentinels**,
+  so the pass that removes the master is the only one that can reset a Sentinel
+  into a state it cannot rebuild from.
 
 ## Decisions
 
@@ -75,6 +87,20 @@ decides the outcome.
 replica leaves the master where it is, so the failover keeps serving and one pod
 keeps an old pod template. That is recoverable and visible, where the alternative
 is a cluster with no master that neither Sentinel nor the operator will repair.
+
+**The pass that removes the master ends there, rather than the reset being
+conditioned.** Asking the gate and then resetting the Sentinels in the same pass
+answers the question and destroys the answer: measured on a two node failover,
+two of three Sentinels were reset in the reconcile that deleted the master, and
+the promotion then waited on an election reaching the one Sentinel that had kept
+its replica list, 103 seconds rather than the usual 20. Had the third been reset
+too, nothing would have promoted anything.
+
+Conditioning the reset on the master being reachable does not cover it, because
+the master has only just been deleted and no Sentinel has noticed yet. What is
+true at that point is simpler: the pass read a failover that had a master, the
+master is now gone, and every remaining step would be acting on what it read.
+The next pass is thirty seconds away and sees what is there.
 
 **Widening the operator's own recovery is the other half, and is not here.** The
 operator will seed a master only when every Redis reports `127.0.0.1`; widening
