@@ -168,9 +168,12 @@ type SentinelSettings struct {
 	// last decided, which is the only record of that decision made by the thing
 	// that made it.
 	//
-	// Setting this changes how the Sentinels are run, from a Deployment to a
-	// StatefulSet, because the state is per instance: it carries the Sentinel's
-	// own identity in the quorum protocol, so it cannot be shared.
+	// A claim per Sentinel, never one shared between them: what a Sentinel writes
+	// carries its own identity in the quorum protocol.
+	//
+	// There is no default. A cluster with no dynamic provisioning would leave
+	// every Sentinel pod waiting on a volume that is never bound, so this is
+	// something to ask for rather than something to opt out of.
 	Storage                   RedisStorage                      `json:"storage,omitempty"`
 	Affinity                  *corev1.Affinity                  `json:"affinity,omitempty"`
 	SecurityContext           *corev1.PodSecurityContext        `json:"securityContext,omitempty"`
