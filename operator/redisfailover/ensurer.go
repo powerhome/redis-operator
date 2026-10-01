@@ -1,6 +1,9 @@
 package redisfailover
 
 import (
+	"fmt"
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
@@ -9,6 +12,8 @@ import (
 
 // Ensure is called to ensure all of the resources associated with a RedisFailover are created
 func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels map[string]string, or []metav1.OwnerReference, metricsClient metrics.Recorder) error {
+	w.warnPodNetworkingIsGoingAway(rf)
+
 	if rf.Spec.Redis.Exporter.Enabled {
 		if err := w.rfService.EnsureRedisService(rf, labels, or); err != nil {
 			return err
@@ -101,4 +106,37 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 	}
 
 	return nil
+}
+
+// warnPodNetworkingIsGoingAway names the deprecated pod networking fields a
+// RedisFailover sets, which nothing the reader can query would tell them.
+//
+// Once per failover, per operator process: a reconcile happens every few seconds
+// and the fields still do what they say, so there is nothing to act on urgently.
+// See docs/cir/CIR-010.
+func (w *RedisFailoverHandler) warnPodNetworkingIsGoingAway(rf *redisfailoverv1.RedisFailover) {
+	var set []string
+	if rf.Spec.Redis.HostNetwork {
+		set = append(set, "redis.hostNetwork")
+	}
+	if rf.Spec.Redis.DNSPolicy != "" {
+		set = append(set, "redis.dnsPolicy")
+	}
+	if rf.Spec.Sentinel.HostNetwork {
+		set = append(set, "sentinel.hostNetwork")
+	}
+	if rf.Spec.Sentinel.DNSPolicy != "" {
+		set = append(set, "sentinel.dnsPolicy")
+	}
+	if len(set) == 0 {
+		return
+	}
+
+	key := fmt.Sprintf("%s/%s", rf.Namespace, rf.Name)
+	if _, said := w.warnedPodNetworking.LoadOrStore(key, true); said {
+		return
+	}
+
+	w.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
+		Warningf("deprecated fields set on this RedisFailover: %s. How a Redis or Sentinel instance can be addressed is the operator's to decide, and pod networking fields change it. They still apply, and a later release removes them from the API with no replacement. Take them out while they still work.", strings.Join(set, ", "))
 }
