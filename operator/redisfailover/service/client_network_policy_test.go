@@ -15,8 +15,6 @@ import (
 	rfservice "github.com/spotahome/redis-operator/operator/redisfailover/service"
 )
 
-// A policy the operator wrote before it stopped managing them keeps enforcing
-// what it last said, so the resource itself has to go.
 func TestDestroyOrphanedSentinelNetworkPolicyRemovesAnExistingOne(t *testing.T) {
 	assert := assert.New(t)
 
@@ -35,7 +33,6 @@ func TestDestroyOrphanedSentinelNetworkPolicyRemovesAnExistingOne(t *testing.T) 
 	ms.AssertExpectations(t)
 }
 
-// Every failover is asked on every pass, and most never had one.
 func TestDestroyOrphanedSentinelNetworkPolicyToleratesNoneBeingThere(t *testing.T) {
 	assert := assert.New(t)
 
