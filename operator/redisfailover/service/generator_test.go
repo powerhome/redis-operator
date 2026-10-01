@@ -4132,3 +4132,36 @@ func TestDestroyHaproxyMasterResourcesReportsRealFailures(t *testing.T) {
 	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
 	assert.Error(client.DestroyHaproxyMasterResources(rf))
 }
+
+func TestSentinelConfigFileSettingsSurviveAReMonitor(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+	rf.Spec.Sentinel.CustomConfig = nil
+	assert.NoError(rf.Validate())
+
+	var generatedConfig string
+	ms := &mK8SService.Services{}
+	ms.On("CreateOrUpdateConfigMap", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		generatedConfig = args.Get(1).(*corev1.ConfigMap).Data["sentinel.conf"]
+	}).Return(nil)
+
+	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+	assert.NoError(client.EnsureSentinelConfigMap(rf, nil, []metav1.OwnerReference{}))
+
+	applied := map[string]bool{}
+	for _, entry := range rf.Spec.Sentinel.CustomConfig {
+		applied[strings.Fields(entry)[0]] = true
+	}
+
+	perMaster := 0
+	for _, line := range strings.Split(generatedConfig, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || f[0] != "sentinel" || f[2] != "mymaster" || f[1] == "monitor" {
+			continue
+		}
+		perMaster++
+		assert.Truef(applied[f[1]], "%q is in the config file but not in the sentinel custom config, so SENTINEL REMOVE drops it for good", f[1])
+	}
+	assert.NotZero(perMaster, "the config file should declare per-master settings")
+}
