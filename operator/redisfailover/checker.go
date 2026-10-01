@@ -397,10 +397,8 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 			}
 		}
 	}
-	if len(monitorErrs) > 0 {
-		return errors.Join(monitorErrs...)
-	}
-	return r.checkAndHealSentinels(rf, sentinels)
+	monitorErrs = append(monitorErrs, r.checkAndHealSentinels(rf, sentinels))
+	return errors.Join(monitorErrs...)
 }
 
 func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.RedisFailover) error {
@@ -488,13 +486,14 @@ func (r *RedisFailoverHandler) applyRedisCustomConfig(rf *redisfailoverv1.RedisF
 
 func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFailover, sentinels []string) error {
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	var errs []error
 	for _, sip := range sentinels {
 		err := r.rfChecker.CheckSentinelNumberInMemory(sip, rf)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_NUMBER_IN_MEMORY_MISMATCH, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Sentinel %s mismatch number of sentinels in memory. resetting", sip)
 			if err := r.rfHealer.RestoreSentinel(sip, sentinelPort); err != nil {
-				return err
+				errs = append(errs, fmt.Errorf("resetting sentinel %s: %w", sip, err))
 			}
 		}
 
@@ -505,7 +504,7 @@ func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFa
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Sentinel %s mismatch number of expected slaves in memory. resetting", sip)
 			if err := r.rfHealer.RestoreSentinel(sip, sentinelPort); err != nil {
-				return err
+				errs = append(errs, fmt.Errorf("resetting sentinel %s: %w", sip, err))
 			}
 		}
 	}
@@ -513,10 +512,10 @@ func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFa
 		err := r.rfHealer.SetSentinelCustomConfig(sip, rf)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.APPLY_SENTINEL_CONFIG, sip, err)
 		if err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("applying sentinel config to %s: %w", sip, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func setRedisCheckerMetrics(metricsClient metrics.Recorder, mode /* redis or sentinel? */ string, rfNamespace string, rfName string, property string, IP string, err error) {

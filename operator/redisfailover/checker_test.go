@@ -1423,3 +1423,57 @@ func TestReplacingTheMasterEndsTheReconcile(t *testing.T) {
 	mrfh.AssertExpectations(t)
 	mrfc.AssertNotCalled(t, "GetSentinelsIPs", rf)
 }
+
+func TestCheckAndHealAppliesSentinelSettingsWhenOneSentinelRefusesTheMaster(t *testing.T) {
+	assert := assert.New(t)
+
+	refused := errors.New("ERR Invalid IP address or hostname specified")
+
+	master := "0.0.0.0"
+	masterHostname := "rfr-test-0.rfr-test.testns.svc"
+	refusing := "1.1.1.1"
+	accepting := "2.2.2.2"
+
+	config := generateConfig()
+	rf := generateRF(false, false)
+	mrfs := &mRFService.RedisFailoverClient{}
+	mrfc := &mRFService.RedisFailoverCheck{}
+	mrfh := &mRFService.RedisFailoverHeal{}
+	mk := &mK8SService.Services{}
+
+	mrfc.On("IsRedisRunning", rf).Once().Return(true)
+	mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+	mrfc.On("GetNumberMasters", rf).Once().Return(1, nil)
+	mrfc.On("GetMasterIP", rf).Twice().Return(master, nil)
+	mrfc.On("GetRedisHostnameAt", rf, master).Once().Return(masterHostname, nil)
+	mrfc.On("CheckAllSlavesFromMaster", masterHostname, rf).Once().Return(nil)
+	mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)
+	mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{master}, nil)
+	mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+	mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+	mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+	mrfc.On("GetRedisesMasterPod", rf).Once().Return(master, nil)
+	mrfc.On("GetRedisRevisionHash", master, rf).Once().Return("1", nil)
+	mrfh.On("SetRedisCustomConfig", master, rf).Once().Return(nil)
+
+	mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{refusing, accepting}, nil)
+
+	mrfc.On("CheckSentinelMonitor", refusing, "26379", masterHostname, "0").Once().Return(errors.New(""))
+	mrfh.On("NewSentinelMonitor", refusing, masterHostname, rf).Once().Return(refused)
+	mrfc.On("CheckSentinelMonitor", accepting, "26379", masterHostname, "0").Once().Return(nil)
+
+	mrfc.On("CheckSentinelNumberInMemory", refusing, rf).Once().Return(nil)
+	mrfc.On("CheckSentinelNumberInMemory", accepting, rf).Once().Return(nil)
+	mrfc.On("CheckSentinelSlavesNumberInMemory", refusing, rf).Once().Return(nil)
+	mrfc.On("CheckSentinelSlavesNumberInMemory", accepting, rf).Once().Return(nil)
+	mrfh.On("SetSentinelCustomConfig", refusing, rf).Once().Return(nil)
+	mrfh.On("SetSentinelCustomConfig", accepting, rf).Once().Return(nil)
+
+	handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
+
+	err := handler.CheckAndHeal(rf)
+	assert.ErrorContains(err, "Invalid IP address or hostname specified")
+
+	mrfc.AssertExpectations(t)
+	mrfh.AssertExpectations(t)
+}
