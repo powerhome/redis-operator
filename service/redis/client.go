@@ -46,6 +46,11 @@ func New(metricsRecorder metrics.Recorder) Client {
 	}
 }
 
+// NoMasterYet is the address a Redis or Sentinel holds for its master before
+// anything has told it otherwise. The operator's generated configuration starts
+// every instance here, and a readiness check treats it as not ready.
+const NoMasterYet = "127.0.0.1"
+
 const (
 	sentinelsNumberREString      = "sentinels=([0-9]+)"
 	slaveNumberREString          = "slaves=([0-9]+)"
@@ -54,8 +59,9 @@ const (
 	redisConnectedSlavesREString = "connected_slaves:([0-9]+)"
 	redisRoleMaster              = "role:master"
 	redisSyncing                 = "master_sync_in_progress:1"
-	redisMasterSillPending       = "master_host:127.0.0.1"
-	redisLinkUp                  = "master_link_status:up"
+	// What a replica reports before anything has told it who its master is.
+	redisToldNoMaster = "master_host:" + NoMasterYet
+	redisLinkUp       = "master_link_status:up"
 
 	redisPort  = "6379"
 	masterName = "mymaster"
@@ -492,7 +498,7 @@ func (c *client) SlaveIsReady(ip, port, password string) (bool, error) {
 	}
 
 	ok := !strings.Contains(info, redisSyncing) &&
-		!strings.Contains(info, redisMasterSillPending) &&
+		!strings.Contains(info, redisToldNoMaster) &&
 		strings.Contains(info, redisLinkUp)
 	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, strings.Split(rClient.Options().Addr, ":")[0], metrics.SLAVE_IS_READY, metrics.SUCCESS, metrics.NOT_APPLICABLE)
 	return ok, nil

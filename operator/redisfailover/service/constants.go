@@ -1,5 +1,7 @@
 package service
 
+import "github.com/spotahome/redis-operator/service/redis"
+
 // variables refering to the redis exporter port
 const (
 	exporterPort                  = 9121
@@ -11,6 +13,15 @@ const (
 	exporterDefaultLimitCPU       = "1000m"
 	exporterDefaultRequestMemory  = "50Mi"
 	exporterDefaultLimitMemory    = "100Mi"
+)
+
+const (
+	// noMasterYet is defined by the package that reads it off an instance.
+	noMasterYet = redis.NoMasterYet
+
+	// ownPod is the address a sidecar reaches its sibling container on. The same
+	// address as noMasterYet, meaning something else entirely.
+	ownPod = "127.0.0.1"
 )
 
 const (
