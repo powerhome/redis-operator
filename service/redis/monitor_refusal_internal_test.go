@@ -304,3 +304,55 @@ func TestReplicasUpLeavesOutTheExcludedAddresses(t *testing.T) {
 		})
 	}
 }
+
+// Every caller that takes a Redis away depends on this, so it is asserted here
+// rather than described at each of them.
+func TestSentinelKnowsNoReplicasOnceItsListIsDiscarded(t *testing.T) {
+	for _, discard := range []struct {
+		name    string
+		command []string
+		call    func(c Client, host, port string) error
+	}{
+		{
+			name:    "SENTINEL REMOVE",
+			command: []string{"SENTINEL", "REMOVE"},
+			call: func(c Client, host, port string) error {
+				return c.MonitorRedisWithPort(host, "rfr-test-0.rfr-test.testns.svc", "6379", "2", "", port)
+			},
+		},
+		{
+			name:    "SENTINEL RESET",
+			command: []string{"SENTINEL", "RESET"},
+			call:    func(c Client, host, port string) error { return c.ResetSentinel(host, port) },
+		},
+	} {
+		t.Run(discard.name, func(t *testing.T) {
+			discarded := false
+			sentinel := startFakeSentinel(t, func(args []string) string {
+				switch {
+				case isCommand(args, discard.command...):
+					discarded = true
+					return ":1\r\n"
+				case isCommand(args, "SENTINEL", "replicas"):
+					if discarded {
+						return "*0\r\n"
+					}
+					return describeNamedReplicas(map[string]string{"10.0.0.1": "slave"})
+				}
+				return "+OK\r\n"
+			})
+
+			c := New(metrics.Dummy)
+
+			up, err := c.ReplicasUp(sentinel.host, sentinel.port, nil)
+			require.NoError(t, err)
+			require.Equal(t, int32(1), up, "a Sentinel that has read the list knows one replica")
+
+			require.NoError(t, discard.call(c, sentinel.host, sentinel.port))
+
+			up, err = c.ReplicasUp(sentinel.host, sentinel.port, nil)
+			require.NoError(t, err)
+			assert.Zero(t, up, "nothing is promotable until the list is read again")
+		})
+	}
+}
