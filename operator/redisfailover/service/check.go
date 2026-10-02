@@ -26,7 +26,7 @@ type RedisFailoverCheck interface {
 	CheckNumberRedisConnectedSlaves(masterIP string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelSlavesNumberInMemory(sentinel string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelQuorum(rFailover *redisfailoverv1.RedisFailover) (int, error)
-	CheckSentinelsCanFailover(rFailover *redisfailoverv1.RedisFailover) error
+	CheckSentinelsCanFailover(rFailover *redisfailoverv1.RedisFailover, replacing string) error
 	CheckIfMasterLocalhost(rFailover *redisfailoverv1.RedisFailover) (bool, error)
 	CheckSentinelMonitor(sentinel string, sentinelPort string, monitor ...string) error
 	GetMasterIP(rFailover *redisfailoverv1.RedisFailover) (string, error)
@@ -250,7 +250,10 @@ func (r *RedisFailoverChecker) CheckSentinelQuorum(rFailover *redisfailoverv1.Re
 //
 // Every Sentinel rather than one, because any of them may be the leader that
 // has to carry out the promotion.
-func (r *RedisFailoverChecker) CheckSentinelsCanFailover(rf *redisfailoverv1.RedisFailover) error {
+//
+// replacing names the Redis pod the caller is about to delete, and it does not
+// count towards what a Sentinel could promote. See docs/cir/CIR-008.
+func (r *RedisFailoverChecker) CheckSentinelsCanFailover(rf *redisfailoverv1.RedisFailover, replacing string) error {
 	sentinels, err := r.GetSentinelsIPs(rf)
 	if err != nil {
 		return err
@@ -259,17 +262,43 @@ func (r *RedisFailoverChecker) CheckSentinelsCanFailover(rf *redisfailoverv1.Red
 		return errors.New("no sentinel is running to fail over")
 	}
 
+	leaving, err := r.redisNameAndAddressOf(rf, replacing)
+	if err != nil {
+		return err
+	}
+
 	port := rf.Spec.Sentinel.Port.ToString()
 	for _, sip := range sentinels {
-		up, err := r.redisClient.ReplicasUp(sip, port)
+		up, err := r.redisClient.ReplicasUp(sip, port, leaving)
 		if err != nil {
 			return fmt.Errorf("asking sentinel %s what it could promote: %w", sip, err)
 		}
 		if up == 0 {
-			return fmt.Errorf("sentinel %s holds no replica it could promote", sip)
+			if replacing == "" {
+				return fmt.Errorf("sentinel %s holds no replica it could promote", sip)
+			}
+			return fmt.Errorf("sentinel %s holds no replica it could promote once %s is gone", sip, replacing)
 		}
 	}
 	return nil
+}
+
+func (r *RedisFailoverChecker) redisNameAndAddressOf(rf *redisfailoverv1.RedisFailover, podName string) ([]string, error) {
+	if podName == "" {
+		return nil, nil
+	}
+
+	addresses := []string{RedisPodHostname(rf, podName)}
+	rps, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
+	if err != nil {
+		return nil, err
+	}
+	for _, rp := range rps.Items {
+		if rp.ObjectMeta.Name == podName && rp.Status.PodIP != "" {
+			addresses = append(addresses, rp.Status.PodIP)
+		}
+	}
+	return addresses, nil
 }
 
 // CheckSentinelSlavesNumberInMemory controls that the provided sentinel has only the expected slaves number.

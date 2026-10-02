@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"maps"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -232,7 +234,7 @@ func TestOnlyReachableReplicasAreCounted(t *testing.T) {
 				return describeReplicas(test.flags)
 			})
 
-			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port)
+			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, nil)
 
 			require.NoError(t, err)
 			assert.Equal(t, test.expected, up)
@@ -251,4 +253,54 @@ func describeReplicas(flags []string) string {
 		}
 	}
 	return reply
+}
+
+func describeNamedReplicas(replicas map[string]string) string {
+	reply := fmt.Sprintf("*%d\r\n", len(replicas))
+	for _, address := range slices.Sorted(maps.Keys(replicas)) {
+		fields := []string{"name", address + ":6379", "ip", address, "flags", replicas[address]}
+		reply += fmt.Sprintf("*%d\r\n", len(fields))
+		for _, field := range fields {
+			reply += fmt.Sprintf("$%d\r\n%s\r\n", len(field), field)
+		}
+	}
+	return reply
+}
+
+func TestReplicasUpLeavesOutTheExcludedAddresses(t *testing.T) {
+	replicas := map[string]string{
+		"rfr-test-1.rfr-test.testns.svc": "slave",
+		"rfr-test-2.rfr-test.testns.svc": "slave",
+		"10.0.0.9":                       "slave",
+	}
+
+	tests := []struct {
+		name      string
+		excluding []string
+		expected  int32
+	}{
+		{name: "nothing excluded", excluding: nil, expected: 3},
+		{name: "excluded by name", excluding: []string{"rfr-test-1.rfr-test.testns.svc"}, expected: 2},
+		{name: "excluded by address", excluding: []string{"10.0.0.9"}, expected: 2},
+		{
+			name:      "a pod named both ways is counted out once",
+			excluding: []string{"rfr-test-1.rfr-test.testns.svc", "10.0.0.9"},
+			expected:  1,
+		},
+		{name: "an empty address excludes nothing", excluding: []string{""}, expected: 3},
+		{name: "an address no replica holds excludes nothing", excluding: []string{"10.0.0.99"}, expected: 3},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sentinel := startFakeSentinel(t, func(args []string) string {
+				return describeNamedReplicas(replicas)
+			})
+
+			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, test.excluding)
+
+			require.NoError(t, err)
+			assert.Equal(t, test.expected, up)
+		})
+	}
 }
