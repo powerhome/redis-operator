@@ -2715,7 +2715,11 @@ spec:
                   disablePodDisruptionBudget:
                     type: boolean
                   dnsPolicy:
-                    description: DNSPolicy defines how a pod's DNS will be configured.
+                    description: |-
+                      DNSPolicy sets how the Redis pods resolve names.
+
+                      Deprecated: how an instance can be addressed is the operator's to decide,
+                      and this changes it. Removed in a later release, with no replacement.
                     type: string
                   exporter:
                     description: Exporter defines the specification for the redis/sentinel
@@ -6393,6 +6397,11 @@ spec:
                       type: object
                     type: array
                   hostNetwork:
+                    description: |-
+                      HostNetwork puts the Redis pods in the node's network namespace.
+
+                      Deprecated: how an instance can be addressed is the operator's to decide,
+                      and this changes it. Removed in a later release, with no replacement.
                     type: boolean
                   image:
                     type: string
@@ -10668,7 +10677,11 @@ spec:
                   disablePodDisruptionBudget:
                     type: boolean
                   dnsPolicy:
-                    description: DNSPolicy defines how a pod's DNS will be configured.
+                    description: |-
+                      DNSPolicy sets how the Sentinel pods resolve names.
+
+                      Deprecated: how an instance can be addressed is the operator's to decide,
+                      and this changes it. Removed in a later release, with no replacement.
                     type: string
                   exporter:
                     description: Exporter defines the specification for the redis/sentinel
@@ -14346,6 +14359,11 @@ spec:
                       type: object
                     type: array
                   hostNetwork:
+                    description: |-
+                      HostNetwork puts the Sentinel pods in the node's network namespace.
+
+                      Deprecated: how an instance can be addressed is the operator's to decide,
+                      and this changes it. Removed in a later release, with no replacement.
                     type: boolean
                   image:
                     type: string

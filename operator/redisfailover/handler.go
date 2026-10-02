@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,6 +38,10 @@ type RedisFailoverHandler struct {
 	rfHealer   rfservice.RedisFailoverHeal
 	mClient    metrics.Recorder
 	logger     log.Logger
+
+	// Which failovers have already been told that hostNetwork and dnsPolicy are
+	// going away, keyed by namespace and name.
+	warnedPodNetworking sync.Map
 }
 
 // NewRedisFailoverHandler returns a new RF handler

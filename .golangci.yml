@@ -15,3 +15,12 @@ linters:
   exclusions:
     presets:
       - std-error-handling
+    rules:
+      # The operator reads `hostNetwork` and `dnsPolicy` for as long as it
+      # honours them, which is what deprecating rather than removing them
+      # means, and SA1019 reports every one of those reads. Matched on these
+      # two fields of these two types, so SA1019 still reports every other use
+      # of a deprecated API.
+      - linters:
+          - staticcheck
+        text: 'SA1019: \(github\.com/spotahome/redis-operator/api/redisfailover/v1\.(Redis|Sentinel)Settings\)\.(HostNetwork|DNSPolicy) is deprecated'
