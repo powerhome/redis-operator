@@ -9,9 +9,15 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v4.8.0] - 2026-10-02
+
 ### Deprecated
 
 - [Deprecate `hostNetwork` and `dnsPolicy` on Redis and Sentinel](https://github.com/powerhome/redis-operator/pull/139). All four fields still apply, and the operator now names the ones a `RedisFailover` sets in its logs, once per failover. How a Redis or Sentinel instance can be addressed is the operator's to decide, and these change it: `hostNetwork` leaves a pod without an address of its own, and either field can leave a pod unable to resolve a cluster DNS name. They have no replacement, and a later release removes them. Take them out of your `RedisFailover` now, while they still work. See [ADR-004](docs/adr/ADR-004-the-operator-owns-how-instances-are-addressed.md) and [CIR-010](docs/cir/CIR-010-deprecate-pod-networking-fields.md)
+
+### Fixed
+
+- [Make the Sentinel `parallel-syncs` value the one that runs](https://github.com/powerhome/redis-operator/pull/140). The generated Sentinel configuration declared `parallel-syncs 2`, and every Sentinel ran Redis's own `1`: `SENTINEL REMOVE` drops the per-master settings the first time the operator points a Sentinel at the real master, and `parallel-syncs` was not among the settings reapplied over the wire. Both places now declare `1`, which is the value that has been in force all along, so no failover behaves differently. Raising it is a decision about replica read availability during a failover and is left to a change of its own
 
 ## [v4.7.1] - 2026-09-25
 

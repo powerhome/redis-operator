@@ -12,6 +12,15 @@ chart version installs. Changes to the operator are recorded in the
 
 ## Unreleased
 
+## [4.7.0] - 2026-10-02
+
+Installs operator `v4.8.0`, up from `v4.7.1`. The `RedisFailover` custom resource
+definition the chart installs now records that `hostNetwork` and `dnsPolicy` are
+deprecated on both the Redis and the Sentinel settings, which `kubectl explain`
+shows. Nothing else in the chart changed. See the
+[repository changelog](https://github.com/powerhome/redis-operator/blob/master/CHANGELOG.md)
+for what that operator release contains.
+
 ## [4.6.3] - 2026-09-25
 
 Installs operator `v4.7.1`, up from `v4.7.0`. Nothing else in the chart
