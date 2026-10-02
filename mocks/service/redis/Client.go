@@ -256,12 +256,12 @@ func (_m *Client) MonitorRedisWithPort(ip string, monitor string, port string, q
 	return r0
 }
 
-// ReplicasUp provides a mock function with given fields: ip, port, excluding
-func (_m *Client) ReplicasUp(ip string, port string, excluding []string) (int32, error) {
+// PromotableReplicas provides a mock function with given fields: ip, port, excluding
+func (_m *Client) PromotableReplicas(ip string, port string, excluding []string) (int32, error) {
 	ret := _m.Called(ip, port, excluding)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ReplicasUp")
+		panic("no return value specified for PromotableReplicas")
 	}
 
 	var r0 int32

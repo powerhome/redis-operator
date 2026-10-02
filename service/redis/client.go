@@ -32,7 +32,7 @@ type Client interface {
 	SetCustomRedisConfig(ip string, port string, configs []string, password string) error
 	SlaveIsReady(ip, port, password string) (bool, error)
 	SentinelCheckQuorum(ip string, port string) error
-	ReplicasUp(ip string, port string, excluding []string) (int32, error)
+	PromotableReplicas(ip string, port string, excluding []string) (int32, error)
 }
 
 type client struct {
@@ -141,11 +141,10 @@ func (c *client) GetNumberSentinelSlavesInMemory(ip string, sentinelPort string)
 }
 
 // GetNumberRedisConnectedSlaves return the number of slaves that the requested redis has
-// ReplicasUp returns how many replicas of the monitored master this Sentinel
-// both knows about and can currently reach, leaving out any whose address is in
-// excluding. See TestSentinelKnowsNoReplicasOnceItsListIsDiscarded for when it
-// knows none.
-func (c *client) ReplicasUp(ip string, sentinelPort string, excluding []string) (int32, error) {
+// PromotableReplicas counts the replicas this Sentinel both knows about and can
+// currently reach, leaving out any whose address is in excluding. See
+// TestSentinelKnowsNoReplicasOnceItsListIsDiscarded for when it knows none.
+func (c *client) PromotableReplicas(ip string, sentinelPort string, excluding []string) (int32, error) {
 	options := &rediscli.Options{
 		Addr:     net.JoinHostPort(ip, sentinelPort),
 		Password: "",

@@ -234,7 +234,7 @@ func TestOnlyReachableReplicasAreCounted(t *testing.T) {
 				return describeReplicas(test.flags)
 			})
 
-			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, nil)
+			up, err := New(metrics.Dummy).PromotableReplicas(sentinel.host, sentinel.port, nil)
 
 			require.NoError(t, err)
 			assert.Equal(t, test.expected, up)
@@ -267,7 +267,7 @@ func describeNamedReplicas(replicas map[string]string) string {
 	return reply
 }
 
-func TestReplicasUpLeavesOutTheExcludedAddresses(t *testing.T) {
+func TestPromotableReplicasLeavesOutTheExcludedAddresses(t *testing.T) {
 	replicas := map[string]string{
 		"rfr-test-1.rfr-test.testns.svc": "slave",
 		"rfr-test-2.rfr-test.testns.svc": "slave",
@@ -297,7 +297,7 @@ func TestReplicasUpLeavesOutTheExcludedAddresses(t *testing.T) {
 				return describeNamedReplicas(replicas)
 			})
 
-			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, test.excluding)
+			up, err := New(metrics.Dummy).PromotableReplicas(sentinel.host, sentinel.port, test.excluding)
 
 			require.NoError(t, err)
 			assert.Equal(t, test.expected, up)
@@ -344,13 +344,13 @@ func TestSentinelKnowsNoReplicasOnceItsListIsDiscarded(t *testing.T) {
 
 			c := New(metrics.Dummy)
 
-			up, err := c.ReplicasUp(sentinel.host, sentinel.port, nil)
+			up, err := c.PromotableReplicas(sentinel.host, sentinel.port, nil)
 			require.NoError(t, err)
 			require.Equal(t, int32(1), up, "a Sentinel that has read the list knows one replica")
 
 			require.NoError(t, discard.call(c, sentinel.host, sentinel.port))
 
-			up, err = c.ReplicasUp(sentinel.host, sentinel.port, nil)
+			up, err = c.PromotableReplicas(sentinel.host, sentinel.port, nil)
 			require.NoError(t, err)
 			assert.Zero(t, up, "nothing is promotable until the list is read again")
 		})
