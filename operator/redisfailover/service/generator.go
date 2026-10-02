@@ -41,7 +41,7 @@ sentinel down-after-milliseconds mymaster 1000
 sentinel failover-timeout mymaster 3000
 sentinel announce-port {{.Spec.Sentinel.Port}}
 port {{.Spec.Sentinel.Port}}
-sentinel parallel-syncs mymaster 2`
+sentinel parallel-syncs mymaster 1`
 
 	redisShutdownConfigurationVolumeName   = "redis-shutdown-config"
 	redisStartupConfigurationVolumeName    = "redis-startup-config"
