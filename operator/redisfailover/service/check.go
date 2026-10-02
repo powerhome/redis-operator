@@ -184,7 +184,7 @@ func (r *RedisFailoverChecker) CheckIfMasterLocalhost(rFailover *redisfailoverv1
 			r.logger.Warningf("CheckIfMasterLocalhost -- Master already available ?? check manually")
 			return false, errors.New("unexpected master state, fix manually")
 		} else {
-			if master == "127.0.0.1" {
+			if master == noMasterYet {
 				lhmaster++
 			}
 		}

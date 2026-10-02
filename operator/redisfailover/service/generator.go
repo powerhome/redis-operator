@@ -677,7 +677,7 @@ func generateRedisReadinessConfigMap(rf *redisfailoverv1.RedisFailover, labels m
 ROLE_MASTER="role:master"
 ROLE_SLAVE="role:slave"
 IN_SYNC="master_sync_in_progress:1"
-NO_MASTER="master_host:127.0.0.1"
+NO_MASTER="master_host:%[2]v"
 
 cmd="redis-cli -p %[1]v"
 if [ ! -z "${REDIS_PASSWORD}" ]; then
@@ -712,7 +712,7 @@ case $role in
 		*)
 				echo "unexpected"
 				exit 1
-esac`, port)
+esac`, port, noMasterYet)
 
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1050,7 +1050,7 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 	if rf.Spec.Sentinel.CustomReadinessProbe != nil {
 		sd.Spec.Template.Spec.Containers[0].ReadinessProbe = rf.Spec.Sentinel.CustomReadinessProbe
 	} else {
-		command := "redis-cli -h $(hostname) -p " + strconv.FormatInt(int64(rf.Spec.Sentinel.Port), 10) + " sentinel get-master-addr-by-name mymaster | head -n 1 | grep -vq '127.0.0.1'"
+		command := "redis-cli -h $(hostname) -p " + strconv.FormatInt(int64(rf.Spec.Sentinel.Port), 10) + " sentinel get-master-addr-by-name mymaster | head -n 1 | grep -vq '" + noMasterYet + "'"
 		sd.Spec.Template.Spec.Containers[0].ReadinessProbe = &corev1.Probe{
 			InitialDelaySeconds: graceTime,
 			TimeoutSeconds:      5,
@@ -1167,7 +1167,7 @@ func createSentinelExporterContainer(rf *redisfailoverv1.RedisFailover) corev1.C
 		resources = *rf.Spec.Sentinel.Exporter.Resources
 	}
 
-	command := "redis://127.0.0.1:" + strconv.FormatInt(int64(rf.Spec.Sentinel.Port), 10)
+	command := "redis://" + ownPod + ":" + strconv.FormatInt(int64(rf.Spec.Sentinel.Port), 10)
 
 	container := corev1.Container{
 		Name:            sentinelExporterContainerName,
@@ -1551,7 +1551,7 @@ func getRedisEnv(rf *redisfailoverv1.RedisFailover) []corev1.EnvVar {
 
 	env = append(env, corev1.EnvVar{
 		Name:  "REDIS_ADDR",
-		Value: fmt.Sprintf("redis://127.0.0.1:%[1]v", rf.Spec.Redis.Port),
+		Value: fmt.Sprintf("redis://%[1]v:%[2]v", ownPod, rf.Spec.Redis.Port),
 	})
 
 	env = append(env, corev1.EnvVar{

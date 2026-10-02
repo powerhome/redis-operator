@@ -25,6 +25,7 @@ import (
 	"github.com/spotahome/redis-operator/metrics"
 	mK8SService "github.com/spotahome/redis-operator/mocks/service/k8s"
 	rfservice "github.com/spotahome/redis-operator/operator/redisfailover/service"
+	"github.com/spotahome/redis-operator/service/redis"
 )
 
 // notFound builds the error the Kubernetes API returns for an object that does
@@ -4164,4 +4165,31 @@ func TestSentinelConfigFileSettingsSurviveAReMonitor(t *testing.T) {
 		assert.Truef(applied[f[1]], "%q is in the config file but not in the sentinel custom config, so SENTINEL REMOVE drops it for good", f[1])
 	}
 	assert.NotZero(perMaster, "the config file should declare per-master settings")
+}
+
+func TestGeneratedConfigurationStartsWithNoMaster(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+
+	var redisConf, sentinelConf string
+	ms := &mK8SService.Services{}
+	ms.On("CreateOrUpdateConfigMap", namespace, mock.Anything).Twice().Run(func(args mock.Arguments) {
+		cm := args.Get(1).(*corev1.ConfigMap)
+		if c, ok := cm.Data["redis.conf"]; ok {
+			redisConf = c
+		}
+		if c, ok := cm.Data["sentinel.conf"]; ok {
+			sentinelConf = c
+		}
+	}).Return(nil)
+
+	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+	assert.NoError(client.EnsureRedisConfigMap(rf, nil, []metav1.OwnerReference{}))
+	assert.NoError(client.EnsureSentinelConfigMap(rf, nil, []metav1.OwnerReference{}))
+
+	assert.Contains(redisConf, "slaveof "+redis.NoMasterYet,
+		"a Redis starts following nothing, which is what the readiness check reads")
+	assert.Contains(sentinelConf, "sentinel monitor mymaster "+redis.NoMasterYet,
+		"a Sentinel starts monitoring nothing, which is what its readiness probe reads")
 }
