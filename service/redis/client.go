@@ -143,9 +143,8 @@ func (c *client) GetNumberSentinelSlavesInMemory(ip string, sentinelPort string)
 // GetNumberRedisConnectedSlaves return the number of slaves that the requested redis has
 // ReplicasUp returns how many replicas of the monitored master this Sentinel
 // both knows about and can currently reach, leaving out any whose address is in
-// excluding. Sentinel promotes one of these when the master goes away, and it
-// knows none until it has read the master's replica list, which SENTINEL REMOVE
-// and SENTINEL RESET both discard.
+// excluding. See TestSentinelKnowsNoReplicasOnceItsListIsDiscarded for when it
+// knows none.
 func (c *client) ReplicasUp(ip string, sentinelPort string, excluding []string) (int32, error) {
 	options := &rediscli.Options{
 		Addr:     net.JoinHostPort(ip, sentinelPort),

@@ -110,8 +110,8 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 			// Deleting the master is a failover, and only the Sentinels can carry
 			// one out. A replica that reports itself synced is not enough: it has
 			// been synced for as long as it takes to answer, which for an empty
-			// dataset is no time at all, and the Sentinels may not have read the
-			// master's replica list since it changed.
+			// dataset is no time at all, and the Sentinels may not have read what
+			// they would promote since it changed.
 			//
 			// A failover that has nothing to promote does not resolve later. The
 			// replica keeps the address of a pod that is gone, the replacement
@@ -377,9 +377,9 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 	}
 	// Everything below reads a failover that still had a master when this pass
 	// began. Pointing the Sentinels at a master that is gone, and resetting the
-	// ones whose counts no longer match, discards the replica list the promotion
-	// needs, and a Sentinel rebuilds that list only from a master that answers.
-	// The next pass sees what is actually there.
+	// ones whose counts no longer match, leaves them nothing to promote, and a
+	// Sentinel rebuilds the list only from a master that answers. The next pass
+	// sees what is actually there.
 	if masterReplaced {
 		return nil
 	}
