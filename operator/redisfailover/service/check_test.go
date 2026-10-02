@@ -1532,6 +1532,12 @@ func TestCheckSentinelsCanFailover(t *testing.T) {
 			{Status: corev1.PodStatus{PodIP: "1.1.1.1", Phase: corev1.PodRunning}},
 		},
 	}
+	redisPods := &corev1.PodList{
+		Items: []corev1.Pod{
+			{ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0"}, Status: corev1.PodStatus{PodIP: "2.2.2.2"}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-1"}, Status: corev1.PodStatus{PodIP: "3.3.3.3"}},
+		},
+	}
 
 	tests := []struct {
 		name        string
@@ -1568,19 +1574,20 @@ func TestCheckSentinelsCanFailover(t *testing.T) {
 
 			ms := &mK8SService.Services{}
 			ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(sentinelPods, nil)
+			ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(redisPods, nil)
 
 			mr := &mRedisService.Client{}
 			if test.askingFails {
-				mr.On("ReplicasUp", mock.Anything, "26379").Return(int32(0), errors.New("connection refused"))
+				mr.On("ReplicasUp", mock.Anything, "26379", mock.Anything).Return(int32(0), errors.New("connection refused"))
 			} else {
 				for ip, up := range test.replicasUp {
-					mr.On("ReplicasUp", ip, "26379").Return(up, nil)
+					mr.On("ReplicasUp", ip, "26379", mock.Anything).Return(up, nil)
 				}
 			}
 
 			checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
-			err := checker.CheckSentinelsCanFailover(rf)
+			err := checker.CheckSentinelsCanFailover(rf, "rfr-test-1")
 
 			if test.errExpected {
 				assert.Error(err)
@@ -1603,7 +1610,7 @@ func TestCheckSentinelsCanFailoverWithNoSentinels(t *testing.T) {
 
 	checker := rfservice.NewRedisFailoverChecker(ms, &mRedisService.Client{}, log.DummyLogger{}, metrics.Dummy)
 
-	assert.Error(checker.CheckSentinelsCanFailover(rf))
+	assert.Error(checker.CheckSentinelsCanFailover(rf, "rfr-test-1"))
 }
 
 // The role labels select the master and replica services, so the pod they name
@@ -1691,6 +1698,84 @@ func TestCheckAllSlavesFromMasterRejectsAnythingButTheMastersName(t *testing.T) 
 				assert.Contains(t, err.Error(), "rfr-test-1")
 				assert.Contains(t, err.Error(), test.reported)
 			}
+		})
+	}
+}
+
+func TestCheckSentinelsCanFailoverNamesTheReplacedPodBothWays(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+
+	ms := &mK8SService.Services{}
+	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(&corev1.PodList{
+		Items: []corev1.Pod{{Status: corev1.PodStatus{PodIP: "0.0.0.0", Phase: corev1.PodRunning}}},
+	}, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(&corev1.PodList{
+		Items: []corev1.Pod{
+			{ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0"}, Status: corev1.PodStatus{PodIP: "2.2.2.2"}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-1"}, Status: corev1.PodStatus{PodIP: "3.3.3.3"}},
+		},
+	}, nil)
+
+	var excluded []string
+	mr := &mRedisService.Client{}
+	mr.On("ReplicasUp", "0.0.0.0", "26379", mock.Anything).Once().Run(func(args mock.Arguments) {
+		excluded = args.Get(2).([]string)
+	}).Return(int32(1), nil)
+
+	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+
+	assert.NoError(checker.CheckSentinelsCanFailover(rf, "rfr-test-1"))
+
+	assert.ElementsMatch([]string{"rfr-test-1.rfr-test.testns.svc", "3.3.3.3"}, excluded,
+		"the pod being replaced is named by its DNS name and by its address")
+}
+
+func TestCheckSentinelsCanFailoverSaysWhatItAsked(t *testing.T) {
+	sentinelPods := &corev1.PodList{
+		Items: []corev1.Pod{{Status: corev1.PodStatus{PodIP: "0.0.0.0", Phase: corev1.PodRunning}}},
+	}
+	redisPods := &corev1.PodList{
+		Items: []corev1.Pod{
+			{ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-1"}, Status: corev1.PodStatus{PodIP: "3.3.3.3"}},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		replacing string
+		expected  string
+	}{
+		{
+			name:      "a pod was named",
+			replacing: "rfr-test-1",
+			expected:  "sentinel 0.0.0.0 holds no replica it could promote once rfr-test-1 is gone",
+		},
+		{
+			name:      "no pod was named",
+			replacing: "",
+			expected:  "sentinel 0.0.0.0 holds no replica it could promote",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+
+			ms := &mK8SService.Services{}
+			ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(sentinelPods, nil)
+			ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Maybe().Return(redisPods, nil)
+
+			mr := &mRedisService.Client{}
+			mr.On("ReplicasUp", "0.0.0.0", "26379", mock.Anything).Once().Return(int32(0), nil)
+
+			checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+
+			err := checker.CheckSentinelsCanFailover(rf, test.replacing)
+			assert.EqualError(err, test.expected)
 		})
 	}
 }

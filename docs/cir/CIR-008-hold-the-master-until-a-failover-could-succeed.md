@@ -35,6 +35,24 @@ Stop the rolling update from removing a master that nothing can replace.
 - THEN it waits on the same condition, because losing a replica takes away the
   candidate the Sentinels would promote
 
+- GIVEN the replica running an old pod template is the only one its Sentinels
+  could promote
+- WHEN the operator would replace it
+- THEN it is left running, because the candidate that would make the replacement
+  safe is the pod that would be going away
+
+- GIVEN a replica its Sentinels have flagged unreachable, and another they could
+  promote
+- WHEN the operator replaces the unreachable one
+- THEN it is replaced, because what is left is promotable and what is going was
+  never a candidate
+
+- GIVEN a failover of two Redis, so one master and one replica
+- WHEN the operator replaces that replica
+- THEN it asks only that the Sentinels hold a promotable replica, not that one
+  survives the replacement, because the failover has none to spare and requiring
+  one would leave the pod never replaced
+
 - GIVEN the operator has just replaced the master
 - WHEN the reconcile would carry on
 - THEN it ends instead, so nothing further in that pass points a Sentinel at the
@@ -109,6 +127,25 @@ true at that point is simpler: the pass read a failover that had a master, the
 master is now gone, and every remaining step would be acting on what it read.
 The next pass is thirty seconds away and sees what is there.
 
+**A failover with one replica is asked a weaker question.** Leaving the pod out
+of the count is only answerable when something else could be promoted, and a
+failover of two Redis has one replica: taking it away always leaves zero, so the
+check could never pass and the rolling update would stop at that pod and stay
+there. The operator defaults to three Redis and every example declares three, so
+this is an edge the check has to handle rather than the shape it is written for.
+Such a failover is asked the question it can answer, that the Sentinels hold a
+promotable replica before the pod is disturbed, and the window while the
+replacement syncs is accepted because there is no arrangement that avoids it.
+
+**The pod being replaced is named, rather than counted around.** Requiring two
+reachable replicas instead of one needs no identity and no pod lookup, and it is
+wrong in a case that arises: a failover with one healthy replica and one
+the Sentinels have flagged unreachable would never roll the unreachable pod,
+because only one of the two counts towards a promotion. Naming the pod keeps that
+replacement possible. A Sentinel holds a replica either by the name the operator
+announced for it or by the address it had before it was repointed, so the pod is
+named both ways and left out either way.
+
 **Widening the operator's own recovery is the other half, and is not here.** The
 operator will seed a master only when every Redis reports `127.0.0.1`; widening
 that to "no master, and no Redis with a live master link" would let it recover
@@ -118,4 +155,4 @@ order, which is a different piece of work.
 
 ## Date
 
-2026-09-30
+2026-09-30, extended 2026-10-01
