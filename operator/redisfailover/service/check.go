@@ -268,7 +268,7 @@ func (r *RedisFailoverChecker) CheckSentinelsCanFailover(rf *redisfailoverv1.Red
 
 	port := rf.Spec.Sentinel.Port.ToString()
 	for _, sip := range sentinels {
-		up, err := r.redisClient.ReplicasUp(sip, port, leaving)
+		up, err := r.redisClient.PromotableReplicas(sip, port, leaving)
 		if err != nil {
 			return fmt.Errorf("asking sentinel %s what it could promote: %w", sip, err)
 		}

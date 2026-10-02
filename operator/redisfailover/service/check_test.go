@@ -1578,10 +1578,10 @@ func TestCheckSentinelsCanFailover(t *testing.T) {
 
 			mr := &mRedisService.Client{}
 			if test.askingFails {
-				mr.On("ReplicasUp", mock.Anything, "26379", mock.Anything).Return(int32(0), errors.New("connection refused"))
+				mr.On("PromotableReplicas", mock.Anything, "26379", mock.Anything).Return(int32(0), errors.New("connection refused"))
 			} else {
 				for ip, up := range test.replicasUp {
-					mr.On("ReplicasUp", ip, "26379", mock.Anything).Return(up, nil)
+					mr.On("PromotableReplicas", ip, "26379", mock.Anything).Return(up, nil)
 				}
 			}
 
@@ -1720,7 +1720,7 @@ func TestCheckSentinelsCanFailoverNamesTheReplacedPodBothWays(t *testing.T) {
 
 	var excluded []string
 	mr := &mRedisService.Client{}
-	mr.On("ReplicasUp", "0.0.0.0", "26379", mock.Anything).Once().Run(func(args mock.Arguments) {
+	mr.On("PromotableReplicas", "0.0.0.0", "26379", mock.Anything).Once().Run(func(args mock.Arguments) {
 		excluded = args.Get(2).([]string)
 	}).Return(int32(1), nil)
 
@@ -1770,7 +1770,7 @@ func TestCheckSentinelsCanFailoverSaysWhatItAsked(t *testing.T) {
 			ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Maybe().Return(redisPods, nil)
 
 			mr := &mRedisService.Client{}
-			mr.On("ReplicasUp", "0.0.0.0", "26379", mock.Anything).Once().Return(int32(0), nil)
+			mr.On("PromotableReplicas", "0.0.0.0", "26379", mock.Anything).Once().Return(int32(0), nil)
 
 			checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
