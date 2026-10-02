@@ -515,7 +515,7 @@ func (r *RedisFailoverChecker) GetSentinelRememberedMaster(rf *redisfailoverv1.R
 			r.logger.Debugf("sentinel %s could not be asked what it monitors: %v", sip, err)
 			continue
 		}
-		if host == "" || host == "127.0.0.1" {
+		if toldNoMaster(host) {
 			continue
 		}
 		if remembered == "" {

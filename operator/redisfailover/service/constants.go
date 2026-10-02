@@ -24,6 +24,10 @@ const (
 	ownPod = "127.0.0.1"
 )
 
+func toldNoMaster(host string) bool {
+	return host == "" || host == noMasterYet
+}
+
 const (
 	baseName                  = "rf"
 	sentinelName              = "s"
