@@ -337,7 +337,7 @@ func (r *RedisFailoverKubeClient) DestroyOrphanedSentinelNetworkPolicy(rf *redis
 	return r.destroyNetworkPolicy(rf.Namespace, GetSentinelNetworkPolicyName(rf))
 }
 
-// destroyNetworkPolicy removes a policy the operator no longer manages, and is
+// destroyNetworkPolicy removes a policy the operator does not manage, and is
 // content to find it already gone.
 func (r *RedisFailoverKubeClient) destroyNetworkPolicy(namespace, name string) error {
 	if _, err := r.K8SService.GetNetworkPolicy(namespace, name); err != nil {
