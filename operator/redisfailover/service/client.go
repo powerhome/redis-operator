@@ -244,7 +244,7 @@ func (r *RedisFailoverKubeClient) EnsureSentinelConfigMap(rf *redisfailoverv1.Re
 }
 
 // DestroySentinelDeployment removes the Deployment that earlier releases ran the
-// Sentinels under. They run as a set now, so each pod has a name of its own.
+// Sentinels under. The Sentinels run as a set, so each pod has a name of its own.
 //
 // Both produce pods under the same labels, so leaving the Deployment behind does
 // not replace one set with the other, it runs both. Six Sentinels answering for a

@@ -928,7 +928,7 @@ func generateSentinelHeadlessService(rf *redisfailoverv1.RedisFailover, labels m
 //
 // Given storage, each pod keeps its configuration on a claim, so what a Sentinel
 // learns survives it. Without, the configuration sits on scratch space and a
-// restarted Sentinel is told the topology again, as it always has been.
+// restarted Sentinel is told the topology again.
 func generateSentinelStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.StatefulSet {
 	d := generateSentinelDeployment(rf, labels, ownerRefs)
 
