@@ -160,14 +160,29 @@ type RedisSettings struct {
 
 // SentinelSettings defines the specification of the sentinel cluster
 type SentinelSettings struct {
-	Image                     string                            `json:"image,omitempty"`
-	ImagePullPolicy           corev1.PullPolicy                 `json:"imagePullPolicy,omitempty"`
-	Replicas                  int32                             `json:"replicas,omitempty"`
-	Port                      Port                              `json:"port,omitempty"`
-	Resources                 corev1.ResourceRequirements       `json:"resources,omitempty"`
-	CustomConfig              []string                          `json:"customConfig,omitempty"`
-	Command                   []string                          `json:"command,omitempty"`
-	StartupConfigMap          string                            `json:"startupConfigMap,omitempty"`
+	Image            string                      `json:"image,omitempty"`
+	ImagePullPolicy  corev1.PullPolicy           `json:"imagePullPolicy,omitempty"`
+	Replicas         int32                       `json:"replicas,omitempty"`
+	Port             Port                        `json:"port,omitempty"`
+	Resources        corev1.ResourceRequirements `json:"resources,omitempty"`
+	CustomConfig     []string                    `json:"customConfig,omitempty"`
+	Command          []string                    `json:"command,omitempty"`
+	StartupConfigMap string                      `json:"startupConfigMap,omitempty"`
+	// Storage gives each Sentinel somewhere to keep what it learns.
+	//
+	// Without it a Sentinel starts knowing nothing and is told the topology by
+	// the operator, so a failover whose Sentinels all restart has nobody left
+	// who knows which node was master. With it a Sentinel reads back what it
+	// last decided, which is the only record of that decision made by the thing
+	// that made it.
+	//
+	// A claim per Sentinel, never one shared between them: what a Sentinel writes
+	// carries its own identity in the quorum protocol.
+	//
+	// There is no default. A cluster with no dynamic provisioning would leave
+	// every Sentinel pod waiting on a volume that is never bound, so this is
+	// something to ask for rather than something to opt out of.
+	Storage                   RedisStorage                      `json:"storage,omitempty"`
 	Affinity                  *corev1.Affinity                  `json:"affinity,omitempty"`
 	SecurityContext           *corev1.PodSecurityContext        `json:"securityContext,omitempty"`
 	ContainerSecurityContext  *corev1.SecurityContext           `json:"containerSecurityContext,omitempty"`

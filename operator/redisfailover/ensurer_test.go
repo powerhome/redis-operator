@@ -133,7 +133,11 @@ func TestEnsure(t *testing.T) {
 			if !test.bootstrapping || test.bootstrappingAllowSentinels {
 				mrfs.On("EnsureSentinelService", rf, mock.Anything, mock.Anything).Once().Return(nil)
 				mrfs.On("EnsureSentinelConfigMap", rf, mock.Anything, mock.Anything).Once().Return(nil)
-				mrfs.On("EnsureSentinelDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				// The Deployment earlier releases ran is removed before the set
+				// is created, so both never run at once.
+				mrfs.On("DestroySentinelDeployment", rf).Once().Return(nil)
+				mrfs.On("EnsureSentinelHeadlessService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+				mrfs.On("EnsureSentinelStatefulSet", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			} else {
 				mrfs.On("DestroySentinelResources", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			}
