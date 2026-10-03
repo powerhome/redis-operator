@@ -15,9 +15,9 @@ type RedisFailoverCheck struct {
 	mock.Mock
 }
 
-// CheckAllSlavesFromMaster provides a mock function with given fields: master, rFailover
-func (_m *RedisFailoverCheck) CheckAllSlavesFromMaster(master string, rFailover *v1.RedisFailover) error {
-	ret := _m.Called(master, rFailover)
+// CheckAllSlavesFromMaster provides a mock function with given fields: masterHostname, rFailover
+func (_m *RedisFailoverCheck) CheckAllSlavesFromMaster(masterHostname string, rFailover *v1.RedisFailover) error {
+	ret := _m.Called(masterHostname, rFailover)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CheckAllSlavesFromMaster")
@@ -25,7 +25,7 @@ func (_m *RedisFailoverCheck) CheckAllSlavesFromMaster(master string, rFailover 
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, *v1.RedisFailover) error); ok {
-		r0 = rf(master, rFailover)
+		r0 = rf(masterHostname, rFailover)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -232,6 +232,24 @@ func (_m *RedisFailoverCheck) CheckSentinelSlavesNumberInMemory(sentinel string,
 	return r0
 }
 
+// CheckSentinelsCanFailover provides a mock function with given fields: rFailover, replacing
+func (_m *RedisFailoverCheck) CheckSentinelsCanFailover(rFailover *v1.RedisFailover, replacing string) error {
+	ret := _m.Called(rFailover, replacing)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CheckSentinelsCanFailover")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover, string) error); ok {
+		r0 = rf(rFailover, replacing)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // GetMasterIP provides a mock function with given fields: rFailover
 func (_m *RedisFailoverCheck) GetMasterIP(rFailover *v1.RedisFailover) (string, error) {
 	ret := _m.Called(rFailover)
@@ -309,6 +327,34 @@ func (_m *RedisFailoverCheck) GetNumberMasters(rFailover *v1.RedisFailover) (int
 
 	if rf, ok := ret.Get(1).(func(*v1.RedisFailover) error); ok {
 		r1 = rf(rFailover)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetRedisHostnameAt provides a mock function with given fields: rFailover, address
+func (_m *RedisFailoverCheck) GetRedisHostnameAt(rFailover *v1.RedisFailover, address string) (string, error) {
+	ret := _m.Called(rFailover, address)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRedisHostnameAt")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover, string) (string, error)); ok {
+		return rf(rFailover, address)
+	}
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover, string) string); ok {
+		r0 = rf(rFailover, address)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(*v1.RedisFailover, string) error); ok {
+		r1 = rf(rFailover, address)
 	} else {
 		r1 = ret.Error(1)
 	}

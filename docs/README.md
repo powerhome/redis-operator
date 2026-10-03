@@ -137,10 +137,12 @@ This redis-failover will be managed by the operator, resulting in the following 
 
 - `rfr-<NAME>`: Redis configmap
 - `rfr-<NAME>`: Redis statefulset
-- `rfr-<NAME>`: Redis service (if redis-exporter is enabled)
+- `rfr-<NAME>`: Redis service, which names each Redis pod in DNS as `rfr-<NAME>-<N>.rfr-<NAME>.<NAMESPACE>.svc` and carries the exporter port when `redis.exporter.enabled` is set
 - `rfs-<NAME>`: Sentinel configmap
 - `rfs-<NAME>`: Sentinel deployment
 - `rfs-<NAME>`: Sentinel service
+
+No `NetworkPolicy` is among them. See [Network isolation](#network-isolation).
 
 **NOTE**: `NAME` is the named provided when creating the RedisFailover.
 **IMPORTANT**: the name of the redis-failover to be created cannot be longer that 48 characters, due to prepend of redis/sentinel identification and statefulset limitation.
@@ -198,10 +200,27 @@ If you need the containers to run with specific capabilities or with read only r
 
 By default, redis and sentinel will be called with the basic command, giving the configuration file:
 
-- Redis: `redis-server /redis/redis.conf`
+- Redis: `redis-server /redis/redis.conf --replica-announce-ip $(REDIS_POD_NAME).rfr-<NAME>.<NAMESPACE>.svc`
 - Sentinel: `redis-server /redis/sentinel.conf --sentinel`
 
+Announcing its own name is how a Redis tells its master where to find it, and so
+how Sentinel learns the replica set as names rather than as addresses. A failover
+that is bootstrapping announces nothing, since the master is outside the cluster
+and a name from this cluster's DNS means nothing to it.
+
 If necessary, this command can be changed with the `command` option inside redis/sentinel spec. An example can be found in the [custom command example file](/example/redisfailover/custom-command.yaml).
+
+**A `redis.command` you provide still announces**, so long as the operator can
+see that saying so would reach Redis: the command runs `redis-server`, and does
+not already pass `--replica-announce-ip` itself. The example above qualifies.
+
+A command that wraps Redis in something else, such as `sh -c`, does not. The flag
+would be handed to the wrapper rather than to Redis, so the operator leaves such a
+command exactly as written. A Redis started that way announces the address it
+holds, and its master lists it at that address, which stops meaning that pod once
+the pod is replaced. Sentinel learns its replicas from the master, so it holds an
+address for that node; the master itself is still named, because the operator
+tells Sentinel that directly.
 
 ### Custom Priority Class
 In order to use a custom Kubernetes [Priority Class](https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/#priorityclass) for Redis and/or Sentinel pods, you can set the `priorityClassName` in the redis/sentinel spec, this attribute has no default and depends on the specific cluster configuration. **Note:** the operator doesn't create the referenced `Priority Class` resource.
@@ -306,6 +325,29 @@ spec:
 
 
 
+## Network isolation
+
+The operator writes no `NetworkPolicy`, and deletes the one earlier releases wrote
+for the Sentinels. Nothing restricts traffic to or from these pods unless you
+write a policy yourself.
+
+Two `RedisFailover`s do not interfere with one another by default: a Sentinel
+gossips only on the instances it monitors and ignores what it hears about a master
+it does not hold, so two failovers that share no Redis never meet. They can
+interfere if you make them share one, which is what `bootstrapNode` with
+`allowSentinels` does when the source is another `RedisFailover`. The operator
+notices and repairs that within a reconcile, and logs it, but for that window a
+Sentinel from the other failover can take part in this one's elections. Write a
+policy of your own if you need that window closed.
+
+Sentinel resolves the names it is given, so these pods need the cluster's DNS. A
+policy of your own that denies them the DNS port leaves Sentinel unable to accept
+any address the operator offers it.
+
+`spec.networkPolicyNsList` is still accepted so that a resource written against an
+earlier release applies unchanged. It decides nothing, and it will be removed in a
+later release; take it out.
+
 ## Connection to the created Redis Failovers
 
 In order to connect to the redis-failover and use it, a [Sentinel-ready](https://redis.io/topics/sentinel-clients) library has to be used. This will connect through the Sentinel service to the Redis node working as a master.
@@ -316,6 +358,12 @@ url: rfs-<NAME>
 port: 26379
 master-name: mymaster
 ```
+
+Sentinel answers `SENTINEL get-master-addr-by-name` with the master's name in
+DNS, `rfr-<NAME>-<N>.rfr-<NAME>.<NAMESPACE>.svc`, rather than with its address.
+Sentinel-ready clients connect to what Sentinel gives them, so this needs no
+change on your side, but a client that expects an address, or that is running
+somewhere that cannot resolve cluster DNS, will not reach the master.
 
 ### Enabling redis auth
 

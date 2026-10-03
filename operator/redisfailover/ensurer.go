@@ -14,23 +14,19 @@ import (
 func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels map[string]string, or []metav1.OwnerReference, metricsClient metrics.Recorder) error {
 	w.warnPodNetworkingIsGoingAway(rf)
 
-	if rf.Spec.Redis.Exporter.Enabled {
-		if err := w.rfService.EnsureRedisService(rf, labels, or); err != nil {
-			return err
-		}
-	} else {
-		if err := w.rfService.EnsureNotPresentRedisService(rf); err != nil {
-			return err
-		}
+	// This service is what names the Redis pods in DNS. The exporter only adds a
+	// port to it. See docs/adr/ADR-002.
+	if err := w.rfService.EnsureRedisService(rf, labels, or); err != nil {
+		return err
 	}
 
-	if !(len(rf.Spec.NetworkPolicyNsList) == 0) {
-		if err := w.rfService.EnsureSentinelNetworkPolicy(rf, labels, or); err != nil {
-			return err
-		}
-	}
+	w.warnNetworkPolicyNsListIsVestigial(rf)
 
 	if err := w.rfService.DestroydOrphanedRedisNetworkPolicy(rf); err != nil {
+		return err
+	}
+
+	if err := w.rfService.DestroyOrphanedSentinelNetworkPolicy(rf); err != nil {
 		return err
 	}
 
@@ -139,4 +135,23 @@ func (w *RedisFailoverHandler) warnPodNetworkingIsGoingAway(rf *redisfailoverv1.
 
 	w.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
 		Warningf("deprecated fields set on this RedisFailover: %s. How a Redis or Sentinel instance can be addressed is the operator's to decide, and pod networking fields change it. They still apply, and a later release removes them from the API with no replacement. Take them out while they still work.", strings.Join(set, ", "))
+}
+
+// warnNetworkPolicyNsListIsVestigial tells the reader of a RedisFailover that the
+// field decides nothing, which nothing they can query would tell them.
+//
+// Once per failover, per operator process; see docs/cir/CIR-007 for why not every
+// reconcile and why not a status condition.
+func (w *RedisFailoverHandler) warnNetworkPolicyNsListIsVestigial(rf *redisfailoverv1.RedisFailover) {
+	if len(rf.Spec.NetworkPolicyNsList) == 0 {
+		return
+	}
+
+	key := fmt.Sprintf("%s/%s", rf.Namespace, rf.Name)
+	if _, said := w.warnedNetworkPolicyNsList.LoadOrStore(key, true); said {
+		return
+	}
+
+	w.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
+		Warningf("networkPolicyNsList is set and does nothing: the operator no longer writes a NetworkPolicy for the sentinels, and removes the one it used to write. Take the field out of this RedisFailover, and write the policy yourself if you want one. The field will be removed from the API in a later release")
 }

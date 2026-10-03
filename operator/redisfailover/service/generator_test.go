@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -569,11 +568,28 @@ func TestRedisStatefulSetCommands(t *testing.T) {
 	tests := []struct {
 		name             string
 		givenCommands    []string
+		bootstrapping    bool
 		expectedCommands []string
 	}{
 		{
 			name:          "Default values",
 			givenCommands: []string{},
+			expectedCommands: []string{
+				"redis-server",
+				"/redis/redis.conf",
+				// Kubernetes substitutes the pod's own name here, so each
+				// replica announces itself to its master as a name.
+				"--replica-announce-ip",
+				"$(REDIS_POD_NAME).rfr-test.testns.svc",
+			},
+		},
+		{
+			// While bootstrapping the master is somewhere else, and a name
+			// from this cluster's DNS describes nothing it or anything reading
+			// its replica list can reach, so nothing is announced.
+			name:          "Bootstrapping announces nothing",
+			givenCommands: []string{},
+			bootstrapping: true,
 			expectedCommands: []string{
 				"redis-server",
 				"/redis/redis.conf",
@@ -590,6 +606,67 @@ func TestRedisStatefulSetCommands(t *testing.T) {
 				"command",
 			},
 		},
+		{
+			// A command of one's own is still redis-server, so it can be told to
+			// announce a name like any other.
+			name: "A given redis-server command still announces",
+			givenCommands: []string{
+				"redis-server",
+				"/redis/redis.conf",
+				"--protected-mode",
+				"no",
+			},
+			expectedCommands: []string{
+				"redis-server",
+				"/redis/redis.conf",
+				"--protected-mode",
+				"no",
+				"--replica-announce-ip",
+				"$(REDIS_POD_NAME).rfr-test.testns.svc",
+			},
+		},
+		{
+			// The flag would go to the wrapper, which ignores it, so the
+			// announcement would silently not happen.
+			name: "A command that wraps redis-server announces nothing",
+			givenCommands: []string{
+				"sh",
+				"-c",
+				"redis-server /redis/redis.conf",
+			},
+			expectedCommands: []string{
+				"sh",
+				"-c",
+				"redis-server /redis/redis.conf",
+			},
+		},
+		{
+			name: "A given redis-server command announces nothing while bootstrapping",
+			givenCommands: []string{
+				"redis-server",
+				"/redis/redis.conf",
+			},
+			bootstrapping: true,
+			expectedCommands: []string{
+				"redis-server",
+				"/redis/redis.conf",
+			},
+		},
+		{
+			name: "A command that already announces is left as it is",
+			givenCommands: []string{
+				"redis-server",
+				"/redis/redis.conf",
+				"--replica-announce-ip",
+				"chosen.by.hand",
+			},
+			expectedCommands: []string{
+				"redis-server",
+				"/redis/redis.conf",
+				"--replica-announce-ip",
+				"chosen.by.hand",
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -598,6 +675,13 @@ func TestRedisStatefulSetCommands(t *testing.T) {
 		// Generate a default RedisFailover and attaching the required storage
 		rf := generateRF()
 		rf.Spec.Redis.Command = test.givenCommands
+		if test.bootstrapping {
+			rf.Spec.BootstrapNode = &redisfailoverv1.BootstrapSettings{
+				Host:    "10.0.0.1",
+				Port:    "6379",
+				Enabled: true,
+			}
+		}
 
 		gotCommands := []string{}
 
@@ -1079,10 +1163,46 @@ func TestRedisService(t *testing.T) {
 		rfNamespace     string
 		rfLabels        map[string]string
 		rfAnnotations   map[string]string
+		exporter        bool
 		expectedService corev1.Service
 	}{
 		{
-			name: "with defaults",
+			// Without the exporter the service carries no port and nothing to
+			// scrape, and it still exists: it governs the StatefulSet, so it is
+			// what gives each Redis pod its name in DNS.
+			name:     "without the exporter",
+			exporter: false,
+			expectedService: corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      redisName,
+					Namespace: namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
+					Selector: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					Ports: []corev1.ServicePort{},
+				},
+			},
+		},
+		{
+			name:     "with defaults",
+			exporter: true,
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      redisName,
@@ -1104,8 +1224,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1122,8 +1243,9 @@ func TestRedisService(t *testing.T) {
 			},
 		},
 		{
-			name:   "with Name provided",
-			rfName: "custom-name",
+			name:     "with Name provided",
+			exporter: true,
+			rfName:   "custom-name",
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rfr-custom-name",
@@ -1145,8 +1267,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      "custom-name",
@@ -1164,6 +1287,7 @@ func TestRedisService(t *testing.T) {
 		},
 		{
 			name:        "with Namespace provided",
+			exporter:    true,
 			rfNamespace: "custom-namespace",
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1186,8 +1310,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1205,6 +1330,7 @@ func TestRedisService(t *testing.T) {
 		},
 		{
 			name:     "with Labels provided",
+			exporter: true,
 			rfLabels: map[string]string{"some": "label"},
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1228,8 +1354,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1247,6 +1374,7 @@ func TestRedisService(t *testing.T) {
 		},
 		{
 			name:          "with Annotations provided",
+			exporter:      true,
 			rfAnnotations: map[string]string{"some": "annotation"},
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1270,8 +1398,9 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1302,6 +1431,7 @@ func TestRedisService(t *testing.T) {
 				rf.Namespace = test.rfNamespace
 			}
 			rf.Spec.Redis.ServiceAnnotations = test.rfAnnotations
+			rf.Spec.Redis.Exporter.Enabled = test.exporter
 
 			generatedService := corev1.Service{}
 
@@ -1925,270 +2055,6 @@ func TestGenerateHaproxyConfig(t *testing.T) {
 					t.Errorf("expected config NOT to match pattern %q\nConfig:\n%s", pattern, cfg)
 				}
 			}
-		})
-	}
-}
-
-func TestSentinelNetworkPolicy(t *testing.T) {
-	tests := []struct {
-		name                            string
-		rfName                          string
-		rfNamespace                     string
-		rfSentinelPort                  int
-		rfNetworkPolicyNamespaceEntries []redisfailoverv1.NetworkPolicyNamespaceEntry
-		rfLabels                        map[string]string
-		expected                        networkingv1.NetworkPolicy
-	}{
-		{
-			name: "with defaults",
-			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
-				{
-					MatchLabelKey:   "app.kubernetes.io/instance",
-					MatchLabelValue: namespace,
-				},
-			},
-			expected: networkingv1.NetworkPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rfs-np-" + name,
-					Namespace: namespace,
-					Labels: map[string]string{
-						"app.kubernetes.io/component": "sentinel",
-						"app.kubernetes.io/name":      name,
-						"app.kubernetes.io/part-of":   "redis-failover",
-					},
-					Annotations: nil,
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							Name: "testing",
-						},
-					},
-				},
-				Spec: networkingv1.NetworkPolicySpec{
-					PodSelector: metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"redisfailovers.databases.spotahome.com/component": "sentinel",
-							"redisfailovers.databases.spotahome.com/name":      name,
-						},
-					},
-					Ingress: []networkingv1.NetworkPolicyIngressRule{
-						{
-							From: []networkingv1.NetworkPolicyPeer{
-								{
-									NamespaceSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{
-											"app.kubernetes.io/instance": namespace,
-										},
-									},
-								},
-							},
-							Ports: []networkingv1.NetworkPolicyPort{
-								{
-									Port: &intstr.IntOrString{
-										IntVal: 26379,
-										Type:   intstr.Int,
-									},
-								},
-							},
-						},
-					},
-					Egress: []networkingv1.NetworkPolicyEgressRule{
-						{
-							To: []networkingv1.NetworkPolicyPeer{
-								{
-									PodSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{
-											"redisfailovers.databases.spotahome.com/name": name,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			name:           "with custom sentinel Port",
-			rfSentinelPort: 17781,
-			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
-				{
-					MatchLabelKey:   "app.kubernetes.io/instance",
-					MatchLabelValue: namespace,
-				},
-			},
-			expected: networkingv1.NetworkPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rfs-np-" + name,
-					Namespace: namespace,
-					Labels: map[string]string{
-						"app.kubernetes.io/component": "sentinel",
-						"app.kubernetes.io/name":      name,
-						"app.kubernetes.io/part-of":   "redis-failover",
-					},
-					Annotations: nil,
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							Name: "testing",
-						},
-					},
-				},
-				Spec: networkingv1.NetworkPolicySpec{
-					PodSelector: metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"redisfailovers.databases.spotahome.com/component": "sentinel",
-							"redisfailovers.databases.spotahome.com/name":      name,
-						},
-					},
-					Ingress: []networkingv1.NetworkPolicyIngressRule{
-						{
-							From: []networkingv1.NetworkPolicyPeer{
-								{
-									NamespaceSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{
-											"app.kubernetes.io/instance": namespace,
-										},
-									},
-								},
-							},
-							Ports: []networkingv1.NetworkPolicyPort{
-								{
-									Port: &intstr.IntOrString{
-										IntVal: 17781,
-										Type:   intstr.Int,
-									},
-								},
-							},
-						},
-					},
-					Egress: []networkingv1.NetworkPolicyEgressRule{
-						{
-							To: []networkingv1.NetworkPolicyPeer{
-								{
-									PodSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{
-											"redisfailovers.databases.spotahome.com/name": name,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "with custom NetorkPolicyNamespaceEntries",
-			rfNetworkPolicyNamespaceEntries: []redisfailoverv1.NetworkPolicyNamespaceEntry{
-				{
-					MatchLabelKey:   "app.kubernetes.io/instance",
-					MatchLabelValue: namespace,
-				},
-				{
-					MatchLabelKey:   "app.kubernetes.io/instance",
-					MatchLabelValue: "extra-namespace",
-				},
-			},
-			expected: networkingv1.NetworkPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rfs-np-" + name,
-					Namespace: namespace,
-					Labels: map[string]string{
-						"app.kubernetes.io/component": "sentinel",
-						"app.kubernetes.io/name":      name,
-						"app.kubernetes.io/part-of":   "redis-failover",
-					},
-					Annotations: nil,
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							Name: "testing",
-						},
-					},
-				},
-				Spec: networkingv1.NetworkPolicySpec{
-					PodSelector: metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"redisfailovers.databases.spotahome.com/component": "sentinel",
-							"redisfailovers.databases.spotahome.com/name":      name,
-						},
-					},
-					Ingress: []networkingv1.NetworkPolicyIngressRule{
-						{
-							From: []networkingv1.NetworkPolicyPeer{
-								{
-									NamespaceSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{
-											"app.kubernetes.io/instance": namespace,
-										},
-									},
-								},
-								{
-									NamespaceSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{
-											"app.kubernetes.io/instance": "extra-namespace",
-										},
-									},
-								},
-							},
-							Ports: []networkingv1.NetworkPolicyPort{
-								{
-									Port: &intstr.IntOrString{
-										IntVal: 26379,
-										Type:   intstr.Int,
-									},
-								},
-							},
-						},
-					},
-					Egress: []networkingv1.NetworkPolicyEgressRule{
-						{
-							To: []networkingv1.NetworkPolicyPeer{
-								{
-									PodSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{
-											"redisfailovers.databases.spotahome.com/name": name,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			assert := assert.New(t)
-
-			// Generate a default RedisFailover and attaching the required annotations
-			rf := generateRF()
-			if test.rfName != "" {
-				rf.Name = test.rfName
-			}
-			if test.rfNamespace != "" {
-				rf.Namespace = test.rfNamespace
-			}
-			if test.rfSentinelPort != 0 {
-				rf.Spec.Sentinel.Port = redisfailoverv1.Port(test.rfSentinelPort)
-			}
-			if test.rfNetworkPolicyNamespaceEntries != nil {
-				rf.Spec.NetworkPolicyNsList = test.rfNetworkPolicyNamespaceEntries
-			}
-
-			generated := networkingv1.NetworkPolicy{}
-
-			ms := &mK8SService.Services{}
-			ms.On("CreateOrUpdateNetworkPolicy", rf.Namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
-				s := args.Get(1).(*networkingv1.NetworkPolicy)
-				generated = *s
-			}).Return(nil)
-
-			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
-			err := client.EnsureSentinelNetworkPolicy(rf, test.rfLabels, []metav1.OwnerReference{{Name: "testing"}})
-
-			assert.Equal(test.expected, generated)
-			assert.NoError(err)
 		})
 	}
 }
@@ -3091,6 +2957,16 @@ func TestRedisEnv(t *testing.T) {
 			auth: "",
 			expectedRedisEnv: []corev1.EnvVar{
 				{
+					// Each Redis announces itself to its master by name, and
+					// the name is built from the pod's own.
+					Name: "REDIS_POD_NAME",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{
+							FieldPath: "metadata.name",
+						},
+					},
+				},
+				{
 					Name:  "REDIS_ADDR",
 					Value: fmt.Sprintf("redis://127.0.0.1:%[1]v", default_port),
 				},
@@ -3108,6 +2984,16 @@ func TestRedisEnv(t *testing.T) {
 			name: "with auth",
 			auth: "redis-secret",
 			expectedRedisEnv: []corev1.EnvVar{
+				{
+					// Each Redis announces itself to its master by name, and
+					// the name is built from the pod's own.
+					Name: "REDIS_POD_NAME",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{
+							FieldPath: "metadata.name",
+						},
+					},
+				},
 				{
 					Name:  "REDIS_ADDR",
 					Value: fmt.Sprintf("redis://127.0.0.1:%[1]v", default_port),

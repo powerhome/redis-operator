@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/template"
@@ -15,8 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-
-	np "k8s.io/api/networking/v1"
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	"github.com/spotahome/redis-operator/operator/redisfailover/util"
@@ -36,10 +35,14 @@ rename-command "{{.From}}" "{{.To}}"
 {{- end}}
 `
 
+	// A Sentinel starting with resolve-hostnames and announce-hostnames can take
+	// an instance address as a name straight away. See docs/adr/ADR-002.
 	sentinelConfigTemplate = `sentinel monitor mymaster 127.0.0.1 {{.Spec.Redis.Port}} 2
 sentinel down-after-milliseconds mymaster 1000
 sentinel failover-timeout mymaster 3000
 sentinel announce-port {{.Spec.Sentinel.Port}}
+sentinel resolve-hostnames yes
+sentinel announce-hostnames yes
 port {{.Spec.Sentinel.Port}}
 sentinel parallel-syncs mymaster 1`
 
@@ -372,73 +375,6 @@ func generateHAProxyRedisMasterService(rf *redisfailoverv1.RedisFailover, labels
 	}
 }
 
-func generateSentinelNetworkPolicy(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *np.NetworkPolicy {
-	name := GetSentinelNetworkPolicyName(rf)
-	namespace := rf.Namespace
-
-	networkPolicyNsList := rf.Spec.NetworkPolicyNsList
-
-	selectorLabels := generateSelectorLabels(sentinelRoleName, rf.Name)
-	labels = util.MergeLabels(labels, selectorLabels)
-
-	sentinelTargetPort := intstr.FromInt(int(rf.Spec.Sentinel.Port))
-
-	peers := []np.NetworkPolicyPeer{}
-
-	for _, inputPeer := range networkPolicyNsList {
-
-		labelKey := inputPeer.MatchLabelKey
-		labelValue := inputPeer.MatchLabelValue
-
-		peers = append(peers, np.NetworkPolicyPeer{
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{labelKey: labelValue},
-			},
-		})
-	}
-
-	ports := make([]np.NetworkPolicyPort, 0)
-	ports = append(ports, np.NetworkPolicyPort{
-		Port: &sentinelTargetPort,
-	})
-
-	redisfailoverLabels := map[string]string{"redisfailovers.databases.spotahome.com/name": rf.Name}
-
-	return &np.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            name,
-			Namespace:       namespace,
-			Labels:          labels,
-			OwnerReferences: ownerRefs,
-		},
-		Spec: np.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchLabels: util.MergeLabels(
-					redisfailoverLabels,
-					generateComponentLabel("sentinel"),
-				),
-			},
-			Ingress: []np.NetworkPolicyIngressRule{
-				{
-					From:  peers,
-					Ports: ports,
-				},
-			},
-			Egress: []np.NetworkPolicyEgressRule{
-				{
-					To: []np.NetworkPolicyPeer{
-						{
-							PodSelector: &metav1.LabelSelector{
-								MatchLabels: redisfailoverLabels,
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
 func generateSentinelService(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.Service {
 	name := GetSentinelName(rf)
 	namespace := rf.Namespace
@@ -475,12 +411,21 @@ func generateRedisService(rf *redisfailoverv1.RedisFailover, labels map[string]s
 
 	selectorLabels := generateSelectorLabels(redisRoleName, rf.Name)
 	labels = util.MergeLabels(labels, selectorLabels)
-	defaultAnnotations := map[string]string{
-		"prometheus.io/scrape": "true",
-		"prometheus.io/port":   "http",
-		"prometheus.io/path":   "/metrics",
+
+	annotations := rf.Spec.Redis.ServiceAnnotations
+	ports := []corev1.ServicePort{}
+	if rf.Spec.Redis.Exporter.Enabled {
+		annotations = util.MergeLabels(map[string]string{
+			"prometheus.io/scrape": "true",
+			"prometheus.io/port":   "http",
+			"prometheus.io/path":   "/metrics",
+		}, rf.Spec.Redis.ServiceAnnotations)
+		ports = append(ports, corev1.ServicePort{
+			Port:     exporterPort,
+			Protocol: corev1.ProtocolTCP,
+			Name:     exporterPortName,
+		})
 	}
-	annotations := util.MergeLabels(defaultAnnotations, rf.Spec.Redis.ServiceAnnotations)
 
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -493,14 +438,12 @@ func generateRedisService(rf *redisfailoverv1.RedisFailover, labels map[string]s
 		Spec: corev1.ServiceSpec{
 			Type:      corev1.ServiceTypeClusterIP,
 			ClusterIP: corev1.ClusterIPNone,
-			Ports: []corev1.ServicePort{
-				{
-					Port:     exporterPort,
-					Protocol: corev1.ProtocolTCP,
-					Name:     exporterPortName,
-				},
-			},
-			Selector: selectorLabels,
+			// Without this a pod has no DNS record until it is ready, and a
+			// Redis reading its dataset from disk is not ready for as long as
+			// that takes.
+			PublishNotReadyAddresses: true,
+			Ports:                    ports,
+			Selector:                 selectorLabels,
 		},
 	}
 }
@@ -818,7 +761,17 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 							},
 							VolumeMounts: volumeMounts,
 							Command:      redisCommand,
-							Resources:    rf.Spec.Redis.Resources,
+							Env: []corev1.EnvVar{
+								{
+									Name: redisPodNameEnvVar,
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{
+											FieldPath: "metadata.name",
+										},
+									},
+								},
+							},
+							Resources: rf.Spec.Redis.Resources,
 							Lifecycle: &corev1.Lifecycle{
 								PreStop: &corev1.LifecycleHandler{
 									Exec: &corev1.ExecAction{
@@ -1487,14 +1440,54 @@ func getRedisDataVolumeName(rf *redisfailoverv1.RedisFailover) string {
 	}
 }
 
-func getRedisCommand(rf *redisfailoverv1.RedisFailover) []string {
-	if len(rf.Spec.Redis.Command) > 0 {
-		return rf.Spec.Redis.Command
-	}
+// announceOwnName makes a replica report its own name in DNS to its master,
+// instead of the address it happens to hold, so that the replica set Sentinel
+// learns from that master is named too. See docs/cir/CIR-006.
+func announceOwnName(rf *redisfailoverv1.RedisFailover) []string {
 	return []string{
+		"--replica-announce-ip",
+		RedisPodHostname(rf, fmt.Sprintf("$(%s)", redisPodNameEnvVar)),
+	}
+}
+
+// takesAnAnnounceFlag reports whether adding announceOwnName to this command
+// would mean what it should.
+//
+// A command is an argv, so the flag reaches Redis only where redis-server is
+// what runs: a wrapper would be handed it instead, and ignore it or fail. A
+// command that already announces something has said what it wants.
+func takesAnAnnounceFlag(command []string) bool {
+	if len(command) == 0 || filepath.Base(command[0]) != "redis-server" {
+		return false
+	}
+
+	for _, argument := range command {
+		if strings.Contains(argument, "replica-announce-ip") || strings.Contains(argument, "slave-announce-ip") {
+			return false
+		}
+	}
+
+	return true
+}
+
+func getRedisCommand(rf *redisfailoverv1.RedisFailover) []string {
+	command := []string{
 		"redis-server",
 		fmt.Sprintf("/redis/%s", redisConfigFileName),
 	}
+	if len(rf.Spec.Redis.Command) > 0 {
+		// Copied: appending to the spec's own slice would share a backing array
+		// with the RedisFailover this was handed.
+		command = append([]string{}, rf.Spec.Redis.Command...)
+	}
+
+	// A bootstrapping failover replicates from outside this cluster, where a name
+	// out of its DNS reaches nothing.
+	if !rf.Bootstrapping() && takesAnAnnounceFlag(command) {
+		command = append(command, announceOwnName(rf)...)
+	}
+
+	return command
 }
 
 func getSentinelCommand(rf *redisfailoverv1.RedisFailover) []string {

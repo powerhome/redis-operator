@@ -21,14 +21,16 @@ import (
 type RedisFailoverCheck interface {
 	CheckRedisNumber(rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelNumber(rFailover *redisfailoverv1.RedisFailover) error
-	CheckAllSlavesFromMaster(master string, rFailover *redisfailoverv1.RedisFailover) error
+	CheckAllSlavesFromMaster(masterHostname string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelNumberInMemory(sentinel string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckNumberRedisConnectedSlaves(masterIP string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelSlavesNumberInMemory(sentinel string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelQuorum(rFailover *redisfailoverv1.RedisFailover) (int, error)
+	CheckSentinelsCanFailover(rFailover *redisfailoverv1.RedisFailover, replacing string) error
 	CheckIfMasterLocalhost(rFailover *redisfailoverv1.RedisFailover) (bool, error)
 	CheckSentinelMonitor(sentinel string, sentinelPort string, monitor ...string) error
 	GetMasterIP(rFailover *redisfailoverv1.RedisFailover) (string, error)
+	GetRedisHostnameAt(rFailover *redisfailoverv1.RedisFailover, address string) (string, error)
 	GetNumberMasters(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetSentinelsIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
@@ -106,8 +108,13 @@ func (r *RedisFailoverChecker) setSlaveLabelIfNecessary(namespace string, pod co
 	return r.k8sService.UpdatePodLabels(namespace, pod.ObjectMeta.Name, generateRedisSlaveRoleLabel())
 }
 
-// CheckAllSlavesFromMaster controlls that all slaves have the same master (the real one)
-func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redisfailoverv1.RedisFailover) error {
+// CheckAllSlavesFromMaster fails when a Redis is following anything other than
+// the named master, and labels each pod with the role it is found in.
+//
+// The master is named rather than addressed, because a name is what everything
+// writes into a replica: Sentinel after a failover, and the operator when it
+// repoints one. See docs/adr/ADR-002.
+func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(masterHostname string, rf *redisfailoverv1.RedisFailover) error {
 	rps, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
 	if err != nil {
 		return err
@@ -120,7 +127,7 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 
 	rport := rf.Spec.Redis.Port.ToString()
 	for _, rp := range rps.Items {
-		if rp.Status.PodIP == master {
+		if RedisPodHostname(rf, rp.Name) == masterHostname {
 			err = r.setMasterLabelIfNecessary(rf.Namespace, rp)
 			if err != nil {
 				return err
@@ -137,8 +144,8 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 			r.logger.Errorf("Get slave of master failed, maybe this node is not ready, pod ip: %s", rp.Status.PodIP)
 			return err
 		}
-		if slave != "" && slave != master {
-			return fmt.Errorf("slave %s don't have the master %s, has %s", rp.Status.PodIP, master, slave)
+		if slave != "" && slave != masterHostname {
+			return fmt.Errorf("slave %s is not following %s, but %s", rp.Name, masterHostname, slave)
 		}
 	}
 	return nil
@@ -233,6 +240,66 @@ func (r *RedisFailoverChecker) CheckSentinelQuorum(rFailover *redisfailoverv1.Re
 	}
 }
 
+// CheckSentinelsCanFailover reports whether every Sentinel holds a replica it
+// could promote, which is what taking the master away asks them to do.
+//
+// A Sentinel that has discarded its replica list answers a missing master with
+// -failover-abort-no-good-slave until it reads the list again; see
+// TestSentinelKnowsNoReplicasOnceItsListIsDiscarded.
+//
+// Every Sentinel rather than one, because any of them may be the leader that
+// has to carry out the promotion.
+//
+// replacing names the Redis pod the caller is about to delete, and it does not
+// count towards what a Sentinel could promote. See docs/cir/CIR-008.
+func (r *RedisFailoverChecker) CheckSentinelsCanFailover(rf *redisfailoverv1.RedisFailover, replacing string) error {
+	sentinels, err := r.GetSentinelsIPs(rf)
+	if err != nil {
+		return err
+	}
+	if len(sentinels) == 0 {
+		return errors.New("no sentinel is running to fail over")
+	}
+
+	leaving, err := r.redisNameAndAddressOf(rf, replacing)
+	if err != nil {
+		return err
+	}
+
+	port := rf.Spec.Sentinel.Port.ToString()
+	for _, sip := range sentinels {
+		up, err := r.redisClient.PromotableReplicas(sip, port, leaving)
+		if err != nil {
+			return fmt.Errorf("asking sentinel %s what it could promote: %w", sip, err)
+		}
+		if up == 0 {
+			if replacing == "" {
+				return fmt.Errorf("sentinel %s holds no replica it could promote", sip)
+			}
+			return fmt.Errorf("sentinel %s holds no replica it could promote once %s is gone", sip, replacing)
+		}
+	}
+	return nil
+}
+
+func (r *RedisFailoverChecker) redisNameAndAddressOf(rf *redisfailoverv1.RedisFailover, podName string) ([]string, error) {
+	if podName == "" {
+		return nil, nil
+	}
+
+	addresses := []string{RedisPodHostname(rf, podName)}
+	rps, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
+	if err != nil {
+		return nil, err
+	}
+	for _, rp := range rps.Items {
+		if rp.ObjectMeta.Name == podName && rp.Status.PodIP != "" {
+			addresses = append(addresses, rp.Status.PodIP)
+		}
+	}
+	return addresses, nil
+}
+
 // CheckSentinelSlavesNumberInMemory controls that the provided sentinel has only the expected slaves number.
 func (r *RedisFailoverChecker) CheckSentinelSlavesNumberInMemory(sentinel string, rf *redisfailoverv1.RedisFailover) error {
 	portString := rf.Spec.Sentinel.Port.ToString()
@@ -287,6 +354,34 @@ func (r *RedisFailoverChecker) CheckSentinelMonitor(sentinel string, sentinelPor
 		return fmt.Errorf("sentinel monitoring %s:%s instead %s:%s", actualMonitorIP, actualMonitorPort, monitorIP, monitorPort)
 	}
 	return nil
+}
+
+// RedisPodHostname is the name a Redis pod answers to in DNS. The service named
+// in it is the one the StatefulSet is created with as its serviceName, which
+// Kubernetes holds immutable afterwards, so this record cannot be pointed
+// somewhere else for a failover that already exists.
+//
+// Nothing outside that namespace and set can answer to it. See docs/adr/ADR-002.
+func RedisPodHostname(rf *redisfailoverv1.RedisFailover, podName string) string {
+	return fmt.Sprintf("%s.%s.%s.svc", podName, GetRedisName(rf), rf.Namespace)
+}
+
+// GetRedisHostnameAt names the Redis pod holding the given address. It decides
+// nothing about roles, so a caller that has established which pod is the master
+// can name it without inviting a second answer to that question.
+func (r *RedisFailoverChecker) GetRedisHostnameAt(rf *redisfailoverv1.RedisFailover, address string) (string, error) {
+	rps, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
+	if err != nil {
+		return "", err
+	}
+
+	for _, rp := range rps.Items {
+		if rp.Status.PodIP == address {
+			return RedisPodHostname(rf, rp.ObjectMeta.Name), nil
+		}
+	}
+
+	return "", fmt.Errorf("no redis pod holds the address %s", address)
 }
 
 // GetMasterIP connects to all redis and returns the master of the redis failover

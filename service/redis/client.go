@@ -26,13 +26,13 @@ type Client interface {
 	MonitorRedisWithPort(ip, monitor, port, quorum, password string, sentinelPort string) error
 	MakeMaster(ip, port, password string) error
 	ResetReplicaConnections(ip, port, password string) error
-	MakeSlaveOf(ip, masterIP, password string) error
-	MakeSlaveOfWithPort(ip, port, masterIP, masterPort, password string) error
+	MakeSlaveOfWithPort(ip, port, masterHost, masterPort, password string) error
 	GetSentinelMonitor(ip string, port string) (string, string, error)
 	SetCustomSentinelConfig(ip string, port string, configs []string) error
 	SetCustomRedisConfig(ip string, port string, configs []string, password string) error
 	SlaveIsReady(ip, port, password string) (bool, error)
 	SentinelCheckQuorum(ip string, port string) error
+	PromotableReplicas(ip string, port string, excluding []string) (int32, error)
 }
 
 type client struct {
@@ -52,10 +52,11 @@ func New(metricsRecorder metrics.Recorder) Client {
 const NoMasterYet = "127.0.0.1"
 
 const (
-	sentinelsNumberREString      = "sentinels=([0-9]+)"
-	slaveNumberREString          = "slaves=([0-9]+)"
-	sentinelStatusREString       = "status=([a-z]+)"
-	redisMasterHostREString      = "master_host:([0-9.]+)"
+	sentinelsNumberREString = "sentinels=([0-9]+)"
+	slaveNumberREString     = "slaves=([0-9]+)"
+	sentinelStatusREString  = "status=([a-z]+)"
+	// Matches a name as well as an address; see TestMasterHostIsReadInEitherForm.
+	redisMasterHostREString      = `master_host:(\S+)`
 	redisConnectedSlavesREString = "connected_slaves:([0-9]+)"
 	redisRoleMaster              = "role:master"
 	redisSyncing                 = "master_sync_in_progress:1"
@@ -140,6 +141,81 @@ func (c *client) GetNumberSentinelSlavesInMemory(ip string, sentinelPort string)
 }
 
 // GetNumberRedisConnectedSlaves return the number of slaves that the requested redis has
+// PromotableReplicas counts the replicas this Sentinel both knows about and can
+// currently reach, leaving out any whose address is in excluding. See
+// TestSentinelKnowsNoReplicasOnceItsListIsDiscarded for when it knows none.
+func (c *client) PromotableReplicas(ip string, sentinelPort string, excluding []string) (int32, error) {
+	options := &rediscli.Options{
+		Addr:     net.JoinHostPort(ip, sentinelPort),
+		Password: "",
+		DB:       0,
+	}
+	rClient := rediscli.NewClient(options)
+	defer rClient.Close()
+
+	cmd := rediscli.NewSliceCmd(context.TODO(), "SENTINEL", "replicas", masterName)
+	if err := rClient.Process(context.TODO(), cmd); err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, getRedisError(err))
+		return 0, err
+	}
+	replicas, err := cmd.Result()
+	if err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, getRedisError(err))
+		return 0, err
+	}
+
+	left := map[string]bool{}
+	for _, address := range excluding {
+		if address != "" {
+			left[address] = true
+		}
+	}
+
+	var up int32
+	for _, replica := range replicas {
+		described, ok := replica.([]interface{})
+		if !ok {
+			c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, metrics.MISC)
+			return 0, fmt.Errorf("sentinel described a replica as %T, expected a list of fields", replica)
+		}
+		fields := fieldsOf(described)
+		if left[fields["ip"]] || left[fields["name"]] {
+			continue
+		}
+		if isReachable(fields["flags"]) {
+			up++
+		}
+	}
+	c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.SUCCESS, metrics.NOT_APPLICABLE)
+	return up, nil
+}
+
+// Sentinel describes an instance as a flat list of alternating names and values.
+func fieldsOf(described []interface{}) map[string]string {
+	fields := map[string]string{}
+	for i := 0; i+1 < len(described); i += 2 {
+		name, nameOk := described[i].(string)
+		value, valueOk := described[i+1].(string)
+		if nameOk && valueOk {
+			fields[name] = value
+		}
+	}
+	return fields
+}
+
+// Sentinel will not promote a replica it has stopped hearing from, whether it
+// decided that alone (s_down), agreed it with the other Sentinels (o_down), or
+// simply has no connection to it.
+func isReachable(flags string) bool {
+	for _, flag := range strings.Split(flags, ",") {
+		switch flag {
+		case "s_down", "o_down", "disconnected":
+			return false
+		}
+	}
+	return flags != ""
+}
+
 func (c *client) GetNumberRedisConnectedSlaves(ip, port, password string) (int32, error) {
 	options := &rediscli.Options{
 		Addr:     net.JoinHostPort(ip, port),
@@ -254,33 +330,40 @@ func (c *client) MonitorRedisWithPort(ip, monitor, port, quorum, password string
 	}
 	rClient := rediscli.NewClient(options)
 	defer rClient.Close()
+
+	// Before it is given an address, since a Sentinel that cannot resolve a name
+	// refuses one outright. Every time, since a Sentinel that has restarted may
+	// have read an older configuration file.
+	if err := addressInstancesByName(rClient); err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MONITOR_REDIS_WITH_PORT, metrics.FAIL, getRedisError(err))
+		return err
+	}
+
+	// Changing what Sentinel watches means removing it first, since Sentinel
+	// refuses a second master under a name it already holds. The replacement can
+	// still be refused after that, and a Sentinel watching nothing is worse than
+	// one watching the master this is replacing, so keep what to put back.
+	previousMonitor, previousPort, previousErr := monitored(rClient)
+
 	cmd := rediscli.NewBoolCmd(context.TODO(), "SENTINEL", "REMOVE", masterName)
 	_ = rClient.Process(context.TODO(), cmd)
 	// We'll continue even if it fails, the priority is to have the redises monitored
 	cmd = rediscli.NewBoolCmd(context.TODO(), "SENTINEL", "MONITOR", masterName, monitor, port, quorum)
 	err := rClient.Process(context.TODO(), cmd)
-	if err != nil {
-		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MONITOR_REDIS_WITH_PORT, metrics.FAIL, getRedisError(err))
-		return err
+	if err == nil {
+		_, err = cmd.Result()
 	}
-	_, err = cmd.Result()
 	if err != nil {
+		if previousErr == nil {
+			monitorAgain(rClient, previousMonitor, previousPort, quorum, password)
+		}
 		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MONITOR_REDIS_WITH_PORT, metrics.FAIL, getRedisError(err))
 		return err
 	}
 
-	if password != "" {
-		cmd = rediscli.NewBoolCmd(context.TODO(), "SENTINEL", "SET", masterName, "auth-pass", password)
-		err := rClient.Process(context.TODO(), cmd)
-		if err != nil {
-			c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MONITOR_REDIS_WITH_PORT, metrics.FAIL, getRedisError(err))
-			return err
-		}
-		_, err = cmd.Result()
-		if err != nil {
-			c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MONITOR_REDIS_WITH_PORT, metrics.FAIL, getRedisError(err))
-			return err
-		}
+	if err := authenticateToMaster(rClient, password); err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MONITOR_REDIS_WITH_PORT, metrics.FAIL, getRedisError(err))
+		return err
 	}
 	c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MONITOR_REDIS_WITH_PORT, metrics.SUCCESS, metrics.NOT_APPLICABLE)
 	return nil
@@ -318,19 +401,19 @@ func (c client) ResetReplicaConnections(ip string, port string, password string)
 	return nil
 }
 
-func (c *client) MakeSlaveOf(ip, masterIP, password string) error {
-	return c.MakeSlaveOfWithPort(ip, redisPort, masterIP, redisPort, password)
-}
-
-func (c *client) MakeSlaveOfWithPort(ip, port, masterIP, masterPort, password string) error {
+// MakeSlaveOfWithPort tells the Redis at ip to replicate from masterHost, which
+// Redis resolves when it connects and again whenever it reconnects. Callers give
+// it the master's name, so the pod it follows survives that pod being replaced
+// at another address. See docs/adr/ADR-002.
+func (c *client) MakeSlaveOfWithPort(ip, port, masterHost, masterPort, password string) error {
 	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(ip, port), // this is IP and Port for the RedisFailover redis
+		Addr:     net.JoinHostPort(ip, port),
 		Password: password,
 		DB:       0,
 	}
 	rClient := rediscli.NewClient(options)
 	defer rClient.Close()
-	if res := rClient.SlaveOf(context.TODO(), masterIP, masterPort); res.Err() != nil {
+	if res := rClient.SlaveOf(context.TODO(), masterHost, masterPort); res.Err() != nil {
 		c.metricsRecorder.RecordRedisOperation(metrics.KIND_REDIS, ip, metrics.MAKE_SLAVE_OF, metrics.FAIL, getRedisError(res.Err()))
 		return res.Err()
 	}
@@ -346,21 +429,76 @@ func (c *client) GetSentinelMonitor(ip string, sentinelPort string) (string, str
 	}
 	rClient := rediscli.NewClient(options)
 	defer rClient.Close()
-	cmd := rediscli.NewSliceCmd(context.TODO(), "SENTINEL", "master", masterName)
-	err := rClient.Process(context.TODO(), cmd)
+
+	master, masterPort, err := monitored(rClient)
 	if err != nil {
 		c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_SENTINEL_MONITOR, metrics.FAIL, getRedisError(err))
+		return "", "", err
+	}
+	c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_SENTINEL_MONITOR, metrics.SUCCESS, metrics.NOT_APPLICABLE)
+	return master, masterPort, nil
+}
+
+// addressInstancesByName tells a Sentinel to accept the addresses it is given as
+// names, and to answer with them the same way. Both settings are Sentinel-wide
+// rather than per master, which is why they go through `SENTINEL CONFIG SET`.
+func addressInstancesByName(rClient *rediscli.Client) error {
+	for _, setting := range []string{"resolve-hostnames", "announce-hostnames"} {
+		cmd := rediscli.NewStatusCmd(context.TODO(), "SENTINEL", "CONFIG", "SET", setting, "yes")
+		if err := rClient.Process(context.TODO(), cmd); err != nil {
+			return fmt.Errorf("setting %s on sentinel: %w", setting, err)
+		}
+		if _, err := cmd.Result(); err != nil {
+			return fmt.Errorf("setting %s on sentinel: %w", setting, err)
+		}
+	}
+	return nil
+}
+
+// monitorAgain puts back an address Sentinel was watching before a replacement
+// was refused. A failure here leaves it watching nothing, which is what the
+// caller is already reporting.
+// SENTINEL REMOVE takes the password along with the master, so putting one back
+// means giving it both. A Sentinel holding the right master without its password
+// reports that master down.
+func monitorAgain(rClient *rediscli.Client, monitor, port, quorum, password string) {
+	cmd := rediscli.NewBoolCmd(context.TODO(), "SENTINEL", "MONITOR", masterName, monitor, port, quorum)
+	if err := rClient.Process(context.TODO(), cmd); err != nil {
+		return
+	}
+	if _, err := cmd.Result(); err != nil {
+		return
+	}
+	_ = authenticateToMaster(rClient, password)
+}
+
+func authenticateToMaster(rClient *rediscli.Client, password string) error {
+	if password == "" {
+		return nil
+	}
+	cmd := rediscli.NewBoolCmd(context.TODO(), "SENTINEL", "SET", masterName, "auth-pass", password)
+	if err := rClient.Process(context.TODO(), cmd); err != nil {
+		return err
+	}
+	_, err := cmd.Result()
+	return err
+}
+
+// monitored reports the address and port Sentinel is watching for mymaster, in
+// whichever form Sentinel was given it.
+func monitored(rClient *rediscli.Client) (string, string, error) {
+	cmd := rediscli.NewSliceCmd(context.TODO(), "SENTINEL", "master", masterName)
+	if err := rClient.Process(context.TODO(), cmd); err != nil {
 		return "", "", err
 	}
 	res, err := cmd.Result()
 	if err != nil {
-		c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_SENTINEL_MONITOR, metrics.FAIL, getRedisError(err))
 		return "", "", err
 	}
-	masterIP := res[3].(string)
-	masterPort := res[5].(string)
-	c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_SENTINEL_MONITOR, metrics.SUCCESS, metrics.NOT_APPLICABLE)
-	return masterIP, masterPort, nil
+	if len(res) < 6 {
+		return "", "", fmt.Errorf("sentinel described %s in %d fields, expected the address at 4 and the port at 6", masterName, len(res))
+	}
+	return res[3].(string), res[5].(string), nil
 }
 
 func (c *client) SetCustomSentinelConfig(ip string, sentinelPort string, configs []string) error {
