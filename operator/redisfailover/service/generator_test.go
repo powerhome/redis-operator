@@ -2957,8 +2957,6 @@ func TestRedisEnv(t *testing.T) {
 			auth: "",
 			expectedRedisEnv: []corev1.EnvVar{
 				{
-					// Each Redis announces itself to its master by name, and
-					// the name is built from the pod's own.
 					Name: "REDIS_POD_NAME",
 					ValueFrom: &corev1.EnvVarSource{
 						FieldRef: &corev1.ObjectFieldSelector{
@@ -2985,8 +2983,6 @@ func TestRedisEnv(t *testing.T) {
 			auth: "redis-secret",
 			expectedRedisEnv: []corev1.EnvVar{
 				{
-					// Each Redis announces itself to its master by name, and
-					// the name is built from the pod's own.
 					Name: "REDIS_POD_NAME",
 					ValueFrom: &corev1.EnvVarSource{
 						FieldRef: &corev1.ObjectFieldSelector{

@@ -10,7 +10,7 @@ import (
 	"github.com/spotahome/redis-operator/service/redis"
 )
 
-func replicaToSpare(rf *redisfailoverv1.RedisFailover) bool {
+func hasReplicaToSpare(rf *redisfailoverv1.RedisFailover) bool {
 	const theMasterAndTheOneGoing = 2
 	return rf.Spec.Redis.Replicas > theMasterAndTheOneGoing
 }
@@ -58,11 +58,11 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 	//
 	// A failover of one Redis has no replica to promote and never will, and one
 	// following an external master may have no Sentinels at all.
-	failoverPossible := func(replacing string) error {
+	checkFailoverPossible := func(replacing string) error {
 		if rf.Spec.Redis.Replicas <= 1 || rf.Bootstrapping() {
 			return nil
 		}
-		if replicaToSpare(rf) {
+		if hasReplicaToSpare(rf) {
 			return r.rfChecker.CheckSentinelsCanFailover(rf, replacing)
 		}
 		return r.rfChecker.CheckSentinelsCanFailover(rf, "")
@@ -82,7 +82,7 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 			return false, err
 		}
 		if revision != ssUR || waitingOnResize[pod] {
-			if err := failoverPossible(pod); err != nil {
+			if err := checkFailoverPossible(pod); err != nil {
 				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace %s: %s", pod, err.Error())
 				return false, nil
 			}
@@ -118,7 +118,7 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 			// keeps localhost, and neither the Sentinels nor the operator will act
 			// again. Holding the master back leaves it serving, which is visible
 			// and recoverable.
-			if err := failoverPossible(master); err != nil {
+			if err := checkFailoverPossible(master); err != nil {
 				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace the master %s: %s", master, err.Error())
 				return false, nil
 			}

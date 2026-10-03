@@ -75,7 +75,36 @@ func TestAnAcceptedMonitorIsGivenThePassword(t *testing.T) {
 	assert.Contains(t, sentinel.asked(), []string{"SENTINEL", "SET", masterName, "auth-pass", masterPassword})
 }
 
+func TestMonitoringRemovesTheMasterSentinelHoldsFirst(t *testing.T) {
+	held := struct {
+		sync.Mutex
+		master bool
+	}{master: true}
+
+	sentinel := startFakeSentinel(t, func(args []string) string {
+		held.Lock()
+		defer held.Unlock()
+		switch {
+		case isCommand(args, "SENTINEL", "MASTER"):
+			return describeMaster(watchedAddress, watchedPort)
+		case isCommand(args, "SENTINEL", "REMOVE"):
+			held.master = false
+			return "+OK\r\n"
+		case isCommand(args, "SENTINEL", "MONITOR") && held.master:
+			return "-ERR Duplicate master name in configuration\r\n"
+		default:
+			return "+OK\r\n"
+		}
+	})
+
+	err := New(metrics.Dummy).MonitorRedisWithPort(sentinel.host, unresolvableName, "6379", "2", masterPassword, sentinel.port)
+
+	require.NoError(t, err)
+	assert.Equal(t, [][]string{{"SENTINEL", "MONITOR", masterName, unresolvableName, "6379", "2"}}, monitorCommands(sentinel.asked()))
+}
+
 func monitorCommands(asked [][]string) [][]string {
+
 	var monitors [][]string
 	for _, command := range asked {
 		if isCommand(command, "SENTINEL", "MONITOR") {
@@ -220,6 +249,7 @@ func TestOnlyReachableReplicasAreCounted(t *testing.T) {
 		expected int32
 	}{
 		{name: "none at all", flags: nil, expected: 0},
+		{name: "one sentinel described without flags", flags: []string{""}, expected: 0},
 		{name: "one reachable", flags: []string{"slave"}, expected: 1},
 		{name: "two reachable", flags: []string{"slave", "slave"}, expected: 2},
 		{name: "one it cannot reach", flags: []string{"s_down,slave"}, expected: 0},

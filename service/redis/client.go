@@ -140,7 +140,6 @@ func (c *client) GetNumberSentinelSlavesInMemory(ip string, sentinelPort string)
 	return int32(nSlaves), nil
 }
 
-// GetNumberRedisConnectedSlaves return the number of slaves that the requested redis has
 // PromotableReplicas counts the replicas this Sentinel both knows about and can
 // currently reach, leaving out any whose address is in excluding. See
 // TestSentinelKnowsNoReplicasOnceItsListIsDiscarded for when it knows none.
@@ -164,14 +163,14 @@ func (c *client) PromotableReplicas(ip string, sentinelPort string, excluding []
 		return 0, err
 	}
 
-	left := map[string]bool{}
+	excluded := map[string]bool{}
 	for _, address := range excluding {
 		if address != "" {
-			left[address] = true
+			excluded[address] = true
 		}
 	}
 
-	var up int32
+	var promotable int32
 	for _, replica := range replicas {
 		described, ok := replica.([]interface{})
 		if !ok {
@@ -179,15 +178,15 @@ func (c *client) PromotableReplicas(ip string, sentinelPort string, excluding []
 			return 0, fmt.Errorf("sentinel described a replica as %T, expected a list of fields", replica)
 		}
 		fields := fieldsOf(described)
-		if left[fields["ip"]] || left[fields["name"]] {
+		if excluded[fields["ip"]] || excluded[fields["name"]] {
 			continue
 		}
 		if isReachable(fields["flags"]) {
-			up++
+			promotable++
 		}
 	}
 	c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.SUCCESS, metrics.NOT_APPLICABLE)
-	return up, nil
+	return promotable, nil
 }
 
 // Sentinel describes an instance as a flat list of alternating names and values.
@@ -216,6 +215,7 @@ func isReachable(flags string) bool {
 	return flags != ""
 }
 
+// GetNumberRedisConnectedSlaves return the number of slaves that the requested redis has
 func (c *client) GetNumberRedisConnectedSlaves(ip, port, password string) (int32, error) {
 	options := &rediscli.Options{
 		Addr:     net.JoinHostPort(ip, port),
@@ -339,15 +339,12 @@ func (c *client) MonitorRedisWithPort(ip, monitor, port, quorum, password string
 		return err
 	}
 
-	// Changing what Sentinel watches means removing it first, since Sentinel
-	// refuses a second master under a name it already holds. The replacement can
-	// still be refused after that, and a Sentinel watching nothing is worse than
-	// one watching the master this is replacing, so keep what to put back.
 	previousMonitor, previousPort, previousErr := monitored(rClient)
 
 	cmd := rediscli.NewBoolCmd(context.TODO(), "SENTINEL", "REMOVE", masterName)
-	_ = rClient.Process(context.TODO(), cmd)
 	// We'll continue even if it fails, the priority is to have the redises monitored
+	_ = rClient.Process(context.TODO(), cmd)
+
 	cmd = rediscli.NewBoolCmd(context.TODO(), "SENTINEL", "MONITOR", masterName, monitor, port, quorum)
 	err := rClient.Process(context.TODO(), cmd)
 	if err == nil {
@@ -458,6 +455,7 @@ func addressInstancesByName(rClient *rediscli.Client) error {
 // monitorAgain puts back an address Sentinel was watching before a replacement
 // was refused. A failure here leaves it watching nothing, which is what the
 // caller is already reporting.
+//
 // SENTINEL REMOVE takes the password along with the master, so putting one back
 // means giving it both. A Sentinel holding the right master without its password
 // reports that master down.

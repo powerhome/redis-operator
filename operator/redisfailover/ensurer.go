@@ -20,7 +20,7 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 		return err
 	}
 
-	w.warnNetworkPolicyNsListIsVestigial(rf)
+	w.warnNetworkPolicyNsListIsIgnored(rf)
 
 	if err := w.rfService.DestroydOrphanedRedisNetworkPolicy(rf); err != nil {
 		return err
@@ -137,12 +137,9 @@ func (w *RedisFailoverHandler) warnPodNetworkingIsGoingAway(rf *redisfailoverv1.
 		Warningf("deprecated fields set on this RedisFailover: %s. How a Redis or Sentinel instance can be addressed is the operator's to decide, and pod networking fields change it. They still apply, and a later release removes them from the API with no replacement. Take them out while they still work.", strings.Join(set, ", "))
 }
 
-// warnNetworkPolicyNsListIsVestigial tells the reader of a RedisFailover that the
-// field decides nothing, which nothing they can query would tell them.
-//
 // Once per failover, per operator process; see docs/cir/CIR-007 for why not every
 // reconcile and why not a status condition.
-func (w *RedisFailoverHandler) warnNetworkPolicyNsListIsVestigial(rf *redisfailoverv1.RedisFailover) {
+func (w *RedisFailoverHandler) warnNetworkPolicyNsListIsIgnored(rf *redisfailoverv1.RedisFailover) {
 	if len(rf.Spec.NetworkPolicyNsList) == 0 {
 		return
 	}
@@ -153,5 +150,5 @@ func (w *RedisFailoverHandler) warnNetworkPolicyNsListIsVestigial(rf *redisfailo
 	}
 
 	w.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
-		Warningf("networkPolicyNsList is set and does nothing: the operator no longer writes a NetworkPolicy for the sentinels, and removes the one it used to write. Take the field out of this RedisFailover, and write the policy yourself if you want one. The field will be removed from the API in a later release")
+		Warningf("networkPolicyNsList is accepted and ignored: the operator writes no NetworkPolicy for the sentinels, and removes the one earlier releases wrote. Take the field out of this RedisFailover, and write the policy yourself if you want one. The field will be removed from the API in a later release")
 }

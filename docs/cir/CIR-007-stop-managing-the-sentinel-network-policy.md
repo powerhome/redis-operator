@@ -71,8 +71,8 @@ deprecated field would replace the health message at a glance, and `AddCondition
 appends whenever the newest condition differs in type, so it would alternate with
 `Ready` and write to the API on every pass.
 
-**The field is documented as vestigial where a user meets it.** Its Go doc
-comment reaches the CRD schema, so `kubectl explain
+**The field is documented as accepted and ignored where a user meets it.** Its
+Go doc comment reaches the CRD schema, so `kubectl explain
 redisfailover.spec.networkPolicyNsList` says it is ignored and will be removed.
 That covers the reader writing a new resource, who never sees the log line
 because no policy of theirs was ever deleted.

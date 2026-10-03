@@ -261,18 +261,18 @@ func (r *RedisFailoverChecker) CheckSentinelsCanFailover(rf *redisfailoverv1.Red
 		return errors.New("no sentinel is running to fail over")
 	}
 
-	leaving, err := r.redisNameAndAddressOf(rf, replacing)
+	excluding, err := r.redisNameAndAddressOf(rf, replacing)
 	if err != nil {
 		return err
 	}
 
 	port := rf.Spec.Sentinel.Port.ToString()
 	for _, sip := range sentinels {
-		up, err := r.redisClient.PromotableReplicas(sip, port, leaving)
+		promotable, err := r.redisClient.PromotableReplicas(sip, port, excluding)
 		if err != nil {
 			return fmt.Errorf("asking sentinel %s what it could promote: %w", sip, err)
 		}
-		if up == 0 {
+		if promotable == 0 {
 			if replacing == "" {
 				return fmt.Errorf("sentinel %s holds no replica it could promote", sip)
 			}

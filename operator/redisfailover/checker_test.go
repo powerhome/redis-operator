@@ -296,10 +296,9 @@ func TestCheckAndHeal(t *testing.T) {
 			continueTests := true
 
 			master := "0.0.0.0"
-			// Deliberately unlike the address: the sentinel monitor path is the
-			// only one that should be given the name, and a test that used the
-			// same value for both could not tell whether it was.
 			masterHostname := "rfr-test-0.rfr-test.testns.svc"
+			assert.NotEqual(master, masterHostname,
+				"only the sentinel monitor path is given the name, and the same value for both would not tell which it was given")
 			sentinel := "1.1.1.1"
 
 			config := generateConfig()

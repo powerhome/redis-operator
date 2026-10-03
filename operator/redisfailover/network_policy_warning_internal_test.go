@@ -29,14 +29,14 @@ func TestNetworkPolicyNsListIsAnnouncedOncePerFailover(t *testing.T) {
 
 	rf := failoverWithPolicyNamespaces("one")
 	for i := 0; i < 5; i++ {
-		handler.warnNetworkPolicyNsListIsVestigial(rf)
+		handler.warnNetworkPolicyNsListIsIgnored(rf)
 	}
 
 	assert.Equal(1, logger.mentioning("networkPolicyNsList"),
 		"five passes over one failover should say it once")
 
 	// A second failover is a second reader who has not been told.
-	handler.warnNetworkPolicyNsListIsVestigial(failoverWithPolicyNamespaces("two"))
+	handler.warnNetworkPolicyNsListIsIgnored(failoverWithPolicyNamespaces("two"))
 	assert.Equal(2, logger.mentioning("networkPolicyNsList"))
 }
 
@@ -46,7 +46,7 @@ func TestNetworkPolicyNsListSaysNothingWhenTheFieldIsUnset(t *testing.T) {
 	logger := &countingLogger{}
 	handler := NewRedisFailoverHandler(Config{}, nil, nil, nil, nil, metrics.Dummy, logger)
 
-	handler.warnNetworkPolicyNsListIsVestigial(&redisfailoverv1.RedisFailover{
+	handler.warnNetworkPolicyNsListIsIgnored(&redisfailoverv1.RedisFailover{
 		ObjectMeta: metav1.ObjectMeta{Name: "plain", Namespace: "testns"},
 	})
 
