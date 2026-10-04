@@ -761,9 +761,16 @@ func (c *clients) testSentinelForgetsItsReplicasOnReset(t *testing.T) {
 	sentinel := addresses[0]
 	port := strconv.FormatInt(int64(sentinelPort), 10)
 
-	known, err := c.redisClient.PromotableReplicas(sentinel, port, nil)
-	require.NoError(t, err)
-	require.NotZero(t, known, "the Sentinel has to know a replica before it can forget one")
+	require.NoError(t, waitFor(readyTimeout, func() (bool, error) {
+		known, err := c.redisClient.PromotableReplicas(sentinel, port, nil)
+		if err != nil {
+			return false, err
+		}
+		if known == 0 {
+			return false, errors.New("the Sentinel has nothing to forget: it holds no replica it could promote")
+		}
+		return true, nil
+	}))
 
 	require.NoError(t, c.redisClient.ResetSentinel(sentinel, port))
 
