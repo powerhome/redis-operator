@@ -767,7 +767,7 @@ func (c *clients) testSentinelForgetsItsReplicasOnReset(t *testing.T) {
 			return false, err
 		}
 		if known == 0 {
-			return false, errors.New("the Sentinel has nothing to forget: it holds no replica it could promote")
+			return false, fmt.Errorf("the Sentinel holds no replica it could promote: %s", c.describeSentinel(sentinel, port))
 		}
 		return true, nil
 	}))
@@ -788,4 +788,49 @@ func (c *clients) testSentinelForgetsItsReplicasOnReset(t *testing.T) {
 		}
 		return true, nil
 	}))
+}
+
+// describeSentinel reports what a Sentinel monitors and how it describes each
+// replica, so a wait that times out says which it was: a Sentinel that knows no
+// replicas, or one that knows them and has flagged them unreachable.
+func (c *clients) describeSentinel(address, port string) string {
+	master, masterPort, err := c.redisClient.GetSentinelMonitor(address, port)
+	if err != nil {
+		return fmt.Sprintf("it does not say what it monitors: %v", err)
+	}
+
+	sentinel := rediscli.NewClient(&rediscli.Options{Addr: net.JoinHostPort(address, port)})
+	defer sentinel.Close()
+
+	cmd := rediscli.NewSliceCmd(context.Background(), "SENTINEL", "replicas", monitoredMaster)
+	if err := sentinel.Process(context.Background(), cmd); err != nil {
+		return fmt.Sprintf("it monitors %s:%s, and SENTINEL replicas failed: %v", master, masterPort, err)
+	}
+	replicas, err := cmd.Result()
+	if err != nil {
+		return fmt.Sprintf("it monitors %s:%s, and SENTINEL replicas failed: %v", master, masterPort, err)
+	}
+
+	described := make([]string, 0, len(replicas))
+	for _, replica := range replicas {
+		fields, ok := replica.([]interface{})
+		if !ok {
+			described = append(described, fmt.Sprintf("%T", replica))
+			continue
+		}
+		named := map[string]string{}
+		for i := 0; i+1 < len(fields); i += 2 {
+			name, nameOk := fields[i].(string)
+			value, valueOk := fields[i+1].(string)
+			if nameOk && valueOk {
+				named[name] = value
+			}
+		}
+		described = append(described, fmt.Sprintf("%s flags=%s link=%s", named["name"], named["flags"], named["master-link-status"]))
+	}
+
+	if len(described) == 0 {
+		return fmt.Sprintf("it monitors %s:%s and knows no replicas at all", master, masterPort)
+	}
+	return fmt.Sprintf("it monitors %s:%s and knows %d replica(s): %s", master, masterPort, len(described), strings.Join(described, "; "))
 }
