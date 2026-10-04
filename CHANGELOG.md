@@ -9,6 +9,19 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Upgrade note
+
+The Sentinels move from a Deployment to a StatefulSet, which is what gives each one a name in DNS. The Deployment is removed before the set is created, because both produce pods under the same labels and running them together is six Sentinels agreeing a quorum among themselves. Expect a window with no Sentinel able to carry out a failover: measured at 30 seconds on a two node failover, all of it the operator waiting for its next reconcile to point the new Sentinels at a master.
+
+Clients are not affected by that window. HAProxy picks the master by asking each Redis for `role:master` rather than by asking Sentinel, so it keeps serving throughout; of 3548 writes through it during a measured upgrade, the only refusals were the two seconds of the master's own replacement. A Sentinel-aware client asking `SENTINEL get-master-addr-by-name` gets nothing while the window lasts.
+
+Run one replica of the operator across this upgrade. An operator that runs the Sentinels as a set removes a Deployment it finds, but an older one that finds a set leaves it running, so two of them reconciling the same failover can leave both.
+
+### Added
+
+- Run the Sentinels as a StatefulSet. Only a StatefulSet gives a Sentinel pod a name in DNS, which is what the operator needs before it can address an instance by name rather than by whatever address it currently holds. The set replaces the Deployment for every failover, whose Sentinel pods are removed before the set is created. See [CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md)
+
+
 ## [v4.8.0] - 2026-10-02
 
 ### Deprecated
