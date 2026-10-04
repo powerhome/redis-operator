@@ -10,6 +10,7 @@ import (
 	"net"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -280,6 +281,11 @@ func TestRedisFailover(t *testing.T) {
 	t.Run("Check Rotating The Password Is Applied", clients.testPasswordRotation)
 	t.Run("Check Removing The Password Is Applied", clients.testPasswordRemoval)
 	t.Run("Check Adding The Password Back Is Applied", clients.testPasswordAddition)
+
+	// Last, because the second of these resets a Sentinel and anything added
+	// after it would start from a failover mid-repair.
+	t.Run("Check Sentinel Refuses A Second Master Under A Held Name", clients.testSentinelRefusesASecondMaster)
+	t.Run("Check Sentinel Forgets Its Replicas On Reset", clients.testSentinelForgetsItsReplicasOnReset)
 }
 
 const sentinelPort = 26379
@@ -421,7 +427,24 @@ func (c *clients) testSentinelMonitoring(t *testing.T) {
 			return false, errors.New("the Sentinels are not monitoring anything yet")
 		}
 
-		isMaster, err := c.redisClient.IsMaster(monitored, "6379", testPass)
+		// Sentinel answers with a name, which is the point: it is what it was
+		// told, and what it reports to a client. An address here would mean
+		// either that it was given one or that it is not announcing hostnames.
+		if net.ParseIP(monitored) != nil {
+			return false, fmt.Errorf("the Sentinels monitor the address %s rather than a name", monitored)
+		}
+		// That name answers inside the cluster and not out here, so the pod it
+		// names is found through the Kubernetes API and asked at its address.
+		podName, _, isPodName := strings.Cut(monitored, ".")
+		if !isPodName {
+			return false, fmt.Errorf("the Sentinels monitor %q, which is not a Redis pod's name in DNS", monitored)
+		}
+		masterPod, err := c.k8sClient.CoreV1().Pods(namespace).Get(context.Background(), podName, metav1.GetOptions{})
+		if err != nil {
+			return false, fmt.Errorf("finding the pod the Sentinels monitor, %s: %w", podName, err)
+		}
+
+		isMaster, err := c.redisClient.IsMaster(masterPod.Status.PodIP, "6379", testPass)
 		if err != nil {
 			return false, fmt.Errorf("asking %s whether it is the master: %w", monitored, err)
 		}
@@ -678,4 +701,136 @@ func (c *clients) testCustomConfig(t *testing.T) {
 
 	assert.Len(values, 2)
 	assert.Empty(values[1])
+}
+
+const monitoredMaster = "mymaster"
+
+func (c *clients) sentinelPodIPs() ([]string, error) {
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.FormatLabels(map[string]string{
+			"app.kubernetes.io/name":      name,
+			"app.kubernetes.io/component": "sentinel",
+			"app.kubernetes.io/part-of":   "redis-failover",
+		}),
+	}
+	pods, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	var addresses []string
+	for _, pod := range pods.Items {
+		if pod.Status.PodIP != "" {
+			addresses = append(addresses, pod.Status.PodIP)
+		}
+	}
+	if len(addresses) == 0 {
+		return nil, errors.New("no Sentinel pod has been assigned an address yet")
+	}
+	return addresses, nil
+}
+
+func (c *clients) testSentinelRefusesASecondMaster(t *testing.T) {
+	assert := assert.New(t)
+
+	addresses, err := c.sentinelPodIPs()
+	require.NoError(t, err)
+
+	port := strconv.FormatInt(int64(sentinelPort), 10)
+	master, masterPort, err := c.redisClient.GetSentinelMonitor(addresses[0], port)
+	require.NoError(t, err)
+
+	sentinel := rediscli.NewClient(&rediscli.Options{Addr: net.JoinHostPort(addresses[0], port)})
+	defer sentinel.Close()
+
+	cmd := rediscli.NewBoolCmd(context.Background(), "SENTINEL", "MONITOR", monitoredMaster, master, masterPort, "2")
+	err = sentinel.Process(context.Background(), cmd)
+	if err == nil {
+		_, err = cmd.Result()
+	}
+
+	assert.Error(err, "a Sentinel holding %s should refuse another under that name", monitoredMaster)
+}
+
+func (c *clients) testSentinelForgetsItsReplicasOnReset(t *testing.T) {
+	assert := assert.New(t)
+
+	addresses, err := c.sentinelPodIPs()
+	require.NoError(t, err)
+
+	sentinel := addresses[0]
+	port := strconv.FormatInt(int64(sentinelPort), 10)
+
+	require.NoError(t, waitFor(readyTimeout, func() (bool, error) {
+		known, err := c.redisClient.PromotableReplicas(sentinel, port, nil)
+		if err != nil {
+			return false, err
+		}
+		if known == 0 {
+			return false, fmt.Errorf("the Sentinel holds no replica it could promote: %s", c.describeSentinel(sentinel, port))
+		}
+		return true, nil
+	}))
+
+	require.NoError(t, c.redisClient.ResetSentinel(sentinel, port))
+
+	forgotten, err := c.redisClient.PromotableReplicas(sentinel, port, nil)
+	require.NoError(t, err)
+	assert.Zero(forgotten, "a Sentinel that has just been reset holds no replica it could promote, until it reads the list again a second or two later")
+
+	assert.NoError(waitFor(readyTimeout, func() (bool, error) {
+		promotable, err := c.redisClient.PromotableReplicas(sentinel, port, nil)
+		if err != nil {
+			return false, err
+		}
+		if promotable == 0 {
+			return false, errors.New("the Sentinel has not read the master's replica list again yet")
+		}
+		return true, nil
+	}))
+}
+
+// describeSentinel reports what a Sentinel monitors and how it describes each
+// replica, so a wait that times out says which it was: a Sentinel that knows no
+// replicas, or one that knows them and has flagged them unreachable.
+func (c *clients) describeSentinel(address, port string) string {
+	master, masterPort, err := c.redisClient.GetSentinelMonitor(address, port)
+	if err != nil {
+		return fmt.Sprintf("it does not say what it monitors: %v", err)
+	}
+
+	sentinel := rediscli.NewClient(&rediscli.Options{Addr: net.JoinHostPort(address, port)})
+	defer sentinel.Close()
+
+	cmd := rediscli.NewSliceCmd(context.Background(), "SENTINEL", "replicas", monitoredMaster)
+	if err := sentinel.Process(context.Background(), cmd); err != nil {
+		return fmt.Sprintf("it monitors %s:%s, and SENTINEL replicas failed: %v", master, masterPort, err)
+	}
+	replicas, err := cmd.Result()
+	if err != nil {
+		return fmt.Sprintf("it monitors %s:%s, and SENTINEL replicas failed: %v", master, masterPort, err)
+	}
+
+	described := make([]string, 0, len(replicas))
+	for _, replica := range replicas {
+		fields, ok := replica.([]interface{})
+		if !ok {
+			described = append(described, fmt.Sprintf("%T", replica))
+			continue
+		}
+		named := map[string]string{}
+		for i := 0; i+1 < len(fields); i += 2 {
+			name, nameOk := fields[i].(string)
+			value, valueOk := fields[i+1].(string)
+			if nameOk && valueOk {
+				named[name] = value
+			}
+		}
+		described = append(described, fmt.Sprintf("%s flags=%s link=%s", named["name"], named["flags"], named["master-link-status"]))
+	}
+
+	if len(described) == 0 {
+		return fmt.Sprintf("it monitors %s:%s and knows no replicas at all", master, masterPort)
+	}
+	return fmt.Sprintf("it monitors %s:%s and knows %d replica(s): %s", master, masterPort, len(described), strings.Join(described, "; "))
 }

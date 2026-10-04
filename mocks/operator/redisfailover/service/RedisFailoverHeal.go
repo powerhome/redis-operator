@@ -13,6 +13,24 @@ type RedisFailoverHeal struct {
 	mock.Mock
 }
 
+// AuthenticateSentinelToMaster provides a mock function with given fields: ip, rFailover
+func (_m *RedisFailoverHeal) AuthenticateSentinelToMaster(ip string, rFailover *v1.RedisFailover) error {
+	ret := _m.Called(ip, rFailover)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AuthenticateSentinelToMaster")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, *v1.RedisFailover) error); ok {
+		r0 = rf(ip, rFailover)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DeletePod provides a mock function with given fields: podName, rFailover
 func (_m *RedisFailoverHeal) DeletePod(podName string, rFailover *v1.RedisFailover) error {
 	ret := _m.Called(podName, rFailover)
@@ -139,17 +157,17 @@ func (_m *RedisFailoverHeal) SetExternalMasterOnAll(masterIP string, masterPort 
 	return r0
 }
 
-// SetMasterOnAll provides a mock function with given fields: masterIP, rFailover
-func (_m *RedisFailoverHeal) SetMasterOnAll(masterIP string, rFailover *v1.RedisFailover) error {
-	ret := _m.Called(masterIP, rFailover)
+// SetMasterOnAll provides a mock function with given fields: masterIP, masterHostname, rFailover
+func (_m *RedisFailoverHeal) SetMasterOnAll(masterIP string, masterHostname string, rFailover *v1.RedisFailover) error {
+	ret := _m.Called(masterIP, masterHostname, rFailover)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SetMasterOnAll")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string, *v1.RedisFailover) error); ok {
-		r0 = rf(masterIP, rFailover)
+	if rf, ok := ret.Get(0).(func(string, string, *v1.RedisFailover) error); ok {
+		r0 = rf(masterIP, masterHostname, rFailover)
 	} else {
 		r0 = ret.Error(0)
 	}

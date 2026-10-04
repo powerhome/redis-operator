@@ -17,12 +17,13 @@ type RedisFailoverHeal interface {
 	MakeMaster(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	ResetReplicaConnections(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	SetOldestAsMaster(rFailover *redisfailoverv1.RedisFailover) error
-	SetMasterOnAll(masterIP string, rFailover *redisfailoverv1.RedisFailover) error
+	SetMasterOnAll(masterIP, masterHostname string, rFailover *redisfailoverv1.RedisFailover) error
 	SetExternalMasterOnAll(masterIP string, masterPort string, rFailover *redisfailoverv1.RedisFailover) error
 	NewSentinelMonitor(ip string, monitor string, rFailover *redisfailoverv1.RedisFailover) error
 	NewSentinelMonitorWithPort(ip string, monitor string, port string, rFailover *redisfailoverv1.RedisFailover) error
 	RestoreSentinel(ip string, port string) error
 	SetSentinelCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
+	AuthenticateSentinelToMaster(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	SetRedisCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	DeletePod(podName string, rFailover *redisfailoverv1.RedisFailover) error
 }
@@ -123,6 +124,7 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 
 	port := rf.Spec.Redis.Port.ToString()
 	newMasterIP := ""
+	newMasterHostname := ""
 	// A pod that could not be demoted is still a master. Carrying on demotes as
 	// many of the rest as possible, which is the best available outcome, but the
 	// caller has to be told: reporting success here leaves the failover with
@@ -145,10 +147,11 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 			}
 
 			newMasterIP = pod.Status.PodIP
+			newMasterHostname = RedisPodHostname(rf, pod.Name)
 		} else {
-			r.logger.Infof("Making pod %s slave of %s", pod.Name, newMasterIP)
-			if err := r.redisClient.MakeSlaveOfWithPort(pod.Status.PodIP, port, newMasterIP, port, password); err != nil {
-				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Make slave failed, slave pod ip: %s, master ip: %s, error: %v", pod.Status.PodIP, newMasterIP, err)
+			r.logger.Infof("Making pod %s slave of %s", pod.Name, newMasterHostname)
+			if err := r.redisClient.MakeSlaveOfWithPort(pod.Status.PodIP, port, newMasterHostname, port, password); err != nil {
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Make slave failed, slave pod ip: %s, master: %s, error: %v", pod.Status.PodIP, newMasterHostname, err)
 				demotionErr = errors.Join(demotionErr, err)
 				continue
 			}
@@ -166,8 +169,13 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 	return demotionErr
 }
 
-// SetMasterOnAll puts all redis nodes as a slave of a given master
-func (r *RedisFailoverHealer) SetMasterOnAll(masterIP string, rf *redisfailoverv1.RedisFailover) error {
+// SetMasterOnAll points every replica at the master.
+//
+// masterIP is dialled, to confirm the node is still the master before each
+// replica is moved. masterHostname is what the replica is told to follow, so
+// that the pod it replicates from survives that pod being replaced at another
+// address. See docs/adr/ADR-002.
+func (r *RedisFailoverHealer) SetMasterOnAll(masterIP, masterHostname string, rf *redisfailoverv1.RedisFailover) error {
 	ssp, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
 	if err != nil {
 		return err
@@ -189,9 +197,9 @@ func (r *RedisFailoverHealer) SetMasterOnAll(masterIP string, rf *redisfailoverv
 			if pod.Status.PodIP == masterIP {
 				continue
 			}
-			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("Making pod %s slave of %s", pod.Name, masterIP)
-			if err := r.redisClient.MakeSlaveOfWithPort(pod.Status.PodIP, port, masterIP, port, password); err != nil {
-				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Make slave failed, slave ip: %s, master ip: %s, error: %v", pod.Status.PodIP, masterIP, err)
+			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("Making pod %s slave of %s", pod.Name, masterHostname)
+			if err := r.redisClient.MakeSlaveOfWithPort(pod.Status.PodIP, port, masterHostname, port, password); err != nil {
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Make slave failed, slave ip: %s, master: %s, error: %v", pod.Status.PodIP, masterHostname, err)
 				return err
 			}
 
@@ -278,6 +286,21 @@ func (r *RedisFailoverHealer) SetSentinelCustomConfig(ip string, rf *redisfailov
 	r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Setting the custom config on sentinel %s...", ip)
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
 	return r.redisClient.SetCustomSentinelConfig(ip, sentinelPort, rf.Spec.Sentinel.CustomConfig)
+}
+
+// AuthenticateSentinelToMaster gives a Sentinel the current password for the
+// master it monitors, whether or not it already had one.
+//
+// SENTINEL REMOVE discards the password along with the master, and repointing a
+// Sentinel passes through that loss. Replacing every Redis pod, which rotating
+// the password does, makes each Sentinel reconnect and authenticate again.
+func (r *RedisFailoverHealer) AuthenticateSentinelToMaster(ip string, rf *redisfailoverv1.RedisFailover) error {
+	password, err := k8s.GetRedisPassword(r.k8sService, rf)
+	if err != nil {
+		return err
+	}
+
+	return r.redisClient.AuthenticateSentinelToMaster(ip, rf.Spec.Sentinel.Port.ToString(), password)
 }
 
 // SetRedisCustomConfig will call redis to set the configuration given in config

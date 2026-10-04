@@ -9,6 +9,24 @@ type Client struct {
 	mock.Mock
 }
 
+// AuthenticateSentinelToMaster provides a mock function with given fields: ip, port, password
+func (_m *Client) AuthenticateSentinelToMaster(ip string, port string, password string) error {
+	ret := _m.Called(ip, port, password)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AuthenticateSentinelToMaster")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string, string) error); ok {
+		r0 = rf(ip, port, password)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // GetNumberRedisConnectedSlaves provides a mock function with given fields: ip, port, password
 func (_m *Client) GetNumberRedisConnectedSlaves(ip string, port string, password string) (int32, error) {
 	ret := _m.Called(ip, port, password)
@@ -202,27 +220,9 @@ func (_m *Client) MakeMaster(ip string, port string, password string) error {
 	return r0
 }
 
-// MakeSlaveOf provides a mock function with given fields: ip, masterIP, password
-func (_m *Client) MakeSlaveOf(ip string, masterIP string, password string) error {
-	ret := _m.Called(ip, masterIP, password)
-
-	if len(ret) == 0 {
-		panic("no return value specified for MakeSlaveOf")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string, string) error); ok {
-		r0 = rf(ip, masterIP, password)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MakeSlaveOfWithPort provides a mock function with given fields: ip, port, masterIP, masterPort, password
-func (_m *Client) MakeSlaveOfWithPort(ip string, port string, masterIP string, masterPort string, password string) error {
-	ret := _m.Called(ip, port, masterIP, masterPort, password)
+// MakeSlaveOfWithPort provides a mock function with given fields: ip, port, masterHost, masterPort, password
+func (_m *Client) MakeSlaveOfWithPort(ip string, port string, masterHost string, masterPort string, password string) error {
+	ret := _m.Called(ip, port, masterHost, masterPort, password)
 
 	if len(ret) == 0 {
 		panic("no return value specified for MakeSlaveOfWithPort")
@@ -230,7 +230,7 @@ func (_m *Client) MakeSlaveOfWithPort(ip string, port string, masterIP string, m
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string, string, string, string) error); ok {
-		r0 = rf(ip, port, masterIP, masterPort, password)
+		r0 = rf(ip, port, masterHost, masterPort, password)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -272,6 +272,34 @@ func (_m *Client) MonitorRedisWithPort(ip string, monitor string, port string, q
 	}
 
 	return r0
+}
+
+// PromotableReplicas provides a mock function with given fields: ip, port, excluding
+func (_m *Client) PromotableReplicas(ip string, port string, excluding []string) (int32, error) {
+	ret := _m.Called(ip, port, excluding)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PromotableReplicas")
+	}
+
+	var r0 int32
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string, []string) (int32, error)); ok {
+		return rf(ip, port, excluding)
+	}
+	if rf, ok := ret.Get(0).(func(string, string, []string) int32); ok {
+		r0 = rf(ip, port, excluding)
+	} else {
+		r0 = ret.Get(0).(int32)
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string, []string) error); ok {
+		r1 = rf(ip, port, excluding)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // ResetReplicaConnections provides a mock function with given fields: ip, port, password

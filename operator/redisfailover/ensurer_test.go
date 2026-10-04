@@ -126,11 +126,9 @@ func TestEnsure(t *testing.T) {
 			mrfc := &mRFService.RedisFailoverCheck{}
 			mrfh := &mRFService.RedisFailoverHeal{}
 			mrfs := &mRFService.RedisFailoverClient{}
-			if test.exporter {
-				mrfs.On("EnsureRedisService", rf, mock.Anything, mock.Anything).Once().Return(nil)
-			} else {
-				mrfs.On("EnsureNotPresentRedisService", rf).Once().Return(nil)
-			}
+			// The service is what names the Redis pods in DNS, so it is
+			// ensured whether or not the exporter is enabled.
+			mrfs.On("EnsureRedisService", rf, mock.Anything, mock.Anything).Once().Return(nil)
 
 			if !test.bootstrapping || test.bootstrappingAllowSentinels {
 				mrfs.On("EnsureSentinelService", rf, mock.Anything, mock.Anything).Once().Return(nil)
@@ -160,7 +158,10 @@ func TestEnsure(t *testing.T) {
 			mrfs.On("EnsureRedisReadinessConfigMap", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			mrfs.On("EnsureRedisStatefulset", rf, mock.Anything, mock.Anything).Once().Return(nil)
 
+			// Neither policy is the operator's to write any more, so both are
+			// removed on every pass whether or not one is there.
 			mrfs.On("DestroydOrphanedRedisNetworkPolicy", rf, mock.Anything, mock.Anything).Once().Return(nil)
+			mrfs.On("DestroyOrphanedSentinelNetworkPolicy", rf, mock.Anything, mock.Anything).Once().Return(nil)
 
 			// Create the Kops client and call the valid logic.
 			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)

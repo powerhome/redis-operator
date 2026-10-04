@@ -10,11 +10,18 @@ import (
 	"github.com/spotahome/redis-operator/service/redis"
 )
 
-// UpdateRedisesPods if the running version of pods are equal to the statefulset one
-func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailover) error {
+func hasReplicaToSpare(rf *redisfailoverv1.RedisFailover) bool {
+	const theMasterAndTheOneGoing = 2
+	return rf.Spec.Redis.Replicas > theMasterAndTheOneGoing
+}
+
+// UpdateRedisesPods replaces at most one Redis pod running an old pod template,
+// replicas before the master, and reports whether the one it replaced was the
+// master.
+func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailover) (masterReplaced bool, err error) {
 	redises, err := r.rfChecker.GetRedisesIPs(rf)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	masterIP := ""
@@ -26,44 +33,65 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		if rip != masterIP {
 			ready, err := r.rfChecker.CheckRedisSlavesReady(rip, rf)
 			if err != nil {
-				return err
+				return false, err
 			}
 			if !ready {
-				return nil
+				return false, nil
 			}
 		}
 	}
 
 	ssUR, err := r.rfChecker.GetStatefulSetUpdateRevision(rf)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	redisesPods, err := r.rfChecker.GetRedisesSlavesPods(rf)
 	if err != nil {
-		return err
+		return false, err
+	}
+
+	// Taking any Redis away asks something of the Sentinels. Replacing the master
+	// asks them to promote a replica. Replacing a replica is not a failover, but
+	// it removes the candidate they would promote and leaves them nothing while
+	// the replacement syncs, so both wait on the same condition.
+	//
+	// A failover of one Redis has no replica to promote and never will, and one
+	// following an external master may have no Sentinels at all.
+	checkFailoverPossible := func(replacing string) error {
+		if rf.Spec.Redis.Replicas <= 1 || rf.Bootstrapping() {
+			return nil
+		}
+		if hasReplicaToSpare(rf) {
+			return r.rfChecker.CheckSentinelsCanFailover(rf, replacing)
+		}
+		return r.rfChecker.CheckSentinelsCanFailover(rf, "")
 	}
 
 	// A pod waiting on its filesystem needs replacing, the same as one running
 	// an old pod template. Either way, one pod at a time.
 	waitingOnResize, err := r.rfChecker.GetRedisesPodsWaitingOnFilesystemResize(rf)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Update stale pods with slave role
 	for _, pod := range redisesPods {
 		revision, err := r.rfChecker.GetRedisRevisionHash(pod, rf)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if revision != ssUR || waitingOnResize[pod] {
+			if err := checkFailoverPossible(pod); err != nil {
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace %s: %s", pod, err.Error())
+				return false, nil
+			}
 			//Delete pod and wait next round to check if the new one is synced
 			err = r.rfHealer.DeletePod(pod, rf)
 			if err != nil {
-				return err
+				return false, err
 			}
-			return nil
+			return false, nil
 		}
 	}
 
@@ -71,23 +99,38 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		// Update stale pod with role master
 		master, err := r.rfChecker.GetRedisesMasterPod(rf)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		masterRevision, err := r.rfChecker.GetRedisRevisionHash(master, rf)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if masterRevision != ssUR || waitingOnResize[master] {
+			// Deleting the master is a failover, and only the Sentinels can carry
+			// one out. A replica that reports itself synced is not enough: it has
+			// been synced for as long as it takes to answer, which for an empty
+			// dataset is no time at all, and the Sentinels may not have read what
+			// they would promote since it changed.
+			//
+			// A failover that has nothing to promote does not resolve later. The
+			// replica keeps the address of a pod that is gone, the replacement
+			// keeps localhost, and neither the Sentinels nor the operator will act
+			// again. Holding the master back leaves it serving, which is visible
+			// and recoverable.
+			if err := checkFailoverPossible(master); err != nil {
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace the master %s: %s", master, err.Error())
+				return false, nil
+			}
 			err = r.rfHealer.DeletePod(master, rf)
 			if err != nil {
-				return err
+				return false, err
 			}
-			return nil
+			return true, nil
 		}
 	}
 
-	return nil
+	return false, nil
 }
 
 // applyCredentialChange restarts the Redis pods that are not yet running the
@@ -292,16 +335,23 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		return errors.New("more than one master, fix manually")
 	}
 
+	// The master is established once and described two ways: the address to reach
+	// it at, and the name every other instance is given for it. See
+	// docs/adr/ADR-002.
 	master, err := r.rfChecker.GetMasterIP(rf)
 	if err != nil {
 		return err
 	}
+	masterHostname, err := r.rfChecker.GetRedisHostnameAt(rf, master)
+	if err != nil {
+		return err
+	}
 
-	err = r.rfChecker.CheckAllSlavesFromMaster(master, rf)
+	err = r.rfChecker.CheckAllSlavesFromMaster(masterHostname, rf)
 	setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.SLAVE_WRONG_MASTER, metrics.NOT_APPLICABLE, err)
 	if err != nil {
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Slave not associated to master: %s", err.Error())
-		if err = r.rfHealer.SetMasterOnAll(master, rf); err != nil {
+		if err = r.rfHealer.SetMasterOnAll(master, masterHostname, rf); err != nil {
 			return err
 		}
 	}
@@ -321,9 +371,17 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		return err
 	}
 
-	err = r.UpdateRedisesPods(rf)
+	masterReplaced, err := r.UpdateRedisesPods(rf)
 	if err != nil {
 		return err
+	}
+	// Everything below reads a failover that still had a master when this pass
+	// began. Pointing the Sentinels at a master that is gone, and resetting the
+	// ones whose counts no longer match, leaves them nothing to promote, and a
+	// Sentinel rebuilds the list only from a master that answers. The next pass
+	// sees what is actually there.
+	if masterReplaced {
+		return nil
 	}
 
 	sentinels, err := r.rfChecker.GetSentinelsIPs(rf)
@@ -331,19 +389,24 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		return err
 	}
 
+	// Every Sentinel is attempted before anything is reported: one that refuses
+	// the master it is offered says nothing about the next, and a Sentinel left
+	// on localhost never reports ready.
 	port := rf.Spec.Redis.Port.ToString()
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	var monitorErrs []error
 	for _, sip := range sentinels {
-		err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, master, port)
+		err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, masterHostname, port)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Fixing sentinel not monitoring expected master: %s", err.Error())
-			if err := r.rfHealer.NewSentinelMonitor(sip, master, rf); err != nil {
-				return err
+			if err := r.rfHealer.NewSentinelMonitor(sip, masterHostname, rf); err != nil {
+				monitorErrs = append(monitorErrs, fmt.Errorf("pointing sentinel %s at %s: %w", sip, masterHostname, err))
 			}
 		}
 	}
-	return r.checkAndHealSentinels(rf, sentinels)
+	monitorErrs = append(monitorErrs, r.checkAndHealSentinels(rf, sentinels))
+	return errors.Join(monitorErrs...)
 }
 
 func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.RedisFailover) error {
@@ -374,11 +437,10 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Could not probe for a refused credential, carrying on: %v", err)
 	}
 
-	err := r.UpdateRedisesPods(rf)
-	if err != nil {
+	if _, err := r.UpdateRedisesPods(rf); err != nil {
 		return err
 	}
-	err = r.applyRedisCustomConfig(rf)
+	err := r.applyRedisCustomConfig(rf)
 	setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.APPLY_REDIS_CONFIG, metrics.NOT_APPLICABLE, err)
 	if err != nil {
 		return err
@@ -432,13 +494,14 @@ func (r *RedisFailoverHandler) applyRedisCustomConfig(rf *redisfailoverv1.RedisF
 
 func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFailover, sentinels []string) error {
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	var errs []error
 	for _, sip := range sentinels {
 		err := r.rfChecker.CheckSentinelNumberInMemory(sip, rf)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_NUMBER_IN_MEMORY_MISMATCH, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Sentinel %s mismatch number of sentinels in memory. resetting", sip)
 			if err := r.rfHealer.RestoreSentinel(sip, sentinelPort); err != nil {
-				return err
+				errs = append(errs, fmt.Errorf("resetting sentinel %s: %w", sip, err))
 			}
 		}
 
@@ -449,18 +512,22 @@ func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFa
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Sentinel %s mismatch number of expected slaves in memory. resetting", sip)
 			if err := r.rfHealer.RestoreSentinel(sip, sentinelPort); err != nil {
-				return err
+				errs = append(errs, fmt.Errorf("resetting sentinel %s: %w", sip, err))
 			}
 		}
 	}
 	for _, sip := range sentinels {
+		if err := r.rfHealer.AuthenticateSentinelToMaster(sip, rf); err != nil {
+			errs = append(errs, fmt.Errorf("giving sentinel %s the master's password: %w", sip, err))
+		}
+
 		err := r.rfHealer.SetSentinelCustomConfig(sip, rf)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.APPLY_SENTINEL_CONFIG, sip, err)
 		if err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("applying sentinel config to %s: %w", sip, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func setRedisCheckerMetrics(metricsClient metrics.Recorder, mode /* redis or sentinel? */ string, rfNamespace string, rfName string, property string, IP string, err error) {
