@@ -139,8 +139,9 @@ This redis-failover will be managed by the operator, resulting in the following 
 - `rfr-<NAME>`: Redis statefulset
 - `rfr-<NAME>`: Redis service (if redis-exporter is enabled)
 - `rfs-<NAME>`: Sentinel configmap
-- `rfs-<NAME>`: Sentinel deployment
+- `rfs-<NAME>`: Sentinel statefulset
 - `rfs-<NAME>`: Sentinel service
+- `sentinel-headless-<NAME>`: Sentinel headless service, which names each Sentinel pod in DNS
 
 **NOTE**: `NAME` is the named provided when creating the RedisFailover.
 **IMPORTANT**: the name of the redis-failover to be created cannot be longer that 48 characters, due to prepend of redis/sentinel identification and statefulset limitation.
