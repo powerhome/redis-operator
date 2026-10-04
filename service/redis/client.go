@@ -32,6 +32,7 @@ type Client interface {
 	SetCustomRedisConfig(ip string, port string, configs []string, password string) error
 	SlaveIsReady(ip, port, password string) (bool, error)
 	SentinelCheckQuorum(ip string, port string) error
+	AuthenticateSentinelToMaster(ip string, port string, password string) error
 	PromotableReplicas(ip string, port string, excluding []string) (int32, error)
 }
 
@@ -505,6 +506,22 @@ func monitored(rClient *rediscli.Client) (string, string, error) {
 		return "", "", fmt.Errorf("sentinel described %s in %d fields, expected the address at 4 and the port at 6", masterName, len(res))
 	}
 	return res[3].(string), res[5].(string), nil
+}
+
+// AuthenticateSentinelToMaster gives a Sentinel the password it reaches the
+// monitored master by. A Sentinel that reconnects without it finds the master
+// down and stops reading the replica list, so it holds nothing it could
+// promote. See docs/cir/CIR-011.
+func (c *client) AuthenticateSentinelToMaster(ip string, sentinelPort string, password string) error {
+	options := &rediscli.Options{
+		Addr:     net.JoinHostPort(ip, sentinelPort),
+		Password: "",
+		DB:       0,
+	}
+	rClient := rediscli.NewClient(options)
+	defer rClient.Close()
+
+	return authenticateToMaster(rClient, password)
 }
 
 func (c *client) SetCustomSentinelConfig(ip string, sentinelPort string, configs []string) error {

@@ -517,6 +517,10 @@ func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFa
 		}
 	}
 	for _, sip := range sentinels {
+		if err := r.rfHealer.AuthenticateSentinelToMaster(sip, rf); err != nil {
+			errs = append(errs, fmt.Errorf("giving sentinel %s the master's password: %w", sip, err))
+		}
+
 		err := r.rfHealer.SetSentinelCustomConfig(sip, rf)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.APPLY_SENTINEL_CONFIG, sip, err)
 		if err != nil {

@@ -23,6 +23,7 @@ type RedisFailoverHeal interface {
 	NewSentinelMonitorWithPort(ip string, monitor string, port string, rFailover *redisfailoverv1.RedisFailover) error
 	RestoreSentinel(ip string, port string) error
 	SetSentinelCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
+	AuthenticateSentinelToMaster(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	SetRedisCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	DeletePod(podName string, rFailover *redisfailoverv1.RedisFailover) error
 }
@@ -285,6 +286,21 @@ func (r *RedisFailoverHealer) SetSentinelCustomConfig(ip string, rf *redisfailov
 	r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Setting the custom config on sentinel %s...", ip)
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
 	return r.redisClient.SetCustomSentinelConfig(ip, sentinelPort, rf.Spec.Sentinel.CustomConfig)
+}
+
+// AuthenticateSentinelToMaster gives a Sentinel the current password for the
+// master it monitors, whether or not it already had one.
+//
+// SENTINEL REMOVE discards the password along with the master, and repointing a
+// Sentinel passes through that loss. Replacing every Redis pod, which rotating
+// the password does, makes each Sentinel reconnect and authenticate again.
+func (r *RedisFailoverHealer) AuthenticateSentinelToMaster(ip string, rf *redisfailoverv1.RedisFailover) error {
+	password, err := k8s.GetRedisPassword(r.k8sService, rf)
+	if err != nil {
+		return err
+	}
+
+	return r.redisClient.AuthenticateSentinelToMaster(ip, rf.Spec.Sentinel.Port.ToString(), password)
 }
 
 // SetRedisCustomConfig will call redis to set the configuration given in config

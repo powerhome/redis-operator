@@ -430,6 +430,7 @@ func TestCheckAndHeal(t *testing.T) {
 					mrfc.On("CheckSentinelSlavesNumberInMemory", sentinel, rf).Once().Return(errors.New(""))
 					mrfh.On("RestoreSentinel", sentinel, "26379").Once().Return(nil)
 				}
+				mrfh.On("AuthenticateSentinelToMaster", sentinel, rf).Once().Return(nil)
 				mrfh.On("SetSentinelCustomConfig", sentinel, rf).Once().Return(nil)
 			}
 
@@ -1465,6 +1466,8 @@ func TestCheckAndHealAppliesSentinelSettingsWhenOneSentinelRefusesTheMaster(t *t
 	mrfc.On("CheckSentinelNumberInMemory", accepting, rf).Once().Return(nil)
 	mrfc.On("CheckSentinelSlavesNumberInMemory", refusing, rf).Once().Return(nil)
 	mrfc.On("CheckSentinelSlavesNumberInMemory", accepting, rf).Once().Return(nil)
+	mrfh.On("AuthenticateSentinelToMaster", refusing, rf).Once().Return(nil)
+	mrfh.On("AuthenticateSentinelToMaster", accepting, rf).Once().Return(nil)
 	mrfh.On("SetSentinelCustomConfig", refusing, rf).Once().Return(nil)
 	mrfh.On("SetSentinelCustomConfig", accepting, rf).Once().Return(nil)
 
@@ -1642,4 +1645,102 @@ func TestReplacingTheMasterAsksWhatTheFailoverCanAnswer(t *testing.T) {
 
 		mrfh.AssertNotCalled(t, "DeletePod", masterPod, rf)
 	})
+}
+
+// Rotating the password replaces every Redis pod, and each Sentinel then
+// reconnects to the master and authenticates again. A Sentinel still holding the
+// previous password finds the master down, stops reading its replica list, and
+// holds nothing it could promote, which no check on the monitored address
+// notices because the name it monitors has not changed.
+func TestCheckAndHealGivesEverySentinelTheMastersPassword(t *testing.T) {
+	assert := assert.New(t)
+
+	master := "0.0.0.0"
+	masterHostname := "rfr-test-0.rfr-test.testns.svc"
+	sentinels := []string{"1.1.1.1", "2.2.2.2", "3.3.3.3"}
+
+	rf := generateRF(false, false)
+	mrfc := &mRFService.RedisFailoverCheck{}
+	mrfh := &mRFService.RedisFailoverHeal{}
+
+	mrfc.On("IsRedisRunning", rf).Once().Return(true)
+	mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+	mrfc.On("GetNumberMasters", rf).Once().Return(1, nil)
+	mrfc.On("GetMasterIP", rf).Twice().Return(master, nil)
+	mrfc.On("GetRedisHostnameAt", rf, master).Once().Return(masterHostname, nil)
+	mrfc.On("CheckAllSlavesFromMaster", masterHostname, rf).Once().Return(nil)
+	mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)
+	mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{master}, nil)
+	mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+	mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+	mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+	mrfc.On("GetRedisesMasterPod", rf).Once().Return(master, nil)
+	mrfc.On("GetRedisRevisionHash", master, rf).Once().Return("1", nil)
+	mrfh.On("SetRedisCustomConfig", master, rf).Once().Return(nil)
+	mrfc.On("GetSentinelsIPs", rf).Once().Return(sentinels, nil)
+
+	// Every Sentinel already monitors the right master, by the name it was given,
+	// so nothing here repoints one.
+	for _, sentinel := range sentinels {
+		mrfc.On("CheckSentinelMonitor", sentinel, "26379", masterHostname, "0").Once().Return(nil)
+		mrfc.On("CheckSentinelNumberInMemory", sentinel, rf).Once().Return(nil)
+		mrfc.On("CheckSentinelSlavesNumberInMemory", sentinel, rf).Once().Return(nil)
+		mrfh.On("AuthenticateSentinelToMaster", sentinel, rf).Once().Return(nil)
+		mrfh.On("SetSentinelCustomConfig", sentinel, rf).Once().Return(nil)
+	}
+
+	handler := rfOperator.NewRedisFailoverHandler(generateConfig(), &mRFService.RedisFailoverClient{}, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
+
+	assert.NoError(handler.CheckAndHeal(rf))
+
+	mrfh.AssertExpectations(t)
+	mrfh.AssertNotCalled(t, "NewSentinelMonitor", sentinels[0], masterHostname, rf)
+}
+
+// A Sentinel that cannot be given the password is named, and the others are
+// still reached.
+func TestCheckAndHealReportsWhichSentinelKeptTheWrongPassword(t *testing.T) {
+	assert := assert.New(t)
+
+	master := "0.0.0.0"
+	masterHostname := "rfr-test-0.rfr-test.testns.svc"
+	refusing := "1.1.1.1"
+	accepting := "2.2.2.2"
+
+	rf := generateRF(false, false)
+	mrfc := &mRFService.RedisFailoverCheck{}
+	mrfh := &mRFService.RedisFailoverHeal{}
+
+	mrfc.On("IsRedisRunning", rf).Once().Return(true)
+	mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+	mrfc.On("GetNumberMasters", rf).Once().Return(1, nil)
+	mrfc.On("GetMasterIP", rf).Twice().Return(master, nil)
+	mrfc.On("GetRedisHostnameAt", rf, master).Once().Return(masterHostname, nil)
+	mrfc.On("CheckAllSlavesFromMaster", masterHostname, rf).Once().Return(nil)
+	mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)
+	mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{master}, nil)
+	mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+	mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+	mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+	mrfc.On("GetRedisesMasterPod", rf).Once().Return(master, nil)
+	mrfc.On("GetRedisRevisionHash", master, rf).Once().Return("1", nil)
+	mrfh.On("SetRedisCustomConfig", master, rf).Once().Return(nil)
+	mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{refusing, accepting}, nil)
+
+	for _, sentinel := range []string{refusing, accepting} {
+		mrfc.On("CheckSentinelMonitor", sentinel, "26379", masterHostname, "0").Once().Return(nil)
+		mrfc.On("CheckSentinelNumberInMemory", sentinel, rf).Once().Return(nil)
+		mrfc.On("CheckSentinelSlavesNumberInMemory", sentinel, rf).Once().Return(nil)
+		mrfh.On("SetSentinelCustomConfig", sentinel, rf).Once().Return(nil)
+	}
+	mrfh.On("AuthenticateSentinelToMaster", refusing, rf).Once().Return(errors.New("ERR invalid password"))
+	mrfh.On("AuthenticateSentinelToMaster", accepting, rf).Once().Return(nil)
+
+	handler := rfOperator.NewRedisFailoverHandler(generateConfig(), &mRFService.RedisFailoverClient{}, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
+
+	err := handler.CheckAndHeal(rf)
+
+	assert.ErrorContains(err, refusing)
+	assert.ErrorContains(err, "invalid password")
+	mrfh.AssertExpectations(t)
 }

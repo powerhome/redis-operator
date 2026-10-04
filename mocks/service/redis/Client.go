@@ -9,6 +9,24 @@ type Client struct {
 	mock.Mock
 }
 
+// AuthenticateSentinelToMaster provides a mock function with given fields: ip, port, password
+func (_m *Client) AuthenticateSentinelToMaster(ip string, port string, password string) error {
+	ret := _m.Called(ip, port, password)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AuthenticateSentinelToMaster")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string, string) error); ok {
+		r0 = rf(ip, port, password)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // GetNumberRedisConnectedSlaves provides a mock function with given fields: ip, port, password
 func (_m *Client) GetNumberRedisConnectedSlaves(ip string, port string, password string) (int32, error) {
 	ret := _m.Called(ip, port, password)
