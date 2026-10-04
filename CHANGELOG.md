@@ -19,7 +19,7 @@ Run one replica of the operator across this upgrade. An operator that runs the S
 
 ### Added
 
-- Run the Sentinels as a StatefulSet, and let a `RedisFailover` give them storage. `sentinel.storage.persistentVolumeClaim` gives each Sentinel a claim of its own, so what it learns about the failover survives the pod and a restarted Sentinel comes back knowing the topology instead of monitoring `127.0.0.1`. The set is used whether or not storage is configured, because only a StatefulSet gives a Sentinel pod a name in DNS. See [CIR-009](docs/cir/CIR-009-sentinels-keep-what-they-learn.md)
+- [Run the Sentinels as a StatefulSet, and let a `RedisFailover` give them storage](https://github.com/powerhome/redis-operator/pull/143). `sentinel.storage.persistentVolumeClaim` gives each Sentinel a claim of its own, so what it learns about the failover survives the pod and a restarted Sentinel comes back knowing the topology instead of monitoring `127.0.0.1`. The set is used whether or not storage is configured, because only a StatefulSet gives a Sentinel pod a name in DNS. See [CIR-009](docs/cir/CIR-009-sentinels-keep-what-they-learn.md)
 
 
 ## [v4.8.0] - 2026-10-02
