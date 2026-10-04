@@ -19,7 +19,7 @@ Run one replica of the operator across this upgrade. An operator that runs the S
 
 ### Added
 
-- Run the Sentinels as a StatefulSet. Only a StatefulSet gives a Sentinel pod a name in DNS, which is what the operator needs before it can address an instance by name rather than by whatever address it currently holds. The set replaces the Deployment for every failover, whose Sentinel pods are removed before the set is created. See [CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md)
+- [Run the Sentinels as a StatefulSet](https://github.com/powerhome/redis-operator/pull/143). Only a StatefulSet gives a Sentinel pod a name in DNS, which is what the operator needs before it can address an instance by name rather than by whatever address it currently holds. The set replaces the Deployment for every failover, whose Sentinel pods are removed before the set is created. See [CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md)
 
 
 ## [v4.8.0] - 2026-10-02
