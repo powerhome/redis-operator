@@ -281,6 +281,11 @@ func TestRedisFailover(t *testing.T) {
 	t.Run("Check Rotating The Password Is Applied", clients.testPasswordRotation)
 	t.Run("Check Removing The Password Is Applied", clients.testPasswordRemoval)
 	t.Run("Check Adding The Password Back Is Applied", clients.testPasswordAddition)
+
+	// Last, because the second of these resets a Sentinel and anything added
+	// after it would start from a failover mid-repair.
+	t.Run("Check Sentinel Refuses A Second Master Under A Held Name", clients.testSentinelRefusesASecondMaster)
+	t.Run("Check Sentinel Forgets Its Replicas On Reset", clients.testSentinelForgetsItsReplicasOnReset)
 }
 
 const sentinelPort = 26379
@@ -696,4 +701,84 @@ func (c *clients) testCustomConfig(t *testing.T) {
 
 	assert.Len(values, 2)
 	assert.Empty(values[1])
+}
+
+const monitoredMaster = "mymaster"
+
+func (c *clients) sentinelPodIPs() ([]string, error) {
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.FormatLabels(map[string]string{
+			"app.kubernetes.io/name":      name,
+			"app.kubernetes.io/component": "sentinel",
+			"app.kubernetes.io/part-of":   "redis-failover",
+		}),
+	}
+	pods, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	var addresses []string
+	for _, pod := range pods.Items {
+		if pod.Status.PodIP != "" {
+			addresses = append(addresses, pod.Status.PodIP)
+		}
+	}
+	if len(addresses) == 0 {
+		return nil, errors.New("no Sentinel pod has been assigned an address yet")
+	}
+	return addresses, nil
+}
+
+func (c *clients) testSentinelRefusesASecondMaster(t *testing.T) {
+	assert := assert.New(t)
+
+	addresses, err := c.sentinelPodIPs()
+	require.NoError(t, err)
+
+	port := strconv.FormatInt(int64(sentinelPort), 10)
+	master, masterPort, err := c.redisClient.GetSentinelMonitor(addresses[0], port)
+	require.NoError(t, err)
+
+	sentinel := rediscli.NewClient(&rediscli.Options{Addr: net.JoinHostPort(addresses[0], port)})
+	defer sentinel.Close()
+
+	cmd := rediscli.NewBoolCmd(context.Background(), "SENTINEL", "MONITOR", monitoredMaster, master, masterPort, "2")
+	err = sentinel.Process(context.Background(), cmd)
+	if err == nil {
+		_, err = cmd.Result()
+	}
+
+	assert.Error(err, "a Sentinel holding %s should refuse another under that name", monitoredMaster)
+}
+
+func (c *clients) testSentinelForgetsItsReplicasOnReset(t *testing.T) {
+	assert := assert.New(t)
+
+	addresses, err := c.sentinelPodIPs()
+	require.NoError(t, err)
+
+	sentinel := addresses[0]
+	port := strconv.FormatInt(int64(sentinelPort), 10)
+
+	known, err := c.redisClient.PromotableReplicas(sentinel, port, nil)
+	require.NoError(t, err)
+	require.NotZero(t, known, "the Sentinel has to know a replica before it can forget one")
+
+	require.NoError(t, c.redisClient.ResetSentinel(sentinel, port))
+
+	forgotten, err := c.redisClient.PromotableReplicas(sentinel, port, nil)
+	require.NoError(t, err)
+	assert.Zero(forgotten, "a Sentinel that has just been reset holds no replica it could promote, until it reads the list again a second or two later")
+
+	assert.NoError(waitFor(readyTimeout, func() (bool, error) {
+		promotable, err := c.redisClient.PromotableReplicas(sentinel, port, nil)
+		if err != nil {
+			return false, err
+		}
+		if promotable == 0 {
+			return false, errors.New("the Sentinel has not read the master's replica list again yet")
+		}
+		return true, nil
+	}))
 }

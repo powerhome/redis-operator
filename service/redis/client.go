@@ -141,8 +141,7 @@ func (c *client) GetNumberSentinelSlavesInMemory(ip string, sentinelPort string)
 }
 
 // PromotableReplicas counts the replicas this Sentinel both knows about and can
-// currently reach, leaving out any whose address is in excluding. See
-// TestSentinelKnowsNoReplicasOnceItsListIsDiscarded for when it knows none.
+// currently reach, leaving out any whose address is in excluding.
 func (c *client) PromotableReplicas(ip string, sentinelPort string, excluding []string) (int32, error) {
 	options := &rediscli.Options{
 		Addr:     net.JoinHostPort(ip, sentinelPort),
@@ -163,6 +162,17 @@ func (c *client) PromotableReplicas(ip string, sentinelPort string, excluding []
 		return 0, err
 	}
 
+	promotable, err := countPromotable(replicas, excluding)
+	if err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, metrics.MISC)
+		return 0, err
+	}
+
+	c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.SUCCESS, metrics.NOT_APPLICABLE)
+	return promotable, nil
+}
+
+func countPromotable(replicas []interface{}, excluding []string) (int32, error) {
 	excluded := map[string]bool{}
 	for _, address := range excluding {
 		if address != "" {
@@ -174,18 +184,16 @@ func (c *client) PromotableReplicas(ip string, sentinelPort string, excluding []
 	for _, replica := range replicas {
 		described, ok := replica.([]interface{})
 		if !ok {
-			c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, metrics.MISC)
 			return 0, fmt.Errorf("sentinel described a replica as %T, expected a list of fields", replica)
 		}
 		fields := fieldsOf(described)
-		if excluded[fields["ip"]] || excluded[fields["name"]] {
+		if excluded[fields["ip"]] {
 			continue
 		}
 		if isReachable(fields["flags"]) {
 			promotable++
 		}
 	}
-	c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.SUCCESS, metrics.NOT_APPLICABLE)
 	return promotable, nil
 }
 

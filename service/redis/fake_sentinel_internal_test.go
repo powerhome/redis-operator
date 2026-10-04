@@ -32,6 +32,24 @@ func (s *fakeSentinel) record(args []string) {
 	s.commands = append(s.commands, args)
 }
 
+type replies map[string]string
+
+func (r replies) answer(args []string) string {
+	reply, matched := respOK, -1
+	for command, candidate := range r {
+		words := strings.Fields(command)
+		if len(words) > matched && isCommand(args, words...) {
+			reply, matched = candidate, len(words)
+		}
+	}
+	return reply
+}
+
+func startFakeSentinel(t *testing.T, answers replies) *fakeSentinel {
+	t.Helper()
+	return startStatefulSentinel(t, answers.answer)
+}
+
 func startStatefulSentinel(t *testing.T, answer func(args []string) string) *fakeSentinel {
 	t.Helper()
 
@@ -116,4 +134,9 @@ func respArray(fields ...string) string {
 		reply += fmt.Sprintf("$%d\r\n%s\r\n", len(field), field)
 	}
 	return reply
+}
+
+// The fields monitored reads, at the positions it reads them from.
+func describeMaster(address, port string) string {
+	return respArray("name", masterName, "ip", address, "port", port)
 }

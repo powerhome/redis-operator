@@ -244,8 +244,7 @@ func (r *RedisFailoverChecker) CheckSentinelQuorum(rFailover *redisfailoverv1.Re
 // could promote, which is what taking the master away asks them to do.
 //
 // A Sentinel that has discarded its replica list answers a missing master with
-// -failover-abort-no-good-slave until it reads the list again; see
-// TestSentinelKnowsNoReplicasOnceItsListIsDiscarded.
+// -failover-abort-no-good-slave until it reads the list again.
 //
 // Every Sentinel rather than one, because any of them may be the leader that
 // has to carry out the promotion.
