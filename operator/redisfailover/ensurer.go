@@ -92,7 +92,20 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 			return err
 		}
 
-		if err := w.rfService.EnsureSentinelDeployment(rf, labels, or); err != nil {
+		// A failover that has given its Sentinels storage runs them as a set,
+		// so what each one learns survives it. Without that they stay a
+		// Deployment and are told the topology on every start.
+		//
+		// The other way of running them is removed first. Both produce pods
+		// under the same labels, so leaving one behind runs both sets at once
+		// and they will agree a quorum among all of them.
+		if err := w.rfService.DestroySentinelDeployment(rf); err != nil {
+			return err
+		}
+		if err := w.rfService.EnsureSentinelHeadlessService(rf, labels, or); err != nil {
+			return err
+		}
+		if err := w.rfService.EnsureSentinelStatefulSet(rf, labels, or); err != nil {
 			return err
 		}
 	} else {

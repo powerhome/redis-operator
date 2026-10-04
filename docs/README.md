@@ -139,8 +139,9 @@ This redis-failover will be managed by the operator, resulting in the following 
 - `rfr-<NAME>`: Redis statefulset
 - `rfr-<NAME>`: Redis service, which names each Redis pod in DNS as `rfr-<NAME>-<N>.rfr-<NAME>.<NAMESPACE>.svc` and carries the exporter port when `redis.exporter.enabled` is set
 - `rfs-<NAME>`: Sentinel configmap
-- `rfs-<NAME>`: Sentinel deployment
+- `rfs-<NAME>`: Sentinel statefulset
 - `rfs-<NAME>`: Sentinel service
+- `sentinel-headless-<NAME>`: Sentinel headless service, which names each Sentinel pod in DNS
 
 No `NetworkPolicy` is among them. See [Network isolation](#network-isolation).
 
@@ -154,6 +155,34 @@ The operator has the ability of add persistence to Redis data. By default an `em
 In order to have persistence, a `PersistentVolumeClaim` usage is allowed. The full [PVC definition has to be added](/example/redisfailover/persistent-storage.yaml) to the Redis Failover Spec under the `Storage` section.
 
 **IMPORTANT**: By default, the persistent volume claims will be deleted when the Redis Failover is. If this is not the expected usage, a `keepAfterDeletion` flag can be added under the `storage` section of Redis. [An example is given](/example/redisfailover/persistent-storage-no-pvc-deletion.yaml).
+
+#### Sentinel persistence
+
+A Sentinel keeps its own record of the failover: which node it last agreed was master, which replicas it has seen, and which other Sentinels it knows. By default that record sits on scratch space, so a Sentinel that restarts comes back monitoring `127.0.0.1` and waits for the operator to tell it the topology. A failover whose Sentinels all restart therefore has nobody left who knows which node was master, and the operator has to choose one.
+
+Giving the Sentinels storage keeps that record. Add a claim under `sentinel.storage.persistentVolumeClaim`, in the same shape as the Redis one:
+
+```yaml
+spec:
+  sentinel:
+    replicas: 3
+    storage:
+      persistentVolumeClaim:
+        metadata:
+          name: redisfailover-sentinel-config
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 128Mi
+```
+
+A [full example is given](/example/redisfailover/sentinel-persistent-storage.yaml). Each Sentinel gets a claim of its own, never one shared between them, because what a Sentinel writes carries its own identity in the quorum protocol. The file is kilobytes, so the smallest size your storage class will provision is the right one.
+
+There is no default, and leaving it unset is a supported configuration: a cluster with no dynamic provisioning runs a failover with no volumes at all. `keepAfterDeletion` works here as it does for Redis.
+
+The Sentinels run as a `StatefulSet` whether or not they have storage, because that is what gives each pod a name in DNS. Storage decides where a Sentinel keeps its record, not how the Sentinels are run.
 
 ### NodeAffinity and Tolerations
 

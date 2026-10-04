@@ -1,0 +1,38 @@
+apiVersion: databases.spotahome.com/v1
+kind: RedisFailover
+metadata:
+  name: redisfailover-sentinel-persistent
+spec:
+  sentinel:
+    replicas: 3
+    # A claim per Sentinel, so what each one learns about the failover survives
+    # the pod. Without this a restarted Sentinel comes back monitoring 127.0.0.1
+    # and waits for the operator to tell it the topology, which means a failover
+    # whose Sentinels all restart has nobody left who knows which node was
+    # master.
+    #
+    # Kilobytes are enough: a Sentinel writes its own configuration file here and
+    # nothing else. The smallest size your storage class will provision is the
+    # right one.
+    storage:
+      persistentVolumeClaim:
+        metadata:
+          name: redisfailover-sentinel-config
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 128Mi
+  redis:
+    replicas: 3
+    storage:
+      persistentVolumeClaim:
+        metadata:
+          name: redisfailover-persistent-data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi

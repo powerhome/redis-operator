@@ -34,6 +34,7 @@ type RedisFailoverCheck interface {
 	GetNumberMasters(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetSentinelsIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
+	GetSentinelRememberedMaster(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetMaxRedisPodTime(rFailover *redisfailoverv1.RedisFailover) (time.Duration, error)
 	GetRedisesPodsWithStalePassword(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesSlavesPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
@@ -487,10 +488,58 @@ func (r *RedisFailoverChecker) GetRedisesIPs(rf *redisfailoverv1.RedisFailover) 
 	return redises, nil
 }
 
+// GetSentinelRememberedMaster returns the master the Sentinels still hold,
+// which is the last one they elected.
+//
+// After every Redis restarts there is no master to find by asking the Redis
+// themselves: each comes back replicating from localhost, because that is what
+// its generated configuration says. Sentinel decided which node was master
+// while the failover was running and wrote it down, so where that record
+// survives it is the answer, and it is the answer from the component this
+// operator defers to rather than a guess made in its absence.
+//
+// Empty when the Sentinels have nothing to say: none reachable, none agreeing,
+// or all of them back to watching localhost because they kept nothing. The
+// caller falls back to seeding without a preference.
+func (r *RedisFailoverChecker) GetSentinelRememberedMaster(rf *redisfailoverv1.RedisFailover) (string, error) {
+	sentinels, err := r.GetSentinelsIPs(rf)
+	if err != nil {
+		return "", err
+	}
+
+	port := rf.Spec.Sentinel.Port.ToString()
+	remembered := ""
+	for _, sip := range sentinels {
+		host, _, err := r.redisClient.GetSentinelMonitor(sip, port)
+		if err != nil {
+			r.logger.Debugf("sentinel %s could not be asked what it monitors: %v", sip, err)
+			continue
+		}
+		if toldNoMaster(host) {
+			continue
+		}
+		if remembered == "" {
+			remembered = host
+			continue
+		}
+		if remembered != host {
+			// Two Sentinels naming different masters is not a record to act
+			// on. Saying nothing leaves the caller where it was.
+			r.logger.Infof("sentinels disagree on the last master, %s and %s, so neither is used", remembered, host)
+			return "", nil
+		}
+	}
+	return remembered, nil
+}
+
+func (r *RedisFailoverChecker) getSentinelPods(rf *redisfailoverv1.RedisFailover) (*corev1.PodList, error) {
+	return r.k8sService.GetStatefulSetPods(rf.Namespace, GetSentinelName(rf))
+}
+
 // GetSentinelsIPs returns the IPs of the Sentinel nodes
 func (r *RedisFailoverChecker) GetSentinelsIPs(rf *redisfailoverv1.RedisFailover) ([]string, error) {
 	sentinels := []string{}
-	rps, err := r.k8sService.GetDeploymentPods(rf.Namespace, GetSentinelName(rf))
+	rps, err := r.getSentinelPods(rf)
 	if err != nil {
 		return nil, err
 	}
@@ -669,7 +718,7 @@ func (r *RedisFailoverChecker) IsRedisRunning(rFailover *redisfailoverv1.RedisFa
 
 // IsSentinelRunning returns true if all the pods are Running
 func (r *RedisFailoverChecker) IsSentinelRunning(rFailover *redisfailoverv1.RedisFailover) bool {
-	dp, err := r.k8sService.GetDeploymentPods(rFailover.Namespace, GetSentinelName(rFailover))
+	dp, err := r.getSentinelPods(rFailover)
 	return err == nil && len(dp.Items) > int(rFailover.Spec.Sentinel.Replicas-1) && AreAllRunning(dp, int(rFailover.Spec.Sentinel.Replicas))
 }
 
