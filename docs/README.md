@@ -139,8 +139,9 @@ This redis-failover will be managed by the operator, resulting in the following 
 - `rfr-<NAME>`: Redis statefulset
 - `rfr-<NAME>`: Redis service, which names each Redis pod in DNS as `rfr-<NAME>-<N>.rfr-<NAME>.<NAMESPACE>.svc` and carries the exporter port when `redis.exporter.enabled` is set
 - `rfs-<NAME>`: Sentinel configmap
-- `rfs-<NAME>`: Sentinel deployment
+- `rfs-<NAME>`: Sentinel statefulset
 - `rfs-<NAME>`: Sentinel service
+- `sentinel-headless-<NAME>`: Sentinel headless service, which names each Sentinel pod in DNS
 
 No `NetworkPolicy` is among them. See [Network isolation](#network-isolation).
 
