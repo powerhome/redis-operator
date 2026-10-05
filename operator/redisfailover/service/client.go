@@ -284,8 +284,7 @@ func (r *RedisFailoverKubeClient) EnsureSentinelHeadlessService(rf *redisfailove
 }
 
 // EnsureSentinelStatefulSet makes sure the Sentinel set exists in the desired
-// state, for a failover that has given its Sentinels somewhere to keep what
-// they learn.
+// state.
 func (r *RedisFailoverKubeClient) EnsureSentinelStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	if !rf.Spec.Sentinel.DisablePodDisruptionBudget {
 		if err := r.ensurePodDisruptionBudget(rf, sentinelName, sentinelRoleName, labels, ownerRefs); err != nil {
@@ -315,32 +314,34 @@ func (r *RedisFailoverKubeClient) EnsureSentinelStatefulSet(rf *redisfailoverv1.
 
 // DestroySentinelResources eliminates sentinel pods and its dependend resources, unnecessary for a bootstrap mode
 func (r *RedisFailoverKubeClient) DestroySentinelResources(rf *redisfailoverv1.RedisFailover) error {
-
 	name := GetSentinelName(rf)
 
-	if _, err := r.K8SService.GetDeployment(rf.Namespace, name); err != nil {
-		// If no resource, do nothing
-		if errors.IsNotFound(err) {
-			return nil
-		}
+	// Each resource is removed on its own terms, tolerating one that has
+	// already gone, as DestroyHaproxyMasterResources does. Reading the
+	// Deployment first and stopping when it was absent left everything behind
+	// for a failover whose Sentinels run as a set, which is all of them.
+	//
+	// The set and the headless service governing it are here because nothing
+	// else removes them, and the headless service carries a name of its own.
+	deletions := []func() error{
+		func() error { return r.K8SService.DeleteService(rf.Namespace, name) },
+		func() error { return r.K8SService.DeleteService(rf.Namespace, GetSentinelHeadlessName(rf)) },
+		func() error { return r.K8SService.DeleteConfigMap(rf.Namespace, name) },
+		func() error { return r.K8SService.DeleteStatefulSet(rf.Namespace, name) },
+		func() error { return r.K8SService.DeleteDeployment(rf.Namespace, name) },
+	}
+	if !rf.Spec.Sentinel.DisablePodDisruptionBudget {
+		deletions = append(deletions, func() error {
+			return r.K8SService.DeletePodDisruptionBudget(rf.Namespace, name)
+		})
 	}
 
-	if !rf.Spec.Sentinel.DisablePodDisruptionBudget {
-		if err := r.K8SService.DeletePodDisruptionBudget(rf.Namespace, name); err != nil {
+	for _, remove := range deletions {
+		if err := remove(); err != nil && !errors.IsNotFound(err) {
 			return err
 		}
 	}
-
-	if err := r.K8SService.DeleteService(rf.Namespace, name); err != nil {
-		return err
-	}
-
-	if err := r.K8SService.DeleteConfigMap(rf.Namespace, name); err != nil {
-		return err
-	}
-
-	err := r.K8SService.DeleteDeployment(rf.Namespace, name)
-	return err
+	return nil
 }
 
 // DestroyHaproxyMasterResources eliminates haproxy pods and its dependend resources, unnecessary for a bootstrap mode
