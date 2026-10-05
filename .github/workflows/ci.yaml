@@ -49,6 +49,7 @@ jobs:
       - check
       - unit-test
     strategy:
+      fail-fast: false
       matrix:
         # The node images kind publishes for its release named in the Makefile.
         kind-node-image:
