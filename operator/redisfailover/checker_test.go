@@ -390,13 +390,16 @@ func TestCheckAndHeal(t *testing.T) {
 					mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
 					mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
 					mrfc.On("GetRedisesMasterPod", rf).Once().Return(master, nil)
-					mrfc.On("GetRedisRevisionHash", master, rf).Once().Return("1", nil)
+					mrfc.On("GetPodRevisionHash", master, rf).Once().Return("1", nil)
 					mrfh.On("SetRedisCustomConfig", master, rf).Once().Return(nil)
 				}
 			}
 
 			if allowSentinels && !expErr && continueTests {
 				mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{sentinel}, nil)
+				mrfc.On("GetSentinelSetUpdateRevision", rf).Once().Return("1", nil)
+				mrfc.On("GetSentinelsPods", rf).Once().Return([]string{"rfs-test-0"}, nil)
+				mrfc.On("GetPodRevisionHash", "rfs-test-0", rf).Once().Return("1", nil)
 				if test.sentinelMonitorOK {
 					if test.bootstrapping {
 						mrfc.On("CheckSentinelMonitor", sentinel, bootstrapMaster, bootstrapMasterPort).Once().Return(nil)
@@ -1161,7 +1164,7 @@ func TestUpdate(t *testing.T) {
 				mrfc.On("GetRedisesSlavesPods", rf).Once().Return(replicas, nil)
 
 				for _, pod := range test.pods {
-					mrfc.On("GetRedisRevisionHash", pod.pod.ObjectMeta.Name, rf).Once().Return(pod.pod.ObjectMeta.Labels[appsv1.ControllerRevisionHashLabelKey], nil)
+					mrfc.On("GetPodRevisionHash", pod.pod.ObjectMeta.Name, rf).Once().Return(pod.pod.ObjectMeta.Labels[appsv1.ControllerRevisionHashLabelKey], nil)
 					if pod.pod.ObjectMeta.Labels[appsv1.ControllerRevisionHashLabelKey] != test.ssVersion {
 						mrfh.On("DeletePod", pod.pod.ObjectMeta.Name, rf).Once().Return(nil)
 						if pod.master == false {
@@ -1249,7 +1252,7 @@ func TestUpdateRedisesPodsWaitingOnFilesystemResize(t *testing.T) {
 			mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
 			mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(test.waiting, nil)
 			mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{"slave1", "slave2"}, nil)
-			mrfc.On("GetRedisRevisionHash", mock.Anything, rf).Return("1", nil)
+			mrfc.On("GetPodRevisionHash", mock.Anything, rf).Return("1", nil)
 
 			if len(test.expected) == 0 || test.expected[0] == "master" {
 				mrfc.On("GetRedisesMasterPod", rf).Once().Return("master", nil)

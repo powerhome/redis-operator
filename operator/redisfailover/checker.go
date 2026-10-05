@@ -53,7 +53,7 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 
 	// Update stale pods with slave role
 	for _, pod := range redisesPods {
-		revision, err := r.rfChecker.GetRedisRevisionHash(pod, rf)
+		revision, err := r.rfChecker.GetPodRevisionHash(pod, rf)
 		if err != nil {
 			return err
 		}
@@ -74,7 +74,7 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 			return err
 		}
 
-		masterRevision, err := r.rfChecker.GetRedisRevisionHash(master, rf)
+		masterRevision, err := r.rfChecker.GetPodRevisionHash(master, rf)
 		if err != nil {
 			return err
 		}
@@ -333,6 +333,7 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 
 	port := rf.Spec.Redis.Port.ToString()
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	var reporting int32
 	for _, sip := range sentinels {
 		err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, master, port)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
@@ -341,9 +342,57 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 			if err := r.rfHealer.NewSentinelMonitor(sip, master, rf); err != nil {
 				return err
 			}
+			continue
 		}
+		reporting++
 	}
-	return r.checkAndHealSentinels(rf, sentinels)
+
+	if err := r.checkAndHealSentinels(rf, sentinels); err != nil {
+		return err
+	}
+
+	// Last, so the pass has already pointed every Sentinel at the master and
+	// the count is as high as it is going to get, and so a pass that found
+	// something wrong does not also take a Sentinel away.
+	return r.UpdateSentinelPods(rf, reporting)
+}
+
+// UpdateSentinelPods replaces at most one Sentinel running an old pod template.
+//
+// Nothing else will. The set is OnDelete, so the controller will not replace a
+// pod to apply a template, and a StatefulSet cannot bring up a spare ahead of
+// the one it replaces the way the Deployment this succeeded did. The vote is
+// simply gone until the operator points the replacement at a master, which is
+// why this asks first whether the rest can agree a failover without it.
+func (r *RedisFailoverHandler) UpdateSentinelPods(rf *redisfailoverv1.RedisFailover, reporting int32) error {
+	want, err := r.rfChecker.GetSentinelSetUpdateRevision(rf)
+	if err != nil {
+		return err
+	}
+
+	pods, err := r.rfChecker.GetSentinelsPods(rf)
+	if err != nil {
+		return err
+	}
+
+	for _, pod := range pods {
+		revision, err := r.rfChecker.GetPodRevisionHash(pod, rf)
+		if err != nil {
+			return err
+		}
+		if revision == want {
+			continue
+		}
+
+		if err := r.rfChecker.CheckSentinelsCanSpareOne(rf, reporting); err != nil {
+			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
+				Warningf("Waiting to replace sentinel %s: %s", pod, err.Error())
+			return nil
+		}
+
+		return r.rfHealer.DeletePod(pod, rf)
+	}
+	return nil
 }
 
 func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.RedisFailover) error {
@@ -402,6 +451,7 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 		if err != nil {
 			return err
 		}
+		var reporting int32
 		for _, sip := range sentinels {
 			err = r.rfChecker.CheckSentinelMonitor(sip, bootstrapSettings.Host, bootstrapSettings.Port)
 			setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
@@ -410,9 +460,18 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 				if err := r.rfHealer.NewSentinelMonitorWithPort(sip, bootstrapSettings.Host, bootstrapSettings.Port, rf); err != nil {
 					return err
 				}
+				continue
 			}
+			reporting++
 		}
-		return r.checkAndHealSentinels(rf, sentinels)
+
+		if err := r.checkAndHealSentinels(rf, sentinels); err != nil {
+			return err
+		}
+
+		// A bootstrapping failover runs the same Sentinel set, so its pods go
+		// stale the same way. The master they watch is the external one.
+		return r.UpdateSentinelPods(rf, reporting)
 	}
 	return nil
 }

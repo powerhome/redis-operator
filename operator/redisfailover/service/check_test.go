@@ -1163,7 +1163,7 @@ func TestGetStatefulSetUpdateRevision(t *testing.T) {
 
 }
 
-func TestGetRedisRevisionHash(t *testing.T) {
+func TestGetPodRevisionHash(t *testing.T) {
 	tests := []struct {
 		name          string
 		pod           *corev1.Pod
@@ -1199,7 +1199,7 @@ func TestGetRedisRevisionHash(t *testing.T) {
 		mr := &mRedisService.Client{}
 
 		checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-		hash, err := checker.GetRedisRevisionHash("namepod", rf)
+		hash, err := checker.GetPodRevisionHash("namepod", rf)
 
 		if test.expectedError == nil {
 			assert.NoError(err)

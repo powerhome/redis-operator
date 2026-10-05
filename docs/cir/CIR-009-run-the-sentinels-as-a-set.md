@@ -31,10 +31,21 @@ separate change.
   otherwise stall the rollout holding two of three
 
 - GIVEN a Sentinel running an old pod template
-- WHEN it needs replacing
-- THEN the operator replaces it, rather than the StatefulSet controller, so that
-  the restart happens when the operator is able to point the replacement at a
-  master
+- WHEN the Sentinels that would remain could still agree a failover
+- THEN the operator replaces it, one Sentinel per pass, rather than the
+  StatefulSet controller, so the restart happens when the operator is able to
+  point the replacement at a master
+
+- GIVEN a Sentinel running an old pod template and a quorum that could not
+  survive losing it
+- WHEN the operator reconciles
+- THEN the pod is left alone and the operator says how many Sentinels report the
+  master and how many must remain
+
+- GIVEN a failover with no more Sentinels than its own quorum
+- WHEN one of them runs an old pod template
+- THEN it is replaced once every Sentinel reports the master, because no answer
+  would permit it otherwise and the pod would never be replaced at all
 
 ## Constraints
 

@@ -20,6 +20,7 @@ Run one replica of the operator across this upgrade. An operator that runs the S
 ### Added
 
 - [Run the Sentinels as a StatefulSet](https://github.com/powerhome/redis-operator/pull/143). Only a StatefulSet gives a Sentinel pod a name in DNS, which is what the operator needs before it can address an instance by name rather than by whatever address it currently holds. The set replaces the Deployment for every failover, whose Sentinel pods are removed before the set is created. See [CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md)
+- [Replace a Sentinel running an old pod template](https://github.com/powerhome/redis-operator/pull/143). The set is created with `OnDelete`, so the StatefulSet controller will not replace a pod to apply a new template, and a StatefulSet cannot bring up a spare ahead of the one it replaces the way the Deployment it succeeded did. The operator replaces one Sentinel per reconcile, and only once the Sentinels that would remain could still agree a failover, naming the ones it is waiting on. A failover with no more Sentinels than its own quorum is asked only that all of them report the master, because no stricter answer would ever permit a replacement. See [CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md)
 
 
 ## [v4.8.0] - 2026-10-02
