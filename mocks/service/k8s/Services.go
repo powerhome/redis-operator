@@ -497,6 +497,24 @@ func (_m *Services) DeleteStatefulSet(namespace string, name string) error {
 	return r0
 }
 
+// DeleteStatefulSetClaims provides a mock function with given fields: statefulSet
+func (_m *Services) DeleteStatefulSetClaims(statefulSet *appsv1.StatefulSet) error {
+	ret := _m.Called(statefulSet)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteStatefulSetClaims")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*appsv1.StatefulSet) error); ok {
+		r0 = rf(statefulSet)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DeleteStatefulSetKeepingPods provides a mock function with given fields: namespace, name
 func (_m *Services) DeleteStatefulSetKeepingPods(namespace string, name string) error {
 	ret := _m.Called(namespace, name)

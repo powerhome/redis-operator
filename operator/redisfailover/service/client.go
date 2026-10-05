@@ -301,6 +301,17 @@ func (r *RedisFailoverKubeClient) EnsureSentinelStatefulSet(rf *redisfailoverv1.
 		if existing.Annotations[sentinelDeploymentSpecChecksumKey] == digest {
 			return nil
 		}
+		// Kubernetes keeps a claim when its template is removed, and a Sentinel
+		// given storage again later would resume the topology written on it. See
+		// docs/cir/CIR-009-sentinels-keep-what-they-learn.md.
+		//
+		// This runs before the set is replaced below, so a failure here is retried
+		// while the stored templates still name the claims to delete.
+		if len(ss.Spec.VolumeClaimTemplates) == 0 && len(existing.Spec.VolumeClaimTemplates) > 0 {
+			if err := r.K8SService.DeleteStatefulSetClaims(existing); err != nil {
+				return err
+			}
+		}
 	}
 	if ss.Annotations == nil {
 		ss.Annotations = make(map[string]string)

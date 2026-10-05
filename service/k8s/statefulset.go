@@ -29,6 +29,7 @@ type StatefulSet interface {
 	CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error
 	DeleteStatefulSet(namespace string, name string) error
 	DeleteStatefulSetKeepingPods(namespace string, name string) error
+	DeleteStatefulSetClaims(statefulSet *appsv1.StatefulSet) error
 	PodsWaitingOnFilesystemResize(namespace string, name string) (map[string]bool, error)
 	ListStatefulSets(namespace string) (*appsv1.StatefulSetList, error)
 }
@@ -192,10 +193,37 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 	return s.UpdateStatefulSet(namespace, statefulSet)
 }
 
+// DeleteStatefulSetClaims deletes the persistent volume claims that a set's
+// volume claim templates created. Kubernetes keeps a claim when its template is
+// removed from the set, so a caller that stops declaring storage has to say so.
+//
+// Takes the stored set rather than a name because the claims are found from the
+// templates it still carries, which is the only record of what they were called.
+//
+// A claim a pod still mounts is held by its protection finalizer and finishes
+// deleting once that pod is replaced, so a running pod is undisturbed.
+func (s *StatefulSetService) DeleteStatefulSetClaims(statefulSet *appsv1.StatefulSet) error {
+	claims, err := s.claimsOf(statefulSet)
+	if err != nil {
+		return err
+	}
+	for _, claim := range claims {
+		s.logger.WithField("namespace", statefulSet.Namespace).WithField("pvc", claim.Name).
+			Infof("deleting claim of statefulset %s, which no longer declares storage", statefulSet.Name)
+		err := s.kubeClient.CoreV1().PersistentVolumeClaims(statefulSet.Namespace).
+			Delete(context.Background(), claim.Name, metav1.DeleteOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 // claimTemplateNames describes a set's volume claim templates by the names its
 // pods mount them under, which is what decides whether a pod can be created at
 // all. A capacity that differs under the same name is a resize, handled
 // separately.
+
 func claimTemplateNames(ss *appsv1.StatefulSet) string {
 	names := make([]string, 0, len(ss.Spec.VolumeClaimTemplates))
 	for _, claim := range ss.Spec.VolumeClaimTemplates {
@@ -223,11 +251,31 @@ func (s *StatefulSetService) claimsOf(ss *appsv1.StatefulSet) ([]corev1.Persiste
 	prefix := fmt.Sprintf("%s-%s-", ss.Spec.VolumeClaimTemplates[0].Name, ss.Name)
 	owned := []corev1.PersistentVolumeClaim{}
 	for _, pvc := range all.Items {
-		if strings.HasPrefix(pvc.Name, prefix) {
+		if claimBelongsToSet(pvc.Name, prefix) {
 			owned = append(owned, pvc)
 		}
 	}
 	return owned, nil
+}
+
+// Kubernetes names a claim `<template>-<set>-<ordinal>`, so what remains after
+// the template and set names is a pod ordinal.
+//
+// Requiring that, rather than the prefix alone, keeps a set away from the
+// storage of one whose name begins the same way: failovers named `cache` and
+// `cache-west` share the prefix `redis-data-rfr-cache-`, and the claims of the
+// second are `redis-data-rfr-cache-west-0` and so on.
+func claimBelongsToSet(claimName, prefix string) bool {
+	ordinal, found := strings.CutPrefix(claimName, prefix)
+	if !found || ordinal == "" {
+		return false
+	}
+	for _, digit := range ordinal {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // DeleteStatefulSet will delete the statefulset and the pods it owns.

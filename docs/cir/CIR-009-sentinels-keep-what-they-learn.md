@@ -105,14 +105,52 @@ this window justifies and wants its own measurement. The wait is also not create
 here: it is how long the operator has always taken to configure Sentinels it has
 just created, on a fresh install as much as an upgrade.
 
-**Storage is what makes rolling the Sentinels cheap.** A claim is retained when
-its pod is deleted, and the init container seeds the configuration only where
-there is none, so a replacement rebinds its own volume and starts from the file
-the previous pod wrote. It reports the master at startup and needs nothing from
-the operator to become ready. Without storage the replacement begins on
-`127.0.0.1` and waits a reconcile to be pointed at a master, which is the window
-the quorum question above exists to bound. That is a second reason to run the
-set for every failover rather than only those asking for storage.
+**Storage keeps what a Sentinel learned.** A claim is retained when its pod is
+deleted, and the init container seeds the configuration only where there is
+none, so a replacement rebinds its own volume and starts from the file the
+previous pod wrote.
+
+That makes a roll cheap: the replacement reports the master at startup and needs
+nothing from the operator to become ready, where without storage it begins on
+`127.0.0.1` and waits a reconcile, the window the quorum question above exists
+to bound. Measured at 5 seconds to report the master with storage against 21
+without.
+
+It also decides what a failover has left when every Sentinel restarts at once.
+With storage each one reads back the master and its peers, so they re-form a
+quorum and can carry out a failover themselves, which is what ADR-001 asks of
+them. Without storage they come back blank, and the only remaining account of
+the topology is what the operator can re-derive, which `GetMasterIP` does by
+asking each Redis for `role:master` and requires exactly one answer. A failover
+where no Redis reports a master has nobody left who knows which node was one.
+
+That is a second reason to run the set for every failover rather than only those
+asking for storage.
+
+**Turning storage off removes the claims.** Kubernetes keeps a claim when its
+volume claim template is removed from a set, and nothing else would ever delete
+it. The same seed guard that makes a replacement cheap then works against a
+failover that is given storage again later: the file is not empty, so it is not
+reseeded, and the Sentinel resumes the topology from whenever storage was last
+declared. Measured on a three Sentinel failover whose master was failed over
+while storage was off, each Sentinel came back monitoring the previous master's
+address and stayed there for up to 25 seconds, until the operator's next pass
+repointed it. Kubernetes reuses pod addresses, so the one a
+Sentinel resumes may by then belong to an unrelated pod, and a Sentinel that
+passes its own readiness check while monitoring one is worse than a Sentinel
+that starts blank: the check only rejects `127.0.0.1`.
+
+So the operator deletes the claims when a failover stops declaring Sentinel
+storage. While a Redis reports `role:master` the operator re-derives the
+topology and points a blank Sentinel at it within a reconcile, so a file that
+disagrees with it costs more than no file at all. What a failover gives up by
+turning storage off is the protection described above, which is its own to
+decide. The Redis dataset is never re-derivable, which is why this is
+deliberately not a general rule about claim templates being removed, and does
+not live in the update path that Redis shares.
+`storage.keepAfterDeletion` does not apply, because it governs what happens when
+the `RedisFailover` is deleted and it lives inside the stanza whose removal
+triggers this.
 
 **The operator still reaches Sentinels at an address.** `GetSentinelsIPs` returns
 pod addresses whether the pods come from a set or a Deployment, so every
