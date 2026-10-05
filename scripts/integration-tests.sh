@@ -86,9 +86,19 @@ in_node() {
 install_crd() {
   echo ">> Installing the RedisFailover CRD"
   in_node kubectl --kubeconfig /etc/kubernetes/admin.conf create -f - < "${crd}"
-  in_node kubectl --kubeconfig /etc/kubernetes/admin.conf wait \
-    --for condition=Established --timeout 1m \
-    crd/redisfailovers.databases.spotahome.com
+  wait_until_redisfailovers_are_served
+}
+
+wait_until_redisfailovers_are_served() {
+  local attempt
+  for attempt in $(seq 60); do
+    if in_node kubectl --kubeconfig /etc/kubernetes/admin.conf get redisfailovers --all-namespaces > /dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "The API server did not serve RedisFailovers within 60 seconds" >&2
+  return 1
 }
 
 install_kubeconfig_where_tests_read_it() {
