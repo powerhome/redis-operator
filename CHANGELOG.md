@@ -9,6 +9,14 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Upgrade note
+
+The master is replaced last during a rolling update, and only once every Sentinel reports a replica it could promote, so an upgrade can pause with one pod still on the previous template while the Sentinels catch up. The operator names the Sentinel it is waiting on.
+
+### Fixed
+
+- [Replace the master only once the Sentinels could promote a replica](https://github.com/powerhome/redis-operator/pull/144). The rolling update asked each replica whether it had finished syncing, which a replica holding no data answers within milliseconds of being told to replicate. A Sentinel that has just been reset, or has just been given a different master to watch, holds no replica it would promote, so removing the master left the failover with none: Sentinel answered `-failover-abort-no-good-slave`, the surviving replica kept the address of a pod that no longer existed, and the operator seeds a master only when every Redis reports `127.0.0.1`, so neither acted again. No Redis is now replaced until every Sentinel reports a replica it could promote, the master included, and the reconcile that replaces the master ends there rather than going on to reset the Sentinels it just asked. Replacing a replica waits on the same condition, because taking one away removes the candidate the Sentinels would promote. See [CIR-008](docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md)
+
 ## [v4.8.0] - 2026-10-02
 
 ### Deprecated

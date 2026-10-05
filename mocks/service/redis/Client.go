@@ -274,6 +274,34 @@ func (_m *Client) MonitorRedisWithPort(ip string, monitor string, port string, q
 	return r0
 }
 
+// ReplicasUp provides a mock function with given fields: ip, port
+func (_m *Client) ReplicasUp(ip string, port string) (int32, error) {
+	ret := _m.Called(ip, port)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplicasUp")
+	}
+
+	var r0 int32
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) (int32, error)); ok {
+		return rf(ip, port)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) int32); ok {
+		r0 = rf(ip, port)
+	} else {
+		r0 = ret.Get(0).(int32)
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(ip, port)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ResetReplicaConnections provides a mock function with given fields: ip, port, password
 func (_m *Client) ResetReplicaConnections(ip string, port string, password string) error {
 	ret := _m.Called(ip, port, password)

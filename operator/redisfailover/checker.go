@@ -10,11 +10,13 @@ import (
 	"github.com/spotahome/redis-operator/service/redis"
 )
 
-// UpdateRedisesPods if the running version of pods are equal to the statefulset one
-func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailover) error {
+// UpdateRedisesPods replaces at most one Redis pod running an old pod template,
+// replicas before the master, and reports whether the one it replaced was the
+// master.
+func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailover) (masterReplaced bool, err error) {
 	redises, err := r.rfChecker.GetRedisesIPs(rf)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	masterIP := ""
@@ -26,44 +28,62 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		if rip != masterIP {
 			ready, err := r.rfChecker.CheckRedisSlavesReady(rip, rf)
 			if err != nil {
-				return err
+				return false, err
 			}
 			if !ready {
-				return nil
+				return false, nil
 			}
 		}
 	}
 
 	ssUR, err := r.rfChecker.GetStatefulSetUpdateRevision(rf)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	redisesPods, err := r.rfChecker.GetRedisesSlavesPods(rf)
 	if err != nil {
-		return err
+		return false, err
+	}
+
+	// Taking any Redis away asks something of the Sentinels. Replacing the master
+	// asks them to promote a replica. Replacing a replica is not a failover, but
+	// it removes the candidate they would promote and leaves them nothing while
+	// the replacement syncs, so both wait on the same condition.
+	//
+	// A failover of one Redis has no replica to promote and never will, and one
+	// following an external master may have no Sentinels at all.
+	failoverPossible := func() error {
+		if rf.Spec.Redis.Replicas <= 1 || rf.Bootstrapping() {
+			return nil
+		}
+		return r.rfChecker.CheckSentinelsCanFailover(rf)
 	}
 
 	// A pod waiting on its filesystem needs replacing, the same as one running
 	// an old pod template. Either way, one pod at a time.
 	waitingOnResize, err := r.rfChecker.GetRedisesPodsWaitingOnFilesystemResize(rf)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Update stale pods with slave role
 	for _, pod := range redisesPods {
 		revision, err := r.rfChecker.GetRedisRevisionHash(pod, rf)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if revision != ssUR || waitingOnResize[pod] {
+			if err := failoverPossible(); err != nil {
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace %s: %s", pod, err.Error())
+				return false, nil
+			}
 			//Delete pod and wait next round to check if the new one is synced
 			err = r.rfHealer.DeletePod(pod, rf)
 			if err != nil {
-				return err
+				return false, err
 			}
-			return nil
+			return false, nil
 		}
 	}
 
@@ -71,23 +91,38 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		// Update stale pod with role master
 		master, err := r.rfChecker.GetRedisesMasterPod(rf)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		masterRevision, err := r.rfChecker.GetRedisRevisionHash(master, rf)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if masterRevision != ssUR || waitingOnResize[master] {
+			// Deleting the master is a failover, and only the Sentinels can carry
+			// one out. A replica that reports itself synced is not enough: it has
+			// been synced for as long as it takes to answer, which for an empty
+			// dataset is no time at all, and the Sentinels may not have read the
+			// master's replica list since it changed.
+			//
+			// A failover that has nothing to promote does not resolve later. The
+			// replica keeps the address of a pod that is gone, the replacement
+			// keeps localhost, and neither the Sentinels nor the operator will act
+			// again. Holding the master back leaves it serving, which is visible
+			// and recoverable.
+			if err := failoverPossible(); err != nil {
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace the master %s: %s", master, err.Error())
+				return false, nil
+			}
 			err = r.rfHealer.DeletePod(master, rf)
 			if err != nil {
-				return err
+				return false, err
 			}
-			return nil
+			return true, nil
 		}
 	}
 
-	return nil
+	return false, nil
 }
 
 // applyCredentialChange restarts the Redis pods that are not yet running the
@@ -321,9 +356,17 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		return err
 	}
 
-	err = r.UpdateRedisesPods(rf)
+	masterReplaced, err := r.UpdateRedisesPods(rf)
 	if err != nil {
 		return err
+	}
+	// Everything below reads a failover that still had a master when this pass
+	// began. Pointing the Sentinels at a master that is gone, and resetting the
+	// ones whose counts no longer match, discards the replica list the promotion
+	// needs, and a Sentinel rebuilds that list only from a master that answers.
+	// The next pass sees what is actually there.
+	if masterReplaced {
+		return nil
 	}
 
 	sentinels, err := r.rfChecker.GetSentinelsIPs(rf)
@@ -374,11 +417,10 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Could not probe for a refused credential, carrying on: %v", err)
 	}
 
-	err := r.UpdateRedisesPods(rf)
-	if err != nil {
+	if _, err := r.UpdateRedisesPods(rf); err != nil {
 		return err
 	}
-	err = r.applyRedisCustomConfig(rf)
+	err := r.applyRedisCustomConfig(rf)
 	setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.APPLY_REDIS_CONFIG, metrics.NOT_APPLICABLE, err)
 	if err != nil {
 		return err

@@ -26,6 +26,7 @@ type RedisFailoverCheck interface {
 	CheckNumberRedisConnectedSlaves(masterIP string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelSlavesNumberInMemory(sentinel string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelQuorum(rFailover *redisfailoverv1.RedisFailover) (int, error)
+	CheckSentinelsCanFailover(rFailover *redisfailoverv1.RedisFailover) error
 	CheckIfMasterLocalhost(rFailover *redisfailoverv1.RedisFailover) (bool, error)
 	CheckSentinelMonitor(sentinel string, sentinelPort string, monitor ...string) error
 	GetMasterIP(rFailover *redisfailoverv1.RedisFailover) (string, error)
@@ -231,6 +232,38 @@ func (r *RedisFailoverChecker) CheckSentinelQuorum(rFailover *redisfailoverv1.Re
 		r.logger.Errorf("insufficnet sentinel to reach Quorum - Unhealthy count: %d", unhealthyCnt)
 		return unhealthyCnt, errors.New("insufficnet sentinel to reach Quorum")
 	}
+}
+
+// CheckSentinelsCanFailover reports whether every Sentinel holds a replica it
+// could promote, which is what taking the master away asks them to do.
+//
+// A Sentinel learns replicas by reading the master's replica list, and both
+// SENTINEL REMOVE and SENTINEL RESET discard what it learned. Until it has read
+// that list again it will answer a missing master with
+// -failover-abort-no-good-slave, indefinitely.
+//
+// Every Sentinel rather than one, because any of them may be the leader that
+// has to carry out the promotion.
+func (r *RedisFailoverChecker) CheckSentinelsCanFailover(rf *redisfailoverv1.RedisFailover) error {
+	sentinels, err := r.GetSentinelsIPs(rf)
+	if err != nil {
+		return err
+	}
+	if len(sentinels) == 0 {
+		return errors.New("no sentinel is running to fail over")
+	}
+
+	port := rf.Spec.Sentinel.Port.ToString()
+	for _, sip := range sentinels {
+		up, err := r.redisClient.ReplicasUp(sip, port)
+		if err != nil {
+			return fmt.Errorf("asking sentinel %s what it could promote: %w", sip, err)
+		}
+		if up == 0 {
+			return fmt.Errorf("sentinel %s holds no replica it could promote", sip)
+		}
+	}
+	return nil
 }
 
 // CheckSentinelSlavesNumberInMemory controls that the provided sentinel has only the expected slaves number.

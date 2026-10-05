@@ -232,6 +232,24 @@ func (_m *RedisFailoverCheck) CheckSentinelSlavesNumberInMemory(sentinel string,
 	return r0
 }
 
+// CheckSentinelsCanFailover provides a mock function with given fields: rFailover
+func (_m *RedisFailoverCheck) CheckSentinelsCanFailover(rFailover *v1.RedisFailover) error {
+	ret := _m.Called(rFailover)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CheckSentinelsCanFailover")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) error); ok {
+		r0 = rf(rFailover)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // GetMasterIP provides a mock function with given fields: rFailover
 func (_m *RedisFailoverCheck) GetMasterIP(rFailover *v1.RedisFailover) (string, error) {
 	ret := _m.Called(rFailover)

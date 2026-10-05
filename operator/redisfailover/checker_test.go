@@ -692,6 +692,8 @@ func TestUpdate(t *testing.T) {
 		errExpected   bool
 		bootstrapping bool
 		noMaster      bool
+		// The sentinels hold no replica they could promote, so the master stays.
+		noFailoverCandidate bool
 	}{
 		{
 			name: "all ok, no change needed",
@@ -904,6 +906,60 @@ func TestUpdate(t *testing.T) {
 			ssVersion:     "10",
 			errExpected:   false,
 			bootstrapping: false,
+		},
+		{
+			name: "master held back while no sentinel could promote a replica",
+			pods: []podStatus{
+				{
+					pod: corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "slave1",
+							Labels: map[string]string{
+								appsv1.ControllerRevisionHashLabelKey: "10",
+							},
+						},
+						Status: corev1.PodStatus{
+							PodIP: "0.0.0.0",
+						},
+					},
+					master: false,
+					ready:  true,
+				},
+				{
+					pod: corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "slave2",
+							Labels: map[string]string{
+								appsv1.ControllerRevisionHashLabelKey: "10",
+							},
+						},
+						Status: corev1.PodStatus{
+							PodIP: "0.0.0.1",
+						},
+					},
+					master: false,
+					ready:  true,
+				},
+				{
+					pod: corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "master",
+							Labels: map[string]string{
+								appsv1.ControllerRevisionHashLabelKey: "1",
+							},
+						},
+						Status: corev1.PodStatus{
+							PodIP: "1.1.1.1",
+						},
+					},
+					master: true,
+					ready:  true,
+				},
+			},
+			ssVersion:           "10",
+			errExpected:         false,
+			bootstrapping:       false,
+			noFailoverCandidate: true,
 		},
 		{
 			name: "all ok, no change needed when in bootstrap mode",
@@ -1163,6 +1219,16 @@ func TestUpdate(t *testing.T) {
 				for _, pod := range test.pods {
 					mrfc.On("GetRedisRevisionHash", pod.pod.ObjectMeta.Name, rf).Once().Return(pod.pod.ObjectMeta.Labels[appsv1.ControllerRevisionHashLabelKey], nil)
 					if pod.pod.ObjectMeta.Labels[appsv1.ControllerRevisionHashLabelKey] != test.ssVersion {
+						if !test.bootstrapping {
+							var noCandidate error
+							if test.noFailoverCandidate {
+								noCandidate = errors.New("sentinel 0.0.0.0 holds no replica it could promote")
+							}
+							mrfc.On("CheckSentinelsCanFailover", rf).Once().Return(noCandidate)
+							if noCandidate != nil {
+								break
+							}
+						}
 						mrfh.On("DeletePod", pod.pod.ObjectMeta.Name, rf).Once().Return(nil)
 						if pod.master == false {
 							next = false
@@ -1183,7 +1249,7 @@ func TestUpdate(t *testing.T) {
 			mk := &mK8SService.Services{}
 
 			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
-			err := handler.UpdateRedisesPods(rf)
+			_, err := handler.UpdateRedisesPods(rf)
 
 			if test.errExpected {
 				assert.Error(err)
@@ -1254,12 +1320,15 @@ func TestUpdateRedisesPodsWaitingOnFilesystemResize(t *testing.T) {
 			if len(test.expected) == 0 || test.expected[0] == "master" {
 				mrfc.On("GetRedisesMasterPod", rf).Once().Return("master", nil)
 			}
+			if len(test.expected) > 0 {
+				mrfc.On("CheckSentinelsCanFailover", rf).Once().Return(nil)
+			}
 			for _, pod := range test.expected {
 				mrfh.On("DeletePod", pod, rf).Once().Return(nil)
 			}
 
 			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
-			err := handler.UpdateRedisesPods(rf)
+			_, err := handler.UpdateRedisesPods(rf)
 
 			assert.NoError(err)
 			mrfh.AssertExpectations(t)
@@ -1279,4 +1348,71 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// A failover of one Redis has no replica to promote and never will. Asking the
+// sentinels whether they could fail over would hold its only pod on an old pod
+// template for good.
+func TestTheOnlyRedisIsReplacedWithoutAskingTheSentinels(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF(false, false)
+	rf.Spec.Redis.Replicas = 1
+
+	mrfc := &mRFService.RedisFailoverCheck{}
+	mrfc.On("GetRedisesIPs", rf).Once().Return([]string{"1.1.1.1"}, nil)
+	mrfc.On("GetMasterIP", rf).Once().Return("1.1.1.1", nil)
+	mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("2", nil)
+	mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+	mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+	mrfc.On("GetRedisesMasterPod", rf).Once().Return("master", nil)
+	mrfc.On("GetRedisRevisionHash", "master", rf).Once().Return("1", nil)
+
+	mrfh := &mRFService.RedisFailoverHeal{}
+	mrfh.On("DeletePod", "master", rf).Once().Return(nil)
+
+	handler := rfOperator.NewRedisFailoverHandler(generateConfig(), &mRFService.RedisFailoverClient{}, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
+
+	replacedMaster, err := handler.UpdateRedisesPods(rf)
+	assert.NoError(err)
+	assert.True(replacedMaster)
+	mrfh.AssertExpectations(t)
+	mrfc.AssertNotCalled(t, "CheckSentinelsCanFailover", rf)
+}
+
+// Once the master pod is gone, the rest of the pass would be reading a failover
+// that no longer exists. Pointing the sentinels at the departed master, and
+// resetting the ones whose counts no longer add up, throws away the replica list
+// that the promotion about to happen depends on.
+func TestReplacingTheMasterEndsTheReconcile(t *testing.T) {
+	assert := assert.New(t)
+
+	master := "1.1.1.1"
+	rf := generateRF(false, false)
+
+	mrfc := &mRFService.RedisFailoverCheck{}
+	mrfc.On("IsRedisRunning", rf).Once().Return(true)
+	mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+	mrfc.On("GetNumberMasters", rf).Once().Return(1, nil)
+	mrfc.On("GetMasterIP", rf).Return(master, nil)
+	mrfc.On("CheckAllSlavesFromMaster", master, rf).Once().Return(nil)
+	mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)
+	mrfc.On("GetRedisesIPs", rf).Return([]string{master}, nil)
+	mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("2", nil)
+	mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+	mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+	mrfc.On("GetRedisesMasterPod", rf).Once().Return("master", nil)
+	mrfc.On("GetRedisRevisionHash", "master", rf).Once().Return("1", nil)
+	mrfc.On("CheckSentinelsCanFailover", rf).Once().Return(nil)
+
+	mrfh := &mRFService.RedisFailoverHeal{}
+	mrfh.On("SetRedisCustomConfig", master, rf).Once().Return(nil)
+	mrfh.On("DeletePod", "master", rf).Once().Return(nil)
+
+	handler := rfOperator.NewRedisFailoverHandler(generateConfig(), &mRFService.RedisFailoverClient{}, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
+
+	assert.NoError(handler.CheckAndHeal(rf))
+
+	mrfh.AssertExpectations(t)
+	mrfc.AssertNotCalled(t, "GetSentinelsIPs", rf)
 }
