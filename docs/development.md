@@ -50,6 +50,8 @@ You can do the following commands with make:
   `make test-unit`
 - Run helm tests in the development docker container
   `make test-helm`
+- Run integration tests against a throwaway kind cluster, as CI does. Needs Go and Docker on the host; kind is fetched into `bin/`.
+  `make test-integration`
 - Run all development tests
   `make test`
 
