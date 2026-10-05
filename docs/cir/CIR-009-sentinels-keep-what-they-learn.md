@@ -34,10 +34,21 @@ Seeding a master from what the Sentinels remember is a separate change.
   otherwise stall the rollout holding two of three
 
 - GIVEN a Sentinel running an old pod template
-- WHEN it needs replacing
-- THEN the operator replaces it, rather than the StatefulSet controller, so that
-  the restart happens when the operator is able to point the replacement at a
-  master
+- WHEN the Sentinels that would remain could still agree a failover
+- THEN the operator replaces it, one Sentinel per pass, rather than the
+  StatefulSet controller, so the restart happens when the operator is able to
+  point the replacement at a master
+
+- GIVEN a Sentinel running an old pod template and a quorum that could not
+  survive losing it
+- WHEN the operator reconciles
+- THEN the pod is left alone and the operator says how many Sentinels report the
+  master and how many must remain
+
+- GIVEN a failover with no more Sentinels than its own quorum
+- WHEN one of them runs an old pod template
+- THEN it is replaced once every Sentinel reports the master, because no answer
+  would permit it otherwise and the pod would never be replaced at all
 
 ## Constraints
 
@@ -93,6 +104,15 @@ error path in the operator to retry with backoff, which is a larger decision tha
 this window justifies and wants its own measurement. The wait is also not created
 here: it is how long the operator has always taken to configure Sentinels it has
 just created, on a fresh install as much as an upgrade.
+
+**Storage is what makes rolling the Sentinels cheap.** A claim is retained when
+its pod is deleted, and the init container seeds the configuration only where
+there is none, so a replacement rebinds its own volume and starts from the file
+the previous pod wrote. It reports the master at startup and needs nothing from
+the operator to become ready. Without storage the replacement begins on
+`127.0.0.1` and waits a reconcile to be pointed at a master, which is the window
+the quorum question above exists to bound. That is a second reason to run the
+set for every failover rather than only those asking for storage.
 
 **The operator still reaches Sentinels at an address.** `GetSentinelsIPs` returns
 pod addresses whether the pods come from a set or a Deployment, so every

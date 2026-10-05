@@ -37,7 +37,10 @@ type RedisFailoverCheck interface {
 	GetRedisesSlavesPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesMasterPod(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetStatefulSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error)
-	GetRedisRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error)
+	GetSentinelSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error)
+	GetPodRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error)
+	GetSentinelsPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
+	CheckSentinelsCanSpareOne(rFailover *redisfailoverv1.RedisFailover, reporting int32) error
 	GetRedisesPodsWaitingOnFilesystemResize(rFailover *redisfailoverv1.RedisFailover) (map[string]bool, error)
 	CheckRedisSlavesReady(slaveIP string, rFailover *redisfailoverv1.RedisFailover) (bool, error)
 	IsRedisRunning(rFailover *redisfailoverv1.RedisFailover) bool
@@ -528,7 +531,17 @@ func (r *RedisFailoverChecker) GetRedisesPodsWaitingOnFilesystemResize(rFailover
 // GetStatefulSetUpdateRevision returns current version for the statefulSet
 // If the label don't exists, we return an empty value and no error, so previous versions don't break
 func (r *RedisFailoverChecker) GetStatefulSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error) {
-	ss, err := r.k8sService.GetStatefulSet(rFailover.Namespace, GetRedisName(rFailover))
+	return r.updateRevisionOf(rFailover, GetRedisName(rFailover))
+}
+
+// GetSentinelSetUpdateRevision returns the revision the Sentinel set would
+// create a pod from now.
+func (r *RedisFailoverChecker) GetSentinelSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error) {
+	return r.updateRevisionOf(rFailover, GetSentinelName(rFailover))
+}
+
+func (r *RedisFailoverChecker) updateRevisionOf(rFailover *redisfailoverv1.RedisFailover, name string) (string, error) {
+	ss, err := r.k8sService.GetStatefulSet(rFailover.Namespace, name)
 	if err != nil {
 		return "", err
 	}
@@ -540,8 +553,51 @@ func (r *RedisFailoverChecker) GetStatefulSetUpdateRevision(rFailover *redisfail
 	return ss.Status.UpdateRevision, nil
 }
 
-// GetRedisRevisionHash returns the statefulset uid for the pod
-func (r *RedisFailoverChecker) GetRedisRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error) {
+// GetSentinelsPods names the Sentinel pods, as GetSentinelsIPs addresses them.
+func (r *RedisFailoverChecker) GetSentinelsPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error) {
+	pods, err := r.getSentinelPods(rFailover)
+	if err != nil {
+		return nil, err
+	}
+
+	names := []string{}
+	for _, sp := range pods.Items {
+		if sp.DeletionTimestamp == nil {
+			names = append(names, sp.ObjectMeta.Name)
+		}
+	}
+	return names, nil
+}
+
+// CheckSentinelsCanSpareOne reports whether taking one Sentinel away leaves
+// enough of them to agree a failover.
+//
+// reporting is how many answered with the master they were expected to be
+// watching, which is the same thing their readiness probe tests.
+func (r *RedisFailoverChecker) CheckSentinelsCanSpareOne(rFailover *redisfailoverv1.RedisFailover, reporting int32) error {
+	quorum := getQuorum(rFailover)
+	replicas := rFailover.Spec.Sentinel.Replicas
+
+	// At or below the quorum, no number of healthy Sentinels makes taking one
+	// away safe, so a strict question could never be answered yes and would
+	// hold every Sentinel on its old pod template for good. Such a failover is
+	// asked only that none is already missing, and the window while the
+	// replacement starts is accepted because nothing avoids it.
+	if replicas <= quorum {
+		if reporting < replicas {
+			return fmt.Errorf("%d of %d sentinels report the master, and this failover has none to spare", reporting, replicas)
+		}
+		return nil
+	}
+
+	if reporting-1 < quorum {
+		return fmt.Errorf("%d of %d sentinels report the master, and %d must remain to agree a failover", reporting, replicas, quorum)
+	}
+	return nil
+}
+
+// GetPodRevisionHash returns the revision the pod was created from.
+func (r *RedisFailoverChecker) GetPodRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error) {
 	pod, err := r.k8sService.GetPod(rFailover.Namespace, podName)
 	if err != nil {
 		return "", err

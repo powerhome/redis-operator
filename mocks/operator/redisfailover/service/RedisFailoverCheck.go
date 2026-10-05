@@ -232,6 +232,24 @@ func (_m *RedisFailoverCheck) CheckSentinelSlavesNumberInMemory(sentinel string,
 	return r0
 }
 
+// CheckSentinelsCanSpareOne provides a mock function with given fields: rFailover, reporting
+func (_m *RedisFailoverCheck) CheckSentinelsCanSpareOne(rFailover *v1.RedisFailover, reporting int32) error {
+	ret := _m.Called(rFailover, reporting)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CheckSentinelsCanSpareOne")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover, int32) error); ok {
+		r0 = rf(rFailover, reporting)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // GetMasterIP provides a mock function with given fields: rFailover
 func (_m *RedisFailoverCheck) GetMasterIP(rFailover *v1.RedisFailover) (string, error) {
 	ret := _m.Called(rFailover)
@@ -316,12 +334,12 @@ func (_m *RedisFailoverCheck) GetNumberMasters(rFailover *v1.RedisFailover) (int
 	return r0, r1
 }
 
-// GetRedisRevisionHash provides a mock function with given fields: podName, rFailover
-func (_m *RedisFailoverCheck) GetRedisRevisionHash(podName string, rFailover *v1.RedisFailover) (string, error) {
+// GetPodRevisionHash provides a mock function with given fields: podName, rFailover
+func (_m *RedisFailoverCheck) GetPodRevisionHash(podName string, rFailover *v1.RedisFailover) (string, error) {
 	ret := _m.Called(podName, rFailover)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetRedisRevisionHash")
+		panic("no return value specified for GetPodRevisionHash")
 	}
 
 	var r0 string
@@ -492,12 +510,70 @@ func (_m *RedisFailoverCheck) GetRedisesSlavesPods(rFailover *v1.RedisFailover) 
 	return r0, r1
 }
 
+// GetSentinelSetUpdateRevision provides a mock function with given fields: rFailover
+func (_m *RedisFailoverCheck) GetSentinelSetUpdateRevision(rFailover *v1.RedisFailover) (string, error) {
+	ret := _m.Called(rFailover)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSentinelSetUpdateRevision")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) (string, error)); ok {
+		return rf(rFailover)
+	}
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) string); ok {
+		r0 = rf(rFailover)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(*v1.RedisFailover) error); ok {
+		r1 = rf(rFailover)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetSentinelsIPs provides a mock function with given fields: rFailover
 func (_m *RedisFailoverCheck) GetSentinelsIPs(rFailover *v1.RedisFailover) ([]string, error) {
 	ret := _m.Called(rFailover)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetSentinelsIPs")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) ([]string, error)); ok {
+		return rf(rFailover)
+	}
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) []string); ok {
+		r0 = rf(rFailover)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(*v1.RedisFailover) error); ok {
+		r1 = rf(rFailover)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetSentinelsPods provides a mock function with given fields: rFailover
+func (_m *RedisFailoverCheck) GetSentinelsPods(rFailover *v1.RedisFailover) ([]string, error) {
+	ret := _m.Called(rFailover)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSentinelsPods")
 	}
 
 	var r0 []string
