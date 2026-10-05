@@ -86,6 +86,9 @@ in_node() {
 install_crd() {
   echo ">> Installing the RedisFailover CRD"
   in_node kubectl --kubeconfig /etc/kubernetes/admin.conf create -f - < "${crd}"
+  in_node kubectl --kubeconfig /etc/kubernetes/admin.conf wait \
+    --for condition=Established --timeout 1m \
+    crd/redisfailovers.databases.spotahome.com
 }
 
 install_kubeconfig_where_tests_read_it() {
