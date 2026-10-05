@@ -69,8 +69,12 @@ func GetRedisHeadlessName(rf *redisfailoverv1.RedisFailover) string {
 // A StatefulSet needs one to give each pod a name in DNS, and it is separate
 // from the Sentinel service clients use, which carries an address of its own
 // and load balances across them.
+//
+// Prefixed like the other Sentinel resources rather than spelled out, because
+// a Service name is a DNS-1035 label of at most 63 characters and a failover
+// name may be 48. See TestSentinelHeadlessNameFitsADNSLabel.
 func GetSentinelHeadlessName(rf *redisfailoverv1.RedisFailover) string {
-	return rf.GenerateName("sentinel-headless")
+	return generateName(sentinelHeadlessName, rf.Name)
 }
 
 func GetHaproxyMasterName(rf *redisfailoverv1.RedisFailover) string {
