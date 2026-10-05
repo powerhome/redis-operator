@@ -112,6 +112,26 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 	// namespace is our spec(https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#concurrency-control-and-consistency),
 	// we will replace the current namespace state.
 	statefulSet.ResourceVersion = storedStatefulSet.ResourceVersion
+
+	// A statefulset's volumeClaimTemplates are immutable, which is why the
+	// desired ones are overwritten with the stored ones at the end of this
+	// function: without that, every ordinary update would be rejected.
+	//
+	// That overwrite also discards a claim being added or removed, which leaves
+	// a pod template mounting a volume the set does not declare. The update is
+	// accepted and the next pod to be created is refused, so the failure
+	// surfaces at an eviction or a drain rather than here.
+	//
+	// A claim appearing, vanishing or being renamed is therefore applied by
+	// replacing the set, leaving its pods running for the replacement to adopt,
+	// which is what the resize below already does for the same reason.
+	if claimTemplateNames(statefulSet) != claimTemplateNames(storedStatefulSet) {
+		s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).
+			Infof("replacing statefulset to carry its volume claim templates, [%s] where it had [%s]; its pods keep running",
+				claimTemplateNames(statefulSet), claimTemplateNames(storedStatefulSet))
+		return s.DeleteStatefulSetKeepingPods(namespace, statefulSet.Name)
+	}
+
 	// resize pvc
 	// 1.Get the data already stored internally
 	// 2.Get the desired data
@@ -131,23 +151,13 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 	if len(statefulSet.Spec.VolumeClaimTemplates) != 0 {
 		stateCapacity := statefulSet.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().Value()
 		if storedCapacity != stateCapacity {
-			rfName := strings.TrimPrefix(storedStatefulSet.Name, "rfr-")
-			listOpt := metav1.ListOptions{
-				LabelSelector: labels.FormatLabels(
-					map[string]string{
-						"app.kubernetes.io/component": "redis",
-						"app.kubernetes.io/name":      strings.TrimPrefix(storedStatefulSet.Name, "rfr-"),
-						"app.kubernetes.io/part-of":   "redis-failover",
-					},
-				),
-			}
-			pvcs, err := s.kubeClient.CoreV1().PersistentVolumeClaims(storedStatefulSet.Namespace).List(context.Background(), listOpt)
+			pvcs, err := s.claimsOf(storedStatefulSet)
 			if err != nil {
 				return err
 			}
 			updateFailed := false
 			realUpdate := false
-			for _, pvc := range pvcs.Items {
+			for _, pvc := range pvcs {
 				realCapacity := pvc.Spec.Resources.Requests.Storage().Value()
 				if realCapacity != stateCapacity {
 					realUpdate = true
@@ -159,7 +169,7 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 					}
 				}
 			}
-			if !updateFailed && len(pvcs.Items) != 0 {
+			if !updateFailed && len(pvcs) != 0 {
 				annotations["storageCapacity"] = fmt.Sprintf("%d", stateCapacity)
 				storedStatefulSet.Annotations = annotations
 				if realUpdate {
@@ -171,7 +181,7 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 					// pods running instead; the replacement adopts them.
 					return s.DeleteStatefulSetKeepingPods(namespace, statefulSet.Name)
 				} else {
-					s.logger.WithField("namespace", namespace).WithField("pvc", rfName).Warningf("set annotations,resize nothing")
+					s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).Warningf("set annotations,resize nothing")
 				}
 			}
 		}
@@ -180,6 +190,44 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 	statefulSet.Spec.VolumeClaimTemplates = storedStatefulSet.Spec.VolumeClaimTemplates
 	statefulSet.Annotations = util.MergeAnnotations(storedStatefulSet.Annotations, statefulSet.Annotations)
 	return s.UpdateStatefulSet(namespace, statefulSet)
+}
+
+// claimTemplateNames describes a set's volume claim templates by the names its
+// pods mount them under, which is what decides whether a pod can be created at
+// all. A capacity that differs under the same name is a resize, handled
+// separately.
+func claimTemplateNames(ss *appsv1.StatefulSet) string {
+	names := make([]string, 0, len(ss.Spec.VolumeClaimTemplates))
+	for _, claim := range ss.Spec.VolumeClaimTemplates {
+		names = append(names, claim.Name)
+	}
+	return strings.Join(names, ",")
+}
+
+// claimsOf returns the claims a statefulset created from its first volume claim
+// template, found by the name it gives them rather than by their labels.
+//
+// A claim carries only the labels the RedisFailover asked for, so a Sentinel
+// claim may carry none, and a selector written for the Redis ones silently
+// matches nothing.
+func (s *StatefulSetService) claimsOf(ss *appsv1.StatefulSet) ([]corev1.PersistentVolumeClaim, error) {
+	if len(ss.Spec.VolumeClaimTemplates) == 0 {
+		return nil, nil
+	}
+
+	all, err := s.kubeClient.CoreV1().PersistentVolumeClaims(ss.Namespace).List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	prefix := fmt.Sprintf("%s-%s-", ss.Spec.VolumeClaimTemplates[0].Name, ss.Name)
+	owned := []corev1.PersistentVolumeClaim{}
+	for _, pvc := range all.Items {
+		if strings.HasPrefix(pvc.Name, prefix) {
+			owned = append(owned, pvc)
+		}
+	}
+	return owned, nil
 }
 
 // DeleteStatefulSet will delete the statefulset and the pods it owns.

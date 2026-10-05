@@ -150,6 +150,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 				Spec: appsv1.StatefulSetSpec{
 					VolumeClaimTemplates: []v1.PersistentVolumeClaim{
 						{
+							ObjectMeta: metav1.ObjectMeta{Name: "redis-data"},
 							Spec: v1.PersistentVolumeClaimSpec{
 								Resources: v1.VolumeResourceRequirements{
 									Requests: v1.ResourceList{
@@ -169,6 +170,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 				Spec: appsv1.StatefulSetSpec{
 					VolumeClaimTemplates: []v1.PersistentVolumeClaim{
 						{
+							ObjectMeta: metav1.ObjectMeta{Name: "redis-data"},
 							Spec: v1.PersistentVolumeClaimSpec{
 								Resources: v1.VolumeResourceRequirements{
 									Requests: v1.ResourceList{
@@ -183,13 +185,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 			pvcList := &v1.PersistentVolumeClaimList{
 				Items: []v1.PersistentVolumeClaim{
 					{
-						ObjectMeta: metav1.ObjectMeta{
-							Labels: map[string]string{
-								"app.kubernetes.io/component": "redis",
-								"app.kubernetes.io/name":      "teststatefulSet1",
-								"app.kubernetes.io/part-of":   "redis-failover",
-							},
-						},
+						ObjectMeta: metav1.ObjectMeta{Name: "redis-data-teststatefulSet1-0"},
 						Spec: v1.PersistentVolumeClaimSpec{
 							VolumeName: "vol-1",
 							Resources: v1.VolumeResourceRequirements{
@@ -201,6 +197,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 					},
 					// resized already
 					{
+						ObjectMeta: metav1.ObjectMeta{Name: "redis-data-teststatefulSet1-1"},
 						Spec: v1.PersistentVolumeClaimSpec{
 							VolumeName: "vol-2",
 							Resources: v1.VolumeResourceRequirements{
@@ -213,9 +210,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 				},
 			}
 			// Mock.
-			opts := metav1.ListOptions{
-				LabelSelector: "app.kubernetes.io/component=redis,app.kubernetes.io/name=teststatefulSet1,app.kubernetes.io/part-of=redis-failover",
-			}
+			opts := metav1.ListOptions{}
 			expActions := []kubetesting.Action{
 				newStatefulSetGetAction(testns, beforeSts.ObjectMeta.Name),
 				newPVCListAction(opts),
