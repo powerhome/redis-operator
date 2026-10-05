@@ -150,24 +150,6 @@ func (_m *RedisFailoverCheck) CheckSentinelMonitor(sentinel string, sentinelPort
 	return r0
 }
 
-// CheckSentinelNumber provides a mock function with given fields: rFailover
-func (_m *RedisFailoverCheck) CheckSentinelNumber(rFailover *v1.RedisFailover) error {
-	ret := _m.Called(rFailover)
-
-	if len(ret) == 0 {
-		panic("no return value specified for CheckSentinelNumber")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) error); ok {
-		r0 = rf(rFailover)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
 // CheckSentinelNumberInMemory provides a mock function with given fields: sentinel, rFailover
 func (_m *RedisFailoverCheck) CheckSentinelNumberInMemory(sentinel string, rFailover *v1.RedisFailover) error {
 	ret := _m.Called(sentinel, rFailover)
