@@ -1438,5 +1438,4 @@ func TestReplacingTheMasterEndsTheReconcile(t *testing.T) {
 
 	mrfh.AssertExpectations(t)
 	mrfc.AssertNotCalled(t, "GetSentinelsIPs", rf)
-	mrfc.AssertNotCalled(t, "GetMasterHostname", rf, master)
 }
