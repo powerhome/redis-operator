@@ -63,7 +63,9 @@ build_tests_for_node() {
 
   echo ">> Building integration tests (linux/${node_arch})"
   mkdir -p "${workdir}/tests"
-  CGO_ENABLED=0 GOOS=linux GOARCH="${node_arch}" \
+  # On a Linux host this links against the host's C library, which the node
+  # image's must be at least as new as, or the binary fails to start.
+  GOOS=linux GOARCH="${node_arch}" \
     go test -c -tags integration -o "${workdir}/tests/" ./test/integration/...
 }
 

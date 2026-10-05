@@ -59,6 +59,16 @@ local pass predicts a CI pass.
 - **Build for the Docker host's architecture.** The binary runs in the node, so
   it is built for the architecture `docker version` reports. That can differ from
   the machine running `make`.
+- **Build with Go's default C integration (CGO).** A static build with CGO
+  off cannot reuse the Go build cache that `setup-go` restores, so in CI run
+  37317800812 each job spent 48 to 57 seconds compiling the tests, against 7 to
+  11 seconds in the minikube jobs. CGO is on by default when building on a Linux
+  runner, and the binary is then linked against the runner's C library. That
+  only works while the node image's C library is at least as new: the node
+  images use glibc 2.41 (Debian 13) and `ubuntu-22.04` uses 2.35. Either setting
+  is valid for the test, because it exercises the operator's packages
+  compiled into a test binary, not the published image. On macOS, Go turns CGO
+  off by itself when building for Linux.
 - **A single-node cluster.** It is what minikube provided, and the test does not
   depend on pods landing on different nodes.
 - **No option to keep the cluster after a run.** It was left out to keep the
