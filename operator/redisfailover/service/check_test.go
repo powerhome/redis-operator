@@ -294,63 +294,6 @@ func TestCheckRedisNumberTrue(t *testing.T) {
 	assert.NoError(err)
 }
 
-func TestCheckSentinelNumberError(t *testing.T) {
-	assert := assert.New(t)
-
-	rf := generateRF()
-
-	ms := &mK8SService.Services{}
-	ms.On("GetDeployment", namespace, rfservice.GetSentinelName(rf)).Once().Return(nil, errors.New(""))
-	mr := &mRedisService.Client{}
-
-	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-
-	err := checker.CheckSentinelNumber(rf)
-	assert.Error(err)
-}
-
-func TestCheckSentinelNumberFalse(t *testing.T) {
-	assert := assert.New(t)
-
-	rf := generateRF()
-
-	wrongNumber := int32(4)
-	ss := &appsv1.Deployment{
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &wrongNumber,
-		},
-	}
-	ms := &mK8SService.Services{}
-	ms.On("GetDeployment", namespace, rfservice.GetSentinelName(rf)).Once().Return(ss, nil)
-	mr := &mRedisService.Client{}
-
-	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-
-	err := checker.CheckSentinelNumber(rf)
-	assert.Error(err)
-}
-
-func TestCheckSentinelNumberTrue(t *testing.T) {
-	assert := assert.New(t)
-
-	rf := generateRF()
-
-	goodNumber := int32(3)
-	ss := &appsv1.Deployment{
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &goodNumber,
-		},
-	}
-	ms := &mK8SService.Services{}
-	ms.On("GetDeployment", namespace, rfservice.GetSentinelName(rf)).Once().Return(ss, nil)
-	mr := &mRedisService.Client{}
-
-	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-
-	err := checker.CheckSentinelNumber(rf)
-	assert.NoError(err)
-}
-
 func TestCheckAllSlavesFromMasterGetStatefulSetError(t *testing.T) {
 	assert := assert.New(t)
 

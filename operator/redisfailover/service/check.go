@@ -20,7 +20,6 @@ import (
 // RedisFailoverCheck defines the interface able to check the correct status of a redis failover
 type RedisFailoverCheck interface {
 	CheckRedisNumber(rFailover *redisfailoverv1.RedisFailover) error
-	CheckSentinelNumber(rFailover *redisfailoverv1.RedisFailover) error
 	CheckAllSlavesFromMaster(master string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelNumberInMemory(sentinel string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckNumberRedisConnectedSlaves(masterIP string, rFailover *redisfailoverv1.RedisFailover) error
@@ -75,18 +74,6 @@ func (r *RedisFailoverChecker) CheckRedisNumber(rf *redisfailoverv1.RedisFailove
 	}
 	if rf.Spec.Redis.Replicas != *ss.Spec.Replicas {
 		return errors.New("number of redis pods differ from specification")
-	}
-	return nil
-}
-
-// CheckSentinelNumber controlls that the number of deployed sentinel is the same than the requested on the spec
-func (r *RedisFailoverChecker) CheckSentinelNumber(rf *redisfailoverv1.RedisFailover) error {
-	d, err := r.k8sService.GetDeployment(rf.Namespace, GetSentinelName(rf))
-	if err != nil {
-		return err
-	}
-	if rf.Spec.Sentinel.Replicas != *d.Spec.Replicas {
-		return errors.New("number of sentinel pods differ from specification")
 	}
 	return nil
 }
