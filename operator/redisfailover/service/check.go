@@ -573,7 +573,12 @@ func (r *RedisFailoverChecker) GetSentinelsPods(rFailover *redisfailoverv1.Redis
 // enough of them to agree a failover.
 //
 // reporting is how many answered with the master they were expected to be
-// watching, which is the same thing their readiness probe tests.
+// watching, which is what agreeing a failover depends on.
+//
+// Not pod readiness, which the same question reaches through a probe carrying
+// `initialDelaySeconds: 30`: a Sentinel that is already monitoring the master
+// and able to vote reads unready for half a minute, and waiting that out would
+// hold each replacement back for no reason.
 func (r *RedisFailoverChecker) CheckSentinelsCanSpareOne(rFailover *redisfailoverv1.RedisFailover, reporting int32) error {
 	quorum := getQuorum(rFailover)
 	replicas := rFailover.Spec.Sentinel.Replicas
