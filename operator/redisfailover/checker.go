@@ -39,6 +39,25 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 		return err
 	}
 
+	// Ahead of the order below, because nothing the set does moves until this
+	// pod is replaced. Taking the master costs a failover, so it waits for a
+	// replica to promote: that replica still holds the data, and the
+	// replacement syncs from it.
+	blocking, err := r.rfChecker.GetRedisesPodsBlockingTheSet(rf)
+	if err != nil {
+		return err
+	}
+	if len(blocking) > 0 {
+		pod := blocking[0]
+		masterPod, _ := r.rfChecker.GetRedisesMasterPod(rf)
+		if pod == masterPod && len(redises) < 2 {
+			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
+				Warningf("Waiting to replace redis %s, which the set cannot update: no replica could take the master's place", pod)
+			return nil
+		}
+		return r.rfHealer.DeletePod(pod, rf)
+	}
+
 	redisesPods, err := r.rfChecker.GetRedisesSlavesPods(rf)
 	if err != nil {
 		return err

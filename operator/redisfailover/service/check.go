@@ -3,7 +3,9 @@ package service
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -40,6 +42,7 @@ type RedisFailoverCheck interface {
 	GetPodRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetSentinelsPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	CheckSentinelsCanSpareOne(rFailover *redisfailoverv1.RedisFailover, reporting int32) error
+	GetRedisesPodsBlockingTheSet(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesPodsWaitingOnFilesystemResize(rFailover *redisfailoverv1.RedisFailover) (map[string]bool, error)
 	CheckRedisSlavesReady(slaveIP string, rFailover *redisfailoverv1.RedisFailover) (bool, error)
 	IsRedisRunning(rFailover *redisfailoverv1.RedisFailover) bool
@@ -513,6 +516,75 @@ func (r *RedisFailoverChecker) GetRedisesMasterPod(rFailover *redisfailoverv1.Re
 // restart before their filesystem grows to match their claim.
 func (r *RedisFailoverChecker) GetRedisesPodsWaitingOnFilesystemResize(rFailover *redisfailoverv1.RedisFailover) (map[string]bool, error) {
 	return r.k8sService.PodsWaitingOnFilesystemResize(rFailover.Namespace, GetRedisName(rFailover))
+}
+
+// GetRedisesPodsBlockingTheSet names the Redis pods the set cannot bring up to
+// its own pod template, lowest pod ordinal first.
+//
+// Kubernetes refuses to add a volume to a running pod, so a set that gains a
+// volume claim template cannot reconcile the pods it adopted. It stops at the
+// lowest ordinal it cannot update, creates no pod above that one, and so never
+// replaces a pod deleted above it either. Replacing the pod it stopped at is
+// the only thing that lets it continue.
+func (r *RedisFailoverChecker) GetRedisesPodsBlockingTheSet(rFailover *redisfailoverv1.RedisFailover) ([]string, error) {
+	ss, err := r.k8sService.GetStatefulSet(rFailover.Namespace, GetRedisName(rFailover))
+	if err != nil {
+		return nil, err
+	}
+	if len(ss.Spec.VolumeClaimTemplates) == 0 {
+		return nil, nil
+	}
+
+	pods, err := r.k8sService.GetStatefulSetPods(rFailover.Namespace, GetRedisName(rFailover))
+	if err != nil {
+		return nil, err
+	}
+
+	blocking := []corev1.Pod{}
+	for _, pod := range pods.Items {
+		if pod.ObjectMeta.DeletionTimestamp != nil {
+			continue
+		}
+		for _, claim := range ss.Spec.VolumeClaimTemplates {
+			if !podDeclaresVolume(pod, claim.Name) {
+				blocking = append(blocking, pod)
+				break
+			}
+		}
+	}
+
+	sort.Slice(blocking, func(i, j int) bool {
+		return podOrdinal(blocking[i].ObjectMeta.Name) < podOrdinal(blocking[j].ObjectMeta.Name)
+	})
+
+	names := make([]string, 0, len(blocking))
+	for _, pod := range blocking {
+		names = append(names, pod.ObjectMeta.Name)
+	}
+	return names, nil
+}
+
+func podDeclaresVolume(pod corev1.Pod, name string) bool {
+	for _, volume := range pod.Spec.Volumes {
+		if volume.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// podOrdinal reads the position a set gave a pod, which is the order the set
+// reconciles them in. A name without one sorts first, so it is never skipped.
+func podOrdinal(name string) int {
+	dash := strings.LastIndex(name, "-")
+	if dash < 0 {
+		return -1
+	}
+	ordinal, err := strconv.Atoi(name[dash+1:])
+	if err != nil {
+		return -1
+	}
+	return ordinal
 }
 
 // GetStatefulSetUpdateRevision returns current version for the statefulSet

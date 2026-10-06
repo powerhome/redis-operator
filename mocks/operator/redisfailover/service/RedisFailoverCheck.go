@@ -402,6 +402,36 @@ func (_m *RedisFailoverCheck) GetRedisesMasterPod(rFailover *v1.RedisFailover) (
 	return r0, r1
 }
 
+// GetRedisesPodsBlockingTheSet provides a mock function with given fields: rFailover
+func (_m *RedisFailoverCheck) GetRedisesPodsBlockingTheSet(rFailover *v1.RedisFailover) ([]string, error) {
+	ret := _m.Called(rFailover)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRedisesPodsBlockingTheSet")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) ([]string, error)); ok {
+		return rf(rFailover)
+	}
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) []string); ok {
+		r0 = rf(rFailover)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(*v1.RedisFailover) error); ok {
+		r1 = rf(rFailover)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetRedisesPodsWaitingOnFilesystemResize provides a mock function with given fields: rFailover
 func (_m *RedisFailoverCheck) GetRedisesPodsWaitingOnFilesystemResize(rFailover *v1.RedisFailover) (map[string]bool, error) {
 	ret := _m.Called(rFailover)

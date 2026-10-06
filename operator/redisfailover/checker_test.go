@@ -330,6 +330,7 @@ func TestCheckAndHeal(t *testing.T) {
 				mrfc.On("CheckRedisSlavesReady", "0.0.0.3", rf).Once().Return(true, nil)
 				mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
 				mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+				mrfc.On("GetRedisesPodsBlockingTheSet", rf).Maybe().Return([]string{}, nil)
 				mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
 
 				if test.redisSetMasterOnAllOK {
@@ -388,6 +389,7 @@ func TestCheckAndHeal(t *testing.T) {
 					mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{master}, nil)
 					mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
 					mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+					mrfc.On("GetRedisesPodsBlockingTheSet", rf).Maybe().Return([]string{}, nil)
 					mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
 					mrfc.On("GetRedisesMasterPod", rf).Once().Return(master, nil)
 					mrfc.On("GetPodRevisionHash", master, rf).Once().Return("1", nil)
@@ -617,6 +619,7 @@ func TestCheckAndHealBootstrapModeAppliesACredentialChange(t *testing.T) {
 				mrfc.On("CheckRedisSlavesReady", "0.0.0.1", rf).Once().Return(true, nil)
 				mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
 				mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+				mrfc.On("GetRedisesPodsBlockingTheSet", rf).Maybe().Return([]string{}, nil)
 				mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
 				mrfh.On("SetRedisCustomConfig", "0.0.0.1", rf).Once().Return(nil)
 				mrfh.On("SetExternalMasterOnAll", "127.0.0.1", "6379", rf).Once().Return(nil)
@@ -1172,6 +1175,7 @@ func TestUpdate(t *testing.T) {
 				}
 				mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return(test.ssVersion, nil)
 				mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+				mrfc.On("GetRedisesPodsBlockingTheSet", rf).Maybe().Return([]string{}, nil)
 				mrfc.On("GetRedisesSlavesPods", rf).Once().Return(replicas, nil)
 
 				for _, pod := range test.pods {
@@ -1262,6 +1266,7 @@ func TestUpdateRedisesPodsWaitingOnFilesystemResize(t *testing.T) {
 			// is the only thing that can cause a replacement here.
 			mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
 			mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(test.waiting, nil)
+			mrfc.On("GetRedisesPodsBlockingTheSet", rf).Maybe().Return([]string{}, nil)
 			mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{"slave1", "slave2"}, nil)
 			mrfc.On("GetPodRevisionHash", mock.Anything, rf).Return("1", nil)
 

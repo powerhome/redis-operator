@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	kubetesting "k8s.io/client-go/testing"
+	"k8s.io/utils/ptr"
 
 	"github.com/spotahome/redis-operator/log"
 	"github.com/spotahome/redis-operator/metrics"
@@ -38,8 +39,8 @@ func setWithClaims(name string, claimNames ...string) *appsv1.StatefulSet {
 
 // A statefulset's volumeClaimTemplates are immutable, so the desired ones are
 // overwritten with the stored ones before an update. A claim being added would
-// otherwise be discarded while the pod template that mounts it is accepted,
-// and Kubernetes then refuses the next pod the set creates.
+// otherwise be discarded while the pod template still mounts it, which
+// Kubernetes refuses outright.
 func TestAddingAClaimReplacesTheStatefulSet(t *testing.T) {
 	assert := assert.New(t)
 
@@ -224,4 +225,67 @@ func TestResizingAClaimLeavesANeighbouringFailoverAlone(t *testing.T) {
 
 	assert.Equal([]string{"redis-data-rfr-test-0"}, resized)
 	assert.True(replaced, "the set is replaced so the resized claim takes effect")
+}
+
+// Asking for more pods in the same update that adds a claim template asks the
+// set for pods it cannot make: the replacement adopts pods Kubernetes will not
+// let it update, and it creates none above the lowest one it cannot reconcile.
+// The count goes first so the set is whole when the claims change.
+func TestGrowingAndAddingAClaimTogetherGrowsFirst(t *testing.T) {
+	assert := assert.New(t)
+
+	stored := setWithClaims("rfr-test")
+	stored.Namespace = "testns"
+	stored.Spec.Replicas = ptr.To(int32(2))
+
+	desired := setWithClaims("rfr-test", "redis-data")
+	desired.Spec.Replicas = ptr.To(int32(4))
+
+	mcli := fake.NewSimpleClientset()
+	mcli.PrependReactor("get", "statefulsets", func(kubetesting.Action) (bool, runtime.Object, error) {
+		return true, stored, nil
+	})
+	mcli.PrependReactor("delete", "statefulsets", func(kubetesting.Action) (bool, runtime.Object, error) {
+		assert.Fail("the set was replaced while it was still short of its pods")
+		return true, nil, nil
+	})
+
+	var applied *appsv1.StatefulSet
+	mcli.PrependReactor("update", "statefulsets", func(action kubetesting.Action) (bool, runtime.Object, error) {
+		applied = action.(kubetesting.UpdateAction).GetObject().(*appsv1.StatefulSet)
+		return true, applied, nil
+	})
+
+	service := k8s.NewStatefulSetService(mcli, log.Dummy, metrics.Dummy)
+	assert.NoError(service.CreateOrUpdateStatefulSet("testns", desired))
+
+	assert.NotNil(applied, "the set is updated to the new count")
+	assert.Equal(int32(4), *applied.Spec.Replicas)
+	assert.Empty(applied.Spec.VolumeClaimTemplates, "the claims wait for the pods to exist")
+}
+
+// Shrinking needs no new pod, so the claims change in the same pass.
+func TestShrinkingAndRemovingAClaimTogetherReplacesTheSet(t *testing.T) {
+	assert := assert.New(t)
+
+	stored := setWithClaims("rfr-test", "redis-data")
+	stored.Namespace = "testns"
+	stored.Spec.Replicas = ptr.To(int32(4))
+
+	desired := setWithClaims("rfr-test")
+	desired.Spec.Replicas = ptr.To(int32(2))
+
+	replaced := false
+	mcli := fake.NewSimpleClientset()
+	mcli.PrependReactor("get", "statefulsets", func(kubetesting.Action) (bool, runtime.Object, error) {
+		return true, stored, nil
+	})
+	mcli.PrependReactor("delete", "statefulsets", func(kubetesting.Action) (bool, runtime.Object, error) {
+		replaced = true
+		return true, nil, nil
+	})
+
+	service := k8s.NewStatefulSetService(mcli, log.Dummy, metrics.Dummy)
+	assert.NoError(service.CreateOrUpdateStatefulSet("testns", desired))
+	assert.True(replaced)
 }

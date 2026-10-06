@@ -119,14 +119,28 @@ func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefu
 	// function: without that, every ordinary update would be rejected.
 	//
 	// That overwrite also discards a claim being added or removed, which leaves
-	// a pod template mounting a volume the set does not declare. The update is
-	// accepted and the next pod to be created is refused, so the failure
-	// surfaces at an eviction or a drain rather than here.
+	// a pod template mounting a volume the set declares nowhere. Kubernetes
+	// refuses the whole set, with
+	// `spec.template.spec.containers[0].volumeMounts[0].name: Not found`, so
+	// the claim never applies and the reconcile fails every pass.
 	//
 	// A claim appearing, vanishing or being renamed is therefore applied by
 	// replacing the set, leaving its pods running for the replacement to adopt,
 	// which is what the resize below already does for the same reason.
 	if claimTemplateNames(statefulSet) != claimTemplateNames(storedStatefulSet) {
+		// Growth goes first, on its own. The replacement below leaves the set
+		// unable to create pods until the operator replaces the ones it adopted,
+		// so raising the count in the same update asks it for pods it cannot
+		// make.
+		if replicaCount(statefulSet) > replicaCount(storedStatefulSet) {
+			s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).
+				Infof("growing statefulset from %d to %d before changing its volume claim templates",
+					replicaCount(storedStatefulSet), replicaCount(statefulSet))
+			grown := storedStatefulSet.DeepCopy()
+			grown.Spec.Replicas = statefulSet.Spec.Replicas
+			return s.UpdateStatefulSet(namespace, grown)
+		}
+
 		s.logger.WithField("namespace", namespace).WithField("statefulSet", statefulSet.Name).
 			Infof("replacing statefulset to carry its volume claim templates, [%s] where it had [%s]; its pods keep running",
 				claimTemplateNames(statefulSet), claimTemplateNames(storedStatefulSet))
@@ -217,6 +231,15 @@ func (s *StatefulSetService) DeleteStatefulSetClaims(statefulSet *appsv1.Statefu
 		}
 	}
 	return nil
+}
+
+// replicaCount is how many pods a set runs, which Kubernetes takes as one when
+// the set does not say.
+func replicaCount(ss *appsv1.StatefulSet) int32 {
+	if ss.Spec.Replicas == nil {
+		return 1
+	}
+	return *ss.Spec.Replicas
 }
 
 // claimTemplateNames describes a set's volume claim templates by the names its
