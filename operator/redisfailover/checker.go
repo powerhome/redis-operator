@@ -170,7 +170,18 @@ func (r *RedisFailoverHandler) reportMasterUnknown(rf *redisfailoverv1.RedisFail
 
 // CheckAndHeal runs verifcation checks to ensure the RedisFailover is in an expected and healthy state.
 // If the checks do not match up to expectations, an attempt will be made to "heal" the RedisFailover into a healthy state.
+// Replacing a stale Sentinel sits outside the checks below, which stop as soon
+// as the number of ready Sentinels disagrees with the spec. A Sentinel on an old
+// pod template can be why it disagrees, and on `OnDelete` nothing else replaces
+// one.
 func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) error {
+	if err := r.checkAndHeal(rf); err != nil {
+		return err
+	}
+	return r.UpdateSentinelPods(rf)
+}
+
+func (r *RedisFailoverHandler) checkAndHeal(rf *redisfailoverv1.RedisFailover) error {
 	if rf.Bootstrapping() {
 		return r.checkAndHealBootstrapMode(rf)
 	}
@@ -333,7 +344,6 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 
 	port := rf.Spec.Redis.Port.ToString()
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
-	var reporting int32
 	for _, sip := range sentinels {
 		err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, master, port)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
@@ -342,57 +352,120 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 			if err := r.rfHealer.NewSentinelMonitor(sip, master, rf); err != nil {
 				return err
 			}
-			continue
 		}
-		reporting++
 	}
 
-	if err := r.checkAndHealSentinels(rf, sentinels); err != nil {
-		return err
-	}
-
-	// Last, so the pass has already pointed every Sentinel at the master and
-	// the count is as high as it is going to get, and so a pass that found
-	// something wrong does not also take a Sentinel away.
-	return r.UpdateSentinelPods(rf, reporting)
+	return r.checkAndHealSentinels(rf, sentinels)
 }
 
 // UpdateSentinelPods replaces at most one Sentinel running an old pod template.
 //
-// Nothing else will. The set is OnDelete, so the controller will not replace a
-// pod to apply a template, and a StatefulSet cannot bring up a spare ahead of
-// the one it replaces the way the Deployment this succeeded did. The vote is
-// simply gone until the operator points the replacement at a master, which is
-// why this asks first whether the rest can agree a failover without it.
-func (r *RedisFailoverHandler) UpdateSentinelPods(rf *redisfailoverv1.RedisFailover, reporting int32) error {
-	want, err := r.rfChecker.GetSentinelSetUpdateRevision(rf)
+// One per pass, so a failover never loses two at once, and only while enough of
+// the others still agree on the master for a failover to carry.
+func (r *RedisFailoverHandler) UpdateSentinelPods(rf *redisfailoverv1.RedisFailover) error {
+	if !rf.SentinelsAllowed() {
+		return nil
+	}
+
+	stale, err := r.staleSentinelPod(rf)
 	if err != nil {
 		return err
+	}
+	if stale == "" {
+		return nil
+	}
+
+	hold := func(reason string) {
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
+			Warningf("Waiting to replace sentinel %s: %s", stale, reason)
+	}
+
+	master, masterPort, err := r.expectedMaster(rf)
+	if err != nil {
+		// A failover between masters has nothing to compare the Sentinels
+		// against, which is ordinary and is not a pass to take one away in.
+		hold(err.Error())
+		return nil
+	}
+
+	reporting, err := r.sentinelsReportingMaster(rf, master, masterPort)
+	if err != nil {
+		// Reading the Sentinels failed, which is not the same as the Sentinels
+		// disagreeing. Reported, so the pass does not read as a healthy one.
+		return err
+	}
+
+	if err := r.rfChecker.CheckSentinelsCanSpareOne(rf, reporting); err != nil {
+		hold(err.Error())
+		return nil
+	}
+
+	return r.rfHealer.DeletePod(stale, rf)
+}
+
+// staleSentinelPod names the first Sentinel pod running something other than
+// the set's current template, or "" when they all match.
+//
+// Asked before anything is read from Redis, because every failover answers this
+// on every pass and almost all of them answer that nothing is stale.
+func (r *RedisFailoverHandler) staleSentinelPod(rf *redisfailoverv1.RedisFailover) (string, error) {
+	want, err := r.rfChecker.GetSentinelSetUpdateRevision(rf)
+	if err != nil {
+		return "", err
 	}
 
 	pods, err := r.rfChecker.GetSentinelsPods(rf)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	for _, pod := range pods {
 		revision, err := r.rfChecker.GetPodRevisionHash(pod, rf)
 		if err != nil {
-			return err
+			return "", err
 		}
-		if revision == want {
-			continue
+		if revision != want {
+			return pod, nil
 		}
-
-		if err := r.rfChecker.CheckSentinelsCanSpareOne(rf, reporting); err != nil {
-			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
-				Warningf("Waiting to replace sentinel %s: %s", pod, err.Error())
-			return nil
-		}
-
-		return r.rfHealer.DeletePod(pod, rf)
 	}
-	return nil
+	return "", nil
+}
+
+// expectedMaster addresses the Redis the Sentinels are meant to be watching.
+//
+// A bootstrapping failover has no master of its own: every one of its Redis
+// instances replicates the external node, so none of them reports as one.
+func (r *RedisFailoverHandler) expectedMaster(rf *redisfailoverv1.RedisFailover) (string, string, error) {
+	if rf.Bootstrapping() {
+		return rf.Spec.BootstrapNode.Host, rf.Spec.BootstrapNode.Port, nil
+	}
+
+	master, err := r.rfChecker.GetMasterIP(rf)
+	if err != nil {
+		return "", "", err
+	}
+	return master, rf.Spec.Redis.Port.ToString(), nil
+}
+
+// sentinelsReportingMaster counts the Sentinels answering with the given
+// master, which is what agreeing a failover depends on.
+//
+// Counted here rather than taken from the pass that repoints them, so the count
+// is the one that holds when the pod is taken.
+func (r *RedisFailoverHandler) sentinelsReportingMaster(rf *redisfailoverv1.RedisFailover, master, masterPort string) (int32, error) {
+	sentinels, err := r.rfChecker.GetSentinelsIPs(rf)
+	if err != nil {
+		return 0, err
+	}
+
+	var reporting int32
+	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	for _, sip := range sentinels {
+		if err := r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, master, masterPort); err == nil {
+			reporting++
+		}
+	}
+	return reporting, nil
 }
 
 func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.RedisFailover) error {
@@ -451,7 +524,6 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 		if err != nil {
 			return err
 		}
-		var reporting int32
 		for _, sip := range sentinels {
 			err = r.rfChecker.CheckSentinelMonitor(sip, bootstrapSettings.Host, bootstrapSettings.Port)
 			setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
@@ -460,18 +532,10 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 				if err := r.rfHealer.NewSentinelMonitorWithPort(sip, bootstrapSettings.Host, bootstrapSettings.Port, rf); err != nil {
 					return err
 				}
-				continue
 			}
-			reporting++
 		}
 
-		if err := r.checkAndHealSentinels(rf, sentinels); err != nil {
-			return err
-		}
-
-		// A bootstrapping failover runs the same Sentinel set, so its pods go
-		// stale the same way. The master they watch is the external one.
-		return r.UpdateSentinelPods(rf, reporting)
+		return r.checkAndHealSentinels(rf, sentinels)
 	}
 	return nil
 }

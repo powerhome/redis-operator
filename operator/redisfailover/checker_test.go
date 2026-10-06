@@ -395,11 +395,17 @@ func TestCheckAndHeal(t *testing.T) {
 				}
 			}
 
+			// Replacing a stale Sentinel runs on every pass, including the ones
+			// that stop early above, so these answer wherever it is reached. No
+			// pod is stale here, which the rollout tests cover in their own right.
+			if allowSentinels {
+				mrfc.On("GetSentinelSetUpdateRevision", rf).Maybe().Return("1", nil)
+				mrfc.On("GetSentinelsPods", rf).Maybe().Return([]string{"rfs-test-0"}, nil)
+				mrfc.On("GetPodRevisionHash", "rfs-test-0", rf).Maybe().Return("1", nil)
+			}
+
 			if allowSentinels && !expErr && continueTests {
 				mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{sentinel}, nil)
-				mrfc.On("GetSentinelSetUpdateRevision", rf).Once().Return("1", nil)
-				mrfc.On("GetSentinelsPods", rf).Once().Return([]string{"rfs-test-0"}, nil)
-				mrfc.On("GetPodRevisionHash", "rfs-test-0", rf).Once().Return("1", nil)
 				if test.sentinelMonitorOK {
 					if test.bootstrapping {
 						mrfc.On("CheckSentinelMonitor", sentinel, bootstrapMaster, bootstrapMasterPort).Once().Return(nil)
@@ -522,6 +528,11 @@ func TestCheckAndHealAppliesACredentialChange(t *testing.T) {
 				}
 			}
 			mrfc.On("GetRedisesPodsWithStalePassword", rf).Once().Return(stale, nil)
+
+			// Replacing a stale Sentinel is reached on this pass too, and a
+			// credential change is not what it looks at.
+			mrfc.On("GetSentinelSetUpdateRevision", rf).Maybe().Return("1", nil)
+			mrfc.On("GetSentinelsPods", rf).Maybe().Return([]string{}, nil)
 
 			attempted := []string{}
 			for _, name := range stale {
@@ -1253,6 +1264,11 @@ func TestUpdateRedisesPodsWaitingOnFilesystemResize(t *testing.T) {
 			mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(test.waiting, nil)
 			mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{"slave1", "slave2"}, nil)
 			mrfc.On("GetPodRevisionHash", mock.Anything, rf).Return("1", nil)
+
+			// The Sentinels are current too, so replacing one is reached and
+			// finds nothing to do.
+			mrfc.On("GetSentinelSetUpdateRevision", rf).Maybe().Return("1", nil)
+			mrfc.On("GetSentinelsPods", rf).Maybe().Return([]string{}, nil)
 
 			if len(test.expected) == 0 || test.expected[0] == "master" {
 				mrfc.On("GetRedisesMasterPod", rf).Once().Return("master", nil)
