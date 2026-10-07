@@ -651,6 +651,8 @@ func TestCheckAndHealReportsThatTheMasterCouldNotBeDetermined(t *testing.T) {
 		mrfc.On("IsSentinelRunning", rf).Once().Return(true)
 		mrfc.On("GetNumberMasters", rf).Once().Return(0, unreachable)
 		mrfs.On("UpdateStatus", rf).Once().Return(rf, nil)
+		mrfc.On("GetSentinelSetUpdateRevision", rf).Maybe().Return("1", nil)
+		mrfc.On("GetSentinelsPods", rf).Maybe().Return([]string{}, nil)
 
 		handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
 		assert.Error(handler.CheckAndHeal(rf))
@@ -682,6 +684,8 @@ func TestCheckAndHealReportsThatTheMasterCouldNotBeDetermined(t *testing.T) {
 		mk := &mK8SService.Services{}
 
 		mrfc.On("IsRedisRunning", rf).Once().Return(true)
+		mrfc.On("GetSentinelSetUpdateRevision", rf).Maybe().Return("1", nil)
+		mrfc.On("GetSentinelsPods", rf).Maybe().Return([]string{}, nil)
 		mrfc.On("IsSentinelRunning", rf).Once().Return(true)
 		mrfc.On("GetNumberMasters", rf).Once().Return(0, unreachable)
 

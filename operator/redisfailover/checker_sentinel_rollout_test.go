@@ -265,3 +265,32 @@ func TestAStaleSentinelThatIsAlreadyDownIsStillReplaced(t *testing.T) {
 	mrfc.AssertExpectations(t)
 	mrfh.AssertExpectations(t)
 }
+
+// The contract is that both run and the heal's failure is what gets reported.
+// Whether this particular replacement proceeds is the gate's business, covered
+// by its own tests; what matters here is that the replacement was reached.
+func TestAFailedHealStillReachesTheReplacement(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF(false, false)
+	rf.Spec.Sentinel.Replicas = 3
+	unreachable := errors.New("dial tcp 10.0.0.1:6380: connect: connection refused")
+
+	mrfs := &mRFService.RedisFailoverClient{}
+	mrfs.On("UpdateStatus", rf).Maybe().Return(rf, nil)
+
+	mrfc := &mRFService.RedisFailoverCheck{}
+	mrfc.On("IsRedisRunning", rf).Once().Return(true)
+	mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+	mrfc.On("GetNumberMasters", rf).Once().Return(0, unreachable)
+	mrfc.On("GetSentinelSetUpdateRevision", rf).Once().Return("2", nil)
+	mrfc.On("GetSentinelsPods", rf).Once().Return([]string{}, nil)
+
+	mrfh := &mRFService.RedisFailoverHeal{}
+
+	handler := rfOperator.NewRedisFailoverHandler(generateConfig(), mrfs, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
+
+	assert.Error(handler.CheckAndHeal(rf))
+	mrfc.AssertCalled(t, "GetSentinelSetUpdateRevision", rf)
+	mrfc.AssertCalled(t, "GetSentinelsPods", rf)
+}

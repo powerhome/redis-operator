@@ -175,10 +175,19 @@ func (r *RedisFailoverHandler) reportMasterUnknown(rf *redisfailoverv1.RedisFail
 // pod template can be why it disagrees, and on `OnDelete` nothing else replaces
 // one.
 func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) error {
-	if err := r.checkAndHeal(rf); err != nil {
-		return err
+	healed := r.checkAndHeal(rf)
+
+	// Run even when the heal failed, because what failed can be the Sentinel
+	// that needs replacing: configuring an unreachable one fails every pass, so
+	// skipping the replacement would skip it for as long as the pod stays
+	// broken. Taking a Sentinel is safe to attempt here because
+	// `CheckSentinelsCanSpareOne` decides it, not the success of the pass.
+	replaced := r.UpdateSentinelPods(rf)
+
+	if healed != nil {
+		return healed
 	}
-	return r.UpdateSentinelPods(rf)
+	return replaced
 }
 
 func (r *RedisFailoverHandler) checkAndHeal(rf *redisfailoverv1.RedisFailover) error {
