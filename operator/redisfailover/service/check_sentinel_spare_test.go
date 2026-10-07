@@ -25,20 +25,26 @@ func TestCheckSentinelsCanSpareOne(t *testing.T) {
 		name      string
 		replicas  int32
 		reporting int32
+		losing    int32
 		allowed   bool
 	}{
-		{name: "three, all reporting", replicas: 3, reporting: 3, allowed: true},
-		{name: "three, one already missing", replicas: 3, reporting: 2, allowed: false},
-		{name: "three, two already missing", replicas: 3, reporting: 1, allowed: false},
-		{name: "five, one already missing", replicas: 5, reporting: 4, allowed: true},
-		{name: "five, two already missing", replicas: 5, reporting: 3, allowed: false},
+		{name: "three, all reporting", replicas: 3, reporting: 3, losing: 1, allowed: true},
+		{name: "three, one already missing", replicas: 3, reporting: 2, losing: 1, allowed: false},
+		{name: "three, two already missing", replicas: 3, reporting: 1, losing: 1, allowed: false},
+		{name: "five, one already missing", replicas: 5, reporting: 4, losing: 1, allowed: true},
+		{name: "five, two already missing", replicas: 5, reporting: 3, losing: 1, allowed: false},
 
 		// Quorum is 2 for two Sentinels and 1 for one, so losing either breaks
 		// it. Asked the strict question these could never roll.
-		{name: "two, both reporting", replicas: 2, reporting: 2, allowed: true},
-		{name: "two, one already missing", replicas: 2, reporting: 1, allowed: false},
-		{name: "one, reporting", replicas: 1, reporting: 1, allowed: true},
-		{name: "one, not reporting", replicas: 1, reporting: 0, allowed: false},
+		{name: "two, both reporting", replicas: 2, reporting: 2, losing: 1, allowed: true},
+		{name: "two, one already missing", replicas: 2, reporting: 1, losing: 1, allowed: false},
+		{name: "one, reporting", replicas: 1, reporting: 1, losing: 1, allowed: true},
+		{name: "one, not reporting", replicas: 1, reporting: 0, losing: 1, allowed: false},
+
+		{name: "three, the stale one already down", replicas: 3, reporting: 2, losing: 0, allowed: true},
+		{name: "two, the stale one already down", replicas: 2, reporting: 1, losing: 0, allowed: true},
+		{name: "one, the only one already down", replicas: 1, reporting: 0, losing: 0, allowed: true},
+		{name: "five, the stale one and another down", replicas: 5, reporting: 3, losing: 0, allowed: true},
 	}
 
 	for _, test := range tests {
@@ -50,7 +56,7 @@ func TestCheckSentinelsCanSpareOne(t *testing.T) {
 
 			checker := rfservice.NewRedisFailoverChecker(&mK8SService.Services{}, &mRedisService.Client{}, log.DummyLogger{}, metrics.Dummy)
 
-			err := checker.CheckSentinelsCanSpareOne(rf, test.reporting)
+			err := checker.CheckSentinelsCanSpareOne(rf, test.reporting, test.losing)
 			if test.allowed {
 				assert.NoError(err)
 				return

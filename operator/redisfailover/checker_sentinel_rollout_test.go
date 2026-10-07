@@ -28,12 +28,12 @@ func TestAStaleSentinelIsReplacedWhenTheRestCanAgreeAFailover(t *testing.T) {
 	mrfc.On("GetSentinelsPods", rf).Once().Return([]string{"rfs-test-0", stale, "rfs-test-2"}, nil)
 	mrfc.On("GetPodRevisionHash", "rfs-test-0", rf).Once().Return("2", nil)
 	mrfc.On("GetPodRevisionHash", stale, rf).Once().Return("1", nil)
-	mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{"1.1.1.1", "1.1.1.2", "1.1.1.3"}, nil)
+	mrfc.On("GetSentinelsAddresses", rf).Once().Return(map[string]string{"rfs-test-0": "1.1.1.1", "rfs-test-1": "1.1.1.2", "rfs-test-2": "1.1.1.3"}, nil)
 	mrfc.On("GetMasterIP", rf).Once().Return("2.2.2.2", nil)
 	mrfc.On("CheckSentinelMonitor", "1.1.1.1", "26379", "2.2.2.2", "6379").Once().Return(nil)
 	mrfc.On("CheckSentinelMonitor", "1.1.1.2", "26379", "2.2.2.2", "6379").Once().Return(nil)
 	mrfc.On("CheckSentinelMonitor", "1.1.1.3", "26379", "2.2.2.2", "6379").Once().Return(nil)
-	mrfc.On("CheckSentinelsCanSpareOne", rf, int32(3)).Once().Return(nil)
+	mrfc.On("CheckSentinelsCanSpareOne", rf, int32(3), int32(1)).Once().Return(nil)
 
 	mrfh := &mRFService.RedisFailoverHeal{}
 	mrfh.On("DeletePod", stale, rf).Once().Return(nil)
@@ -62,13 +62,13 @@ func TestAStaleSentinelIsHeldBackWhenTheRestCannot(t *testing.T) {
 	mrfc.On("GetSentinelSetUpdateRevision", rf).Once().Return("2", nil)
 	mrfc.On("GetSentinelsPods", rf).Once().Return([]string{stale}, nil)
 	mrfc.On("GetPodRevisionHash", stale, rf).Once().Return("1", nil)
-	mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{"1.1.1.1", "1.1.1.2", "1.1.1.3"}, nil)
+	mrfc.On("GetSentinelsAddresses", rf).Once().Return(map[string]string{"rfs-test-0": "1.1.1.1", "rfs-test-1": "1.1.1.2", "rfs-test-2": "1.1.1.3"}, nil)
 	mrfc.On("GetMasterIP", rf).Once().Return("2.2.2.2", nil)
 	mrfc.On("CheckSentinelMonitor", "1.1.1.1", "26379", "2.2.2.2", "6379").Once().Return(nil)
 	mrfc.On("CheckSentinelMonitor", "1.1.1.2", "26379", "2.2.2.2", "6379").Once().Return(nil)
 	mrfc.On("CheckSentinelMonitor", "1.1.1.3", "26379", "2.2.2.2", "6379").Once().
 		Return(errors.New("sentinel monitoring 127.0.0.1:6379 instead 2.2.2.2:6379"))
-	mrfc.On("CheckSentinelsCanSpareOne", rf, int32(2)).Once().
+	mrfc.On("CheckSentinelsCanSpareOne", rf, int32(2), int32(1)).Once().
 		Return(errors.New("2 of 3 sentinels report the master, and 2 must remain to agree a failover"))
 
 	mrfh := &mRFService.RedisFailoverHeal{}
@@ -102,7 +102,7 @@ func TestNoSentinelIsReplacedWhenEveryRevisionMatches(t *testing.T) {
 
 	assert.NoError(handler.UpdateSentinelPods(rf))
 
-	mrfc.AssertNotCalled(t, "CheckSentinelsCanSpareOne", rf, int32(3))
+	mrfc.AssertNotCalled(t, "CheckSentinelsCanSpareOne", rf, int32(3), int32(1))
 	mrfc.AssertNotCalled(t, "GetSentinelsIPs", rf)
 	mrfc.AssertNotCalled(t, "GetMasterIP", rf)
 	mrfh.AssertNotCalled(t, "DeletePod", "rfs-test-0", rf)
@@ -129,12 +129,12 @@ func TestAStaleSentinelIsStillReplacedWhileTheCountDisagreesWithTheSpec(t *testi
 	mrfc.On("GetSentinelsPods", rf).Once().Return([]string{"rfs-test-0", stale}, nil)
 	mrfc.On("GetPodRevisionHash", "rfs-test-0", rf).Once().Return("2", nil)
 	mrfc.On("GetPodRevisionHash", stale, rf).Once().Return("1", nil)
-	mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{"1.1.1.1", "1.1.1.2", "1.1.1.3"}, nil)
+	mrfc.On("GetSentinelsAddresses", rf).Once().Return(map[string]string{"rfs-test-0": "1.1.1.1", "rfs-test-1": "1.1.1.2", "rfs-test-2": "1.1.1.3"}, nil)
 	mrfc.On("GetMasterIP", rf).Once().Return("2.2.2.2", nil)
 	mrfc.On("CheckSentinelMonitor", "1.1.1.1", "26379", "2.2.2.2", "6379").Once().Return(nil)
 	mrfc.On("CheckSentinelMonitor", "1.1.1.2", "26379", "2.2.2.2", "6379").Once().Return(nil)
 	mrfc.On("CheckSentinelMonitor", "1.1.1.3", "26379", "2.2.2.2", "6379").Once().Return(nil)
-	mrfc.On("CheckSentinelsCanSpareOne", rf, int32(3)).Once().Return(nil)
+	mrfc.On("CheckSentinelsCanSpareOne", rf, int32(3), int32(1)).Once().Return(nil)
 
 	mrfh := &mRFService.RedisFailoverHeal{}
 	mrfh.On("DeletePod", stale, rf).Once().Return(nil)
@@ -163,12 +163,12 @@ func TestABootstrappingFailoverCountsAgainstItsExternalNode(t *testing.T) {
 	mrfc.On("GetSentinelSetUpdateRevision", rf).Once().Return("2", nil)
 	mrfc.On("GetSentinelsPods", rf).Once().Return([]string{stale}, nil)
 	mrfc.On("GetPodRevisionHash", stale, rf).Once().Return("1", nil)
-	mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{"1.1.1.1", "1.1.1.2", "1.1.1.3"}, nil)
+	mrfc.On("GetSentinelsAddresses", rf).Once().Return(map[string]string{"rfs-test-0": "1.1.1.1", "rfs-test-1": "1.1.1.2", "rfs-test-2": "1.1.1.3"}, nil)
 	// The external node, at the Sentinel port, in that order.
 	mrfc.On("CheckSentinelMonitor", "1.1.1.1", "26379", "127.0.0.1", "6379").Once().Return(nil)
 	mrfc.On("CheckSentinelMonitor", "1.1.1.2", "26379", "127.0.0.1", "6379").Once().Return(nil)
 	mrfc.On("CheckSentinelMonitor", "1.1.1.3", "26379", "127.0.0.1", "6379").Once().Return(nil)
-	mrfc.On("CheckSentinelsCanSpareOne", rf, int32(3)).Once().Return(nil)
+	mrfc.On("CheckSentinelsCanSpareOne", rf, int32(3), int32(1)).Once().Return(nil)
 
 	mrfh := &mRFService.RedisFailoverHeal{}
 	mrfh.On("DeletePod", stale, rf).Once().Return(nil)
@@ -206,7 +206,7 @@ func TestNoMasterToCompareAgainstHoldsTheStalePod(t *testing.T) {
 	assert.NoError(handler.UpdateSentinelPods(rf))
 
 	mrfh.AssertNotCalled(t, "DeletePod", stale, rf)
-	mrfc.AssertNotCalled(t, "CheckSentinelsCanSpareOne", rf, int32(0))
+	mrfc.AssertNotCalled(t, "CheckSentinelsCanSpareOne", rf, int32(0), int32(0))
 }
 
 // A read that fails is not the Sentinels disagreeing. Reported, so a pass that
@@ -223,7 +223,7 @@ func TestAFailedSentinelReadIsReported(t *testing.T) {
 	mrfc.On("GetSentinelsPods", rf).Once().Return([]string{stale}, nil)
 	mrfc.On("GetPodRevisionHash", stale, rf).Once().Return("1", nil)
 	mrfc.On("GetMasterIP", rf).Once().Return("2.2.2.2", nil)
-	mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{}, errors.New("connection refused"))
+	mrfc.On("GetSentinelsAddresses", rf).Once().Return(map[string]string{}, errors.New("connection refused"))
 
 	mrfh := &mRFService.RedisFailoverHeal{}
 
@@ -232,4 +232,36 @@ func TestAFailedSentinelReadIsReported(t *testing.T) {
 	assert.EqualError(handler.UpdateSentinelPods(rf), "connection refused")
 
 	mrfh.AssertNotCalled(t, "DeletePod", stale, rf)
+}
+
+func TestAStaleSentinelThatIsAlreadyDownIsStillReplaced(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF(false, false)
+	rf.Spec.Sentinel.Replicas = 3
+	rf.Spec.Redis.Port = 6379
+	stale := "rfs-test-1"
+
+	mrfc := &mRFService.RedisFailoverCheck{}
+	mrfc.On("GetSentinelSetUpdateRevision", rf).Once().Return("2", nil)
+	mrfc.On("GetSentinelsPods", rf).Once().Return([]string{"rfs-test-0", stale, "rfs-test-2"}, nil)
+	mrfc.On("GetPodRevisionHash", "rfs-test-0", rf).Once().Return("2", nil)
+	mrfc.On("GetPodRevisionHash", stale, rf).Once().Return("1", nil)
+	mrfc.On("GetMasterIP", rf).Once().Return("2.2.2.2", nil)
+	// The stale pod is not running, so it has no address and casts no vote.
+	mrfc.On("GetSentinelsAddresses", rf).Once().
+		Return(map[string]string{"rfs-test-0": "1.1.1.1", "rfs-test-2": "1.1.1.3"}, nil)
+	mrfc.On("CheckSentinelMonitor", "1.1.1.1", "26379", "2.2.2.2", "6379").Once().Return(nil)
+	mrfc.On("CheckSentinelMonitor", "1.1.1.3", "26379", "2.2.2.2", "6379").Once().Return(nil)
+	mrfc.On("CheckSentinelsCanSpareOne", rf, int32(2), int32(0)).Once().Return(nil)
+
+	mrfh := &mRFService.RedisFailoverHeal{}
+	mrfh.On("DeletePod", stale, rf).Once().Return(nil)
+
+	handler := rfOperator.NewRedisFailoverHandler(generateConfig(), &mRFService.RedisFailoverClient{}, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
+
+	assert.NoError(handler.UpdateSentinelPods(rf))
+
+	mrfc.AssertExpectations(t)
+	mrfh.AssertExpectations(t)
 }

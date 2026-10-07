@@ -31,6 +31,7 @@ type RedisFailoverCheck interface {
 	GetNumberMasters(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetSentinelsIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
+	GetSentinelsAddresses(rFailover *redisfailoverv1.RedisFailover) (map[string]string, error)
 	GetMaxRedisPodTime(rFailover *redisfailoverv1.RedisFailover) (time.Duration, error)
 	GetRedisesPodsWithStalePassword(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesSlavesPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
@@ -39,7 +40,7 @@ type RedisFailoverCheck interface {
 	GetSentinelSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetPodRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetSentinelsPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
-	CheckSentinelsCanSpareOne(rFailover *redisfailoverv1.RedisFailover, reporting int32) error
+	CheckSentinelsCanSpareOne(rFailover *redisfailoverv1.RedisFailover, reporting, losing int32) error
 	GetRedisesPodsWaitingOnFilesystemResize(rFailover *redisfailoverv1.RedisFailover) (map[string]bool, error)
 	CheckRedisSlavesReady(slaveIP string, rFailover *redisfailoverv1.RedisFailover) (bool, error)
 	IsRedisRunning(rFailover *redisfailoverv1.RedisFailover) bool
@@ -402,6 +403,27 @@ func (r *RedisFailoverChecker) GetSentinelsIPs(rf *redisfailoverv1.RedisFailover
 	return sentinels, nil
 }
 
+// GetSentinelsAddresses maps each running Sentinel pod to the address it
+// answers on.
+//
+// GetSentinelsIPs gives the same addresses without saying which pod each
+// belongs to, which is enough to ask every Sentinel a question and not enough
+// to know whether a particular one answered.
+func (r *RedisFailoverChecker) GetSentinelsAddresses(rf *redisfailoverv1.RedisFailover) (map[string]string, error) {
+	pods, err := r.getSentinelPods(rf)
+	if err != nil {
+		return nil, err
+	}
+
+	addresses := map[string]string{}
+	for _, sp := range pods.Items {
+		if sp.Status.Phase == corev1.PodRunning && sp.DeletionTimestamp == nil {
+			addresses[sp.ObjectMeta.Name] = sp.Status.PodIP
+		}
+	}
+	return addresses, nil
+}
+
 // GetMaxRedisPodTime returns the MAX uptime among the active Pods
 func (r *RedisFailoverChecker) GetMaxRedisPodTime(rf *redisfailoverv1.RedisFailover) (time.Duration, error) {
 	maxTime := 0 * time.Hour
@@ -566,9 +588,17 @@ func (r *RedisFailoverChecker) GetSentinelsPods(rFailover *redisfailoverv1.Redis
 // `initialDelaySeconds: 30`: a Sentinel that is already monitoring the master
 // and able to vote reads unready for half a minute, and waiting that out would
 // hold each replacement back for no reason.
-func (r *RedisFailoverChecker) CheckSentinelsCanSpareOne(rFailover *redisfailoverv1.RedisFailover, reporting int32) error {
+func (r *RedisFailoverChecker) CheckSentinelsCanSpareOne(rFailover *redisfailoverv1.RedisFailover, reporting, losing int32) error {
 	quorum := getQuorum(rFailover)
 	replicas := rFailover.Spec.Sentinel.Replicas
+
+	// A Sentinel that is not reporting the master casts no vote, so taking it
+	// costs the failover nothing and replacing it is the only way it starts
+	// voting again. Subtracting a vote it never had would hold exactly the pod
+	// most in need of replacement, for good.
+	if losing == 0 {
+		return nil
+	}
 
 	// At or below the quorum, no number of healthy Sentinels makes taking one
 	// away safe, so a strict question could never be answered yes and would

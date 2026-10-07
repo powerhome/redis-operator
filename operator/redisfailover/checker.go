@@ -395,7 +395,12 @@ func (r *RedisFailoverHandler) UpdateSentinelPods(rf *redisfailoverv1.RedisFailo
 		return err
 	}
 
-	if err := r.rfChecker.CheckSentinelsCanSpareOne(rf, reporting); err != nil {
+	losing := int32(0)
+	if reporting[stale] {
+		losing = 1
+	}
+
+	if err := r.rfChecker.CheckSentinelsCanSpareOne(rf, int32(len(reporting)), losing); err != nil {
 		hold(err.Error())
 		return nil
 	}
@@ -447,22 +452,23 @@ func (r *RedisFailoverHandler) expectedMaster(rf *redisfailoverv1.RedisFailover)
 	return master, rf.Spec.Redis.Port.ToString(), nil
 }
 
-// sentinelsReportingMaster counts the Sentinels answering with the given
-// master, which is what agreeing a failover depends on.
+// sentinelsReportingMaster names the Sentinels answering with the given master,
+// which is what agreeing a failover depends on.
 //
-// Counted here rather than taken from the pass that repoints them, so the count
-// is the one that holds when the pod is taken.
-func (r *RedisFailoverHandler) sentinelsReportingMaster(rf *redisfailoverv1.RedisFailover, master, masterPort string) (int32, error) {
-	sentinels, err := r.rfChecker.GetSentinelsIPs(rf)
+// Named rather than counted, because the gate needs to know whether the pod
+// about to be replaced is among them. Read here rather than taken from the pass
+// that repoints them, so it holds when the pod is taken.
+func (r *RedisFailoverHandler) sentinelsReportingMaster(rf *redisfailoverv1.RedisFailover, master, masterPort string) (map[string]bool, error) {
+	addresses, err := r.rfChecker.GetSentinelsAddresses(rf)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	var reporting int32
+	reporting := map[string]bool{}
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
-	for _, sip := range sentinels {
+	for pod, sip := range addresses {
 		if err := r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, master, masterPort); err == nil {
-			reporting++
+			reporting[pod] = true
 		}
 	}
 	return reporting, nil
