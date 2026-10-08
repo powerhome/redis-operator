@@ -592,28 +592,29 @@ func (r *RedisFailoverChecker) CheckSentinelsCanSpareOne(rFailover *redisfailove
 	quorum := getQuorum(rFailover)
 	replicas := rFailover.Spec.Sentinel.Replicas
 
-	// A Sentinel that is not reporting the master casts no vote, so taking it
-	// costs the failover nothing and replacing it is the only way it starts
-	// voting again. Subtracting a vote it never had would hold exactly the pod
-	// most in need of replacement, for good.
-	if losing == 0 {
-		return nil
-	}
+	// A pod that is already down is not in reporting, so losing is zero and this
+	// subtracts nothing. The failover is no worse off and the check below lets
+	// the replacement go ahead.
+	//
+	// When no Sentinel reports, stillReporting is zero and that same check
+	// refuses. The operator cannot see the Sentinels, so it must not delete
+	// them one per pass while their quorum may be intact.
+	stillReporting := reporting - losing
 
-	// At or below the quorum, no number of healthy Sentinels makes taking one
-	// away safe, so a strict question could never be answered yes and would
-	// hold every Sentinel on its old pod template for good. Such a failover is
-	// asked only that none is already missing, and the window while the
-	// replacement starts is accepted because nothing avoids it.
+	// Only one and two Sentinel failovers reach here: one needs one Sentinel to
+	// agree a failover, two need two, so replacing either leaves too few. A
+	// quorum rule would refuse every time and strand the pod on its old
+	// template, so this asks for less: that every Sentinel except the one being
+	// replaced reports. Such a failover spends the replacement below quorum.
 	if replicas <= quorum {
-		if reporting < replicas {
-			return fmt.Errorf("%d of %d sentinels report the master, and this failover has none to spare", reporting, replicas)
+		if stillReporting < replicas-1 {
+			return fmt.Errorf("%d of %d sentinels would still report the master, and this failover has none to spare", stillReporting, replicas)
 		}
 		return nil
 	}
 
-	if reporting-1 < quorum {
-		return fmt.Errorf("%d of %d sentinels report the master, and %d must remain to agree a failover", reporting, replicas, quorum)
+	if stillReporting < quorum {
+		return fmt.Errorf("%d of %d sentinels would still report the master, and %d are needed to agree a failover", stillReporting, replicas, quorum)
 	}
 	return nil
 }

@@ -45,6 +45,15 @@ func TestCheckSentinelsCanSpareOne(t *testing.T) {
 		{name: "two, the stale one already down", replicas: 2, reporting: 1, losing: 0, allowed: true},
 		{name: "one, the only one already down", replicas: 1, reporting: 0, losing: 0, allowed: true},
 		{name: "five, the stale one and another down", replicas: 5, reporting: 3, losing: 0, allowed: true},
+
+		{name: "three, none reporting", replicas: 3, reporting: 0, losing: 0, allowed: false},
+		{name: "five, none reporting", replicas: 5, reporting: 0, losing: 0, allowed: false},
+		{name: "two, none reporting", replicas: 2, reporting: 0, losing: 0, allowed: false},
+
+		// One Sentinel is the exception: there is no second answer to tell an
+		// unreachable Sentinel from a broken one, and holding it would leave the
+		// failover on an old pod template for good.
+		{name: "one, none reporting", replicas: 1, reporting: 0, losing: 0, allowed: true},
 	}
 
 	for _, test := range tests {
