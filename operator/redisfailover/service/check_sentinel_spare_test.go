@@ -17,9 +17,10 @@ import (
 // replacement at a master, so the question is whether the rest could still
 // agree a failover.
 //
-// At or below the quorum there is no answer that permits it, and a strict
-// question would hold those failovers on an old pod template for good, so they
-// are asked only that none is already missing.
+// One and two Sentinel failovers cannot answer that yes, so they are asked
+// something weaker: that every Sentinel other than the one being replaced
+// reports. A Sentinel that is not reporting casts no vote, so replacing it costs
+// nothing, and a failover where none reports is one the operator cannot see.
 func TestCheckSentinelsCanSpareOne(t *testing.T) {
 	tests := []struct {
 		name      string

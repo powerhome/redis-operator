@@ -48,8 +48,8 @@ sentinel parallel-syncs mymaster 1`
 	redisReadinessVolumeName               = "redis-readiness-config"
 	redisStorageVolumeName                 = "redis-data"
 	sentinelStartupConfigurationVolumeName = "sentinel-startup-config"
-	// Where a Sentinel keeps the configuration it rewrites: scratch space by
-	// default, and the claim it is given when the failover asks for one.
+	// Where a Sentinel keeps the configuration it rewrites, since the ConfigMap
+	// it is seeded from is mounted read only.
 	sentinelConfigWritableVolumeName = "sentinel-config-writable"
 
 	graceTime = 30

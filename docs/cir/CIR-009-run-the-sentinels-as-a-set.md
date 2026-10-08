@@ -44,8 +44,20 @@ separate change.
 
 - GIVEN a failover with no more Sentinels than its own quorum
 - WHEN one of them runs an old pod template
-- THEN it is replaced once every Sentinel reports the master, because no answer
-  would permit it otherwise and the pod would never be replaced at all
+- THEN it is replaced once every Sentinel other than that one reports the master,
+  because asking for a quorum could never be answered yes and the pod would never
+  be replaced at all
+
+- GIVEN a Sentinel running an old pod template that is not reporting the master
+- WHEN the operator reconciles
+- THEN it is replaced whatever the others report, because it casts no vote and
+  replacing it is the only way it starts reporting again
+
+- GIVEN a failover where no Sentinel reports the master
+- WHEN one of them runs an old pod template
+- THEN none is replaced, because the operator cannot tell Sentinels it has lost
+  contact with from Sentinels that are all unhealthy, and replacing them would
+  destroy a quorum that may be intact
 
 ## Constraints
 
@@ -81,19 +93,22 @@ were possible: a branch in the ensurer, a branch in the pod lookup, a generator
 for each, and a teardown that had to work out which of the two was unwanted. One
 kind of workload removes all of it and leaves one migration.
 
-The cost is a window on upgrade with no Sentinel able to elect. Measured on a two
-node failover with 20000 keys, upgrading from `v4.7.1`: 30 seconds, all of it the
-operator waiting for its next reconcile to point the new Sentinels at a master.
-That figure assumes the rollout waits for a promotable replica before replacing
-any Redis, which is a separate change. Without it the same upgrade measured 60
-seconds, because the replica the Sentinels needed to find was replaced while they
-were already blind.
+The cost is a window on upgrade with no Sentinel able to elect. Measured across
+two upgrades of a two node failover carrying 20000 keys: between 15 and 46
+seconds, bounded above by how long the operator takes to come back and point the
+new Sentinels at a master. Sampling was every 15 seconds, so the range is the
+measurement's resolution rather than variance in the operator.
+
+Holding the master until a failover could succeed is a separate change, and
+without it an earlier measurement reached 60 seconds, because the replica the
+Sentinels needed to find was replaced while they were already blind.
+
 Nothing a client sees depends on it, because HAProxy selects the master by asking
 each Redis for `role:master` rather than by asking Sentinel: of 3548 writes
 through it during the upgrade, none were refused during the migration, and the
 only refusals were the two seconds of the master's own replacement.
 
-**The remaining 30 seconds is left alone.** Closing it means the operator coming
+**The window is left alone.** Closing it means the operator coming
 back before its next resync, and the only lever is `ProcessingJobRetries`, which
 is zero, so no handler error requeues at all today. Turning it on changes every
 error path in the operator to retry with backoff, which is a larger decision than
