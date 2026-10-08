@@ -294,63 +294,6 @@ func TestCheckRedisNumberTrue(t *testing.T) {
 	assert.NoError(err)
 }
 
-func TestCheckSentinelNumberError(t *testing.T) {
-	assert := assert.New(t)
-
-	rf := generateRF()
-
-	ms := &mK8SService.Services{}
-	ms.On("GetDeployment", namespace, rfservice.GetSentinelName(rf)).Once().Return(nil, errors.New(""))
-	mr := &mRedisService.Client{}
-
-	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-
-	err := checker.CheckSentinelNumber(rf)
-	assert.Error(err)
-}
-
-func TestCheckSentinelNumberFalse(t *testing.T) {
-	assert := assert.New(t)
-
-	rf := generateRF()
-
-	wrongNumber := int32(4)
-	ss := &appsv1.Deployment{
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &wrongNumber,
-		},
-	}
-	ms := &mK8SService.Services{}
-	ms.On("GetDeployment", namespace, rfservice.GetSentinelName(rf)).Once().Return(ss, nil)
-	mr := &mRedisService.Client{}
-
-	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-
-	err := checker.CheckSentinelNumber(rf)
-	assert.Error(err)
-}
-
-func TestCheckSentinelNumberTrue(t *testing.T) {
-	assert := assert.New(t)
-
-	rf := generateRF()
-
-	goodNumber := int32(3)
-	ss := &appsv1.Deployment{
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &goodNumber,
-		},
-	}
-	ms := &mK8SService.Services{}
-	ms.On("GetDeployment", namespace, rfservice.GetSentinelName(rf)).Once().Return(ss, nil)
-	mr := &mRedisService.Client{}
-
-	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-
-	err := checker.CheckSentinelNumber(rf)
-	assert.NoError(err)
-}
-
 func TestCheckAllSlavesFromMasterGetStatefulSetError(t *testing.T) {
 	assert := assert.New(t)
 
@@ -451,7 +394,7 @@ func TestCheckAllSlavesFromMaster(t *testing.T) {
 	assert.NoError(err)
 }
 
-func TestCheckSentinelNumberInMemoryGetDeploymentPodsError(t *testing.T) {
+func TestCheckSentinelNumberInMemoryGetSentinelPodsError(t *testing.T) {
 	assert := assert.New(t)
 
 	rf := generateRF()
@@ -1163,7 +1106,7 @@ func TestGetStatefulSetUpdateRevision(t *testing.T) {
 
 }
 
-func TestGetRedisRevisionHash(t *testing.T) {
+func TestGetPodRevisionHash(t *testing.T) {
 	tests := []struct {
 		name          string
 		pod           *corev1.Pod
@@ -1199,7 +1142,7 @@ func TestGetRedisRevisionHash(t *testing.T) {
 		mr := &mRedisService.Client{}
 
 		checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
-		hash, err := checker.GetRedisRevisionHash("namepod", rf)
+		hash, err := checker.GetPodRevisionHash("namepod", rf)
 
 		if test.expectedError == nil {
 			assert.NoError(err)
@@ -1283,7 +1226,7 @@ func TestClusterRunning(t *testing.T) {
 	mr := &mRedisService.Client{}
 
 	ms := &mK8SService.Services{}
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(allRunning, nil)
 	ms.On("GetDeploymentPods", namespace, rfservice.GetHaproxyMasterName(rf)).Once().Return(allRunning, nil)
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
@@ -1291,7 +1234,7 @@ func TestClusterRunning(t *testing.T) {
 	assert.True(checker.IsClusterRunning(rf))
 
 	ms = &mK8SService.Services{}
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(notAllReplicas, nil)
 	ms.On("GetDeploymentPods", namespace, rfservice.GetHaproxyMasterName(rf)).Once().Return(allRunning, nil)
 	checker = rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
@@ -1299,7 +1242,7 @@ func TestClusterRunning(t *testing.T) {
 	assert.False(checker.IsClusterRunning(rf))
 
 	ms = &mK8SService.Services{}
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(allRunning, nil)
 	ms.On("GetDeploymentPods", namespace, rfservice.GetHaproxyMasterName(rf)).Once().Return(notAllReplicas, nil)
 	checker = rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
@@ -1308,7 +1251,7 @@ func TestClusterRunning(t *testing.T) {
 
 	rf.Spec.Haproxy = nil
 	ms = &mK8SService.Services{}
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(allRunning, nil)
 	checker = rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -1393,15 +1336,15 @@ func TestClusterRunningWithBootstrap(t *testing.T) {
 		AllowSentinels: false,
 		Enabled:        true,
 	}
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(notAllRunning, nil)
 	assert.False(checker.IsClusterRunning(rf))
 
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(notAllReplicas, nil)
 	assert.False(checker.IsClusterRunning(rf))
 
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(allRunning, nil)
 	ms.On("GetDeploymentPods", namespace, rfservice.GetHaproxyMasterName(rf)).Once().Return(allRunning, nil)
 
@@ -1486,27 +1429,27 @@ func TestClusterRunningWithBootstrapSentinels(t *testing.T) {
 		AllowSentinels: true,
 		Enabled:        true,
 	}
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(allRunning, nil)
 	assert.True(checker.IsClusterRunning(rf))
 
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(notAllRunning, nil)
 	assert.False(checker.IsClusterRunning(rf))
 
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(notAllReplicas, nil)
 	assert.False(checker.IsClusterRunning(rf))
 
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(allRunning, nil)
 	assert.False(checker.IsClusterRunning(rf))
 
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(allRunning, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(notAllReplicas, nil)
 	assert.False(checker.IsClusterRunning(rf))
 	//
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllReplicas, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(notAllReplicas, nil)
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(allRunning, nil)
 	assert.False(checker.IsClusterRunning(rf))
 

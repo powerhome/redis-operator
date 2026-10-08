@@ -17,9 +17,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -144,12 +146,12 @@ func (c *clients) waitForWorkloadsReady(t *testing.T) {
 			return false, fmt.Errorf("redis statefulset has %d of %d replicas ready", redisSS.Status.ReadyReplicas, redisSize)
 		}
 
-		sentinelD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfs-%s", name), metav1.GetOptions{})
+		sentinelSS, err := c.k8sClient.AppsV1().StatefulSets(namespace).Get(context.Background(), fmt.Sprintf("rfs-%s", name), metav1.GetOptions{})
 		if err != nil {
-			return false, fmt.Errorf("sentinel deployment: %w", err)
+			return false, fmt.Errorf("sentinel statefulset: %w", err)
 		}
-		if sentinelD.Status.ReadyReplicas != sentinelSize {
-			return false, fmt.Errorf("sentinel deployment has %d of %d replicas ready", sentinelD.Status.ReadyReplicas, sentinelSize)
+		if sentinelSS.Status.ReadyReplicas != sentinelSize {
+			return false, fmt.Errorf("sentinel statefulset has %d of %d replicas ready", sentinelSS.Status.ReadyReplicas, sentinelSize)
 		}
 
 		haproxyD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfrm-haproxy-%s", name), metav1.GetOptions{})
@@ -245,9 +247,7 @@ func TestRedisFailover(t *testing.T) {
 	// Redis Failover definition created before.
 	t.Run("Check Redis Statefulset existing and size", clients.testRedisStatefulSet)
 
-	// Check that a Sentinel Deployment is created and the size of it is the one defined by the
-	// Redis Failover definition created before.
-	t.Run("Check Sentinel Deployment existing and size", clients.testSentinelDeployment)
+	t.Run("Check Sentinel Statefulset existing and size", clients.testSentinelStatefulSet)
 
 	// Connect to all the Redis pods and, asking to the Redis running inside them, check
 	// that only one of them is the master of the failover.
@@ -280,6 +280,10 @@ func TestRedisFailover(t *testing.T) {
 	t.Run("Check Rotating The Password Is Applied", clients.testPasswordRotation)
 	t.Run("Check Removing The Password Is Applied", clients.testPasswordRemoval)
 	t.Run("Check Adding The Password Back Is Applied", clients.testPasswordAddition)
+
+	// Last, because it changes the Sentinel pod template and then waits for
+	// every Sentinel to be replaced, which disturbs each of them in turn.
+	t.Run("Check A Sentinel Template Change Reaches Every Pod", clients.testSentinelTemplateRollsOut)
 }
 
 const sentinelPort = 26379
@@ -326,11 +330,11 @@ func (c *clients) testRedisStatefulSet(t *testing.T) {
 	assert.Equal(redisSize, int32(redisSS.Status.Replicas))
 }
 
-func (c *clients) testSentinelDeployment(t *testing.T) {
+func (c *clients) testSentinelStatefulSet(t *testing.T) {
 	assert := assert.New(t)
-	sentinelD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfs-%s", name), metav1.GetOptions{})
+	sentinelSS, err := c.k8sClient.AppsV1().StatefulSets(namespace).Get(context.Background(), fmt.Sprintf("rfs-%s", name), metav1.GetOptions{})
 	assert.NoError(err)
-	assert.Equal(3, int(sentinelD.Status.Replicas))
+	assert.Equal(3, int(sentinelSS.Status.Replicas))
 }
 
 // testRedisMaster asks every Redis pod who it is and expects exactly one to
@@ -387,12 +391,12 @@ func (c *clients) testSentinelMonitoring(t *testing.T) {
 
 	var monitored string
 	err := waitFor(readyTimeout, func() (bool, error) {
-		sentinelD, err := c.k8sClient.AppsV1().Deployments(namespace).Get(context.Background(), fmt.Sprintf("rfs-%s", name), metav1.GetOptions{})
+		sentinelSS, err := c.k8sClient.AppsV1().StatefulSets(namespace).Get(context.Background(), fmt.Sprintf("rfs-%s", name), metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
 		listOptions := metav1.ListOptions{
-			LabelSelector: labels.FormatLabels(sentinelD.Spec.Selector.MatchLabels),
+			LabelSelector: labels.FormatLabels(sentinelSS.Spec.Selector.MatchLabels),
 		}
 		sentinelPodList, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), listOptions)
 		if err != nil {
@@ -678,4 +682,54 @@ func (c *clients) testCustomConfig(t *testing.T) {
 
 	assert.Len(values, 2)
 	assert.Empty(values[1])
+}
+
+// A Sentinel set is created with OnDelete, so the controller will not replace a
+// pod to apply a new template and the operator has to. Nothing in this suite
+// asked whether it does, which is how a Sentinel template change came to reach
+// the set and never the pods.
+func (c *clients) testSentinelTemplateRollsOut(t *testing.T) {
+	assert := assert.New(t)
+
+	setName := fmt.Sprintf("rfs-%s", name)
+
+	rf, err := c.rfClient.DatabasesV1().RedisFailovers(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	require.NoError(t, err)
+
+	// Something the Sentinel pod template carries and nothing else reads.
+	rf.Spec.Sentinel.Resources.Requests = corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("11m"),
+	}
+	_, err = c.rfClient.DatabasesV1().RedisFailovers(namespace).Update(context.Background(), rf, metav1.UpdateOptions{})
+	require.NoError(t, err)
+
+	err = waitFor(readyTimeout, func() (bool, error) {
+		set, err := c.k8sClient.AppsV1().StatefulSets(namespace).Get(context.Background(), setName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		want := set.Status.UpdateRevision
+		if want == "" {
+			return false, errors.New("the Sentinel set reports no update revision yet")
+		}
+
+		pods, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), metav1.ListOptions{
+			LabelSelector: labels.FormatLabels(set.Spec.Selector.MatchLabels),
+		})
+		if err != nil {
+			return false, err
+		}
+		if len(pods.Items) != int(sentinelSize) {
+			return false, fmt.Errorf("%d of %d Sentinel pods exist", len(pods.Items), sentinelSize)
+		}
+
+		for _, pod := range pods.Items {
+			if pod.ObjectMeta.Labels[appsv1.ControllerRevisionHashLabelKey] != want {
+				return false, fmt.Errorf("Sentinel %s still runs revision %s, not %s", pod.ObjectMeta.Name,
+					pod.ObjectMeta.Labels[appsv1.ControllerRevisionHashLabelKey], want)
+			}
+		}
+		return true, nil
+	})
+	assert.NoError(err, "a change to the Sentinel pod template should reach every Sentinel")
 }

@@ -20,7 +20,6 @@ import (
 // RedisFailoverCheck defines the interface able to check the correct status of a redis failover
 type RedisFailoverCheck interface {
 	CheckRedisNumber(rFailover *redisfailoverv1.RedisFailover) error
-	CheckSentinelNumber(rFailover *redisfailoverv1.RedisFailover) error
 	CheckAllSlavesFromMaster(master string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckSentinelNumberInMemory(sentinel string, rFailover *redisfailoverv1.RedisFailover) error
 	CheckNumberRedisConnectedSlaves(masterIP string, rFailover *redisfailoverv1.RedisFailover) error
@@ -32,12 +31,16 @@ type RedisFailoverCheck interface {
 	GetNumberMasters(rFailover *redisfailoverv1.RedisFailover) (int, error)
 	GetRedisesIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetSentinelsIPs(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
+	GetSentinelsAddresses(rFailover *redisfailoverv1.RedisFailover) (map[string]string, error)
 	GetMaxRedisPodTime(rFailover *redisfailoverv1.RedisFailover) (time.Duration, error)
 	GetRedisesPodsWithStalePassword(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesSlavesPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
 	GetRedisesMasterPod(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetStatefulSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error)
-	GetRedisRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error)
+	GetSentinelSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error)
+	GetPodRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error)
+	GetSentinelsPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error)
+	CheckSentinelsCanSpareOne(rFailover *redisfailoverv1.RedisFailover, reporting, losing int32) error
 	GetRedisesPodsWaitingOnFilesystemResize(rFailover *redisfailoverv1.RedisFailover) (map[string]bool, error)
 	CheckRedisSlavesReady(slaveIP string, rFailover *redisfailoverv1.RedisFailover) (bool, error)
 	IsRedisRunning(rFailover *redisfailoverv1.RedisFailover) bool
@@ -72,18 +75,6 @@ func (r *RedisFailoverChecker) CheckRedisNumber(rf *redisfailoverv1.RedisFailove
 	}
 	if rf.Spec.Redis.Replicas != *ss.Spec.Replicas {
 		return errors.New("number of redis pods differ from specification")
-	}
-	return nil
-}
-
-// CheckSentinelNumber controlls that the number of deployed sentinel is the same than the requested on the spec
-func (r *RedisFailoverChecker) CheckSentinelNumber(rf *redisfailoverv1.RedisFailover) error {
-	d, err := r.k8sService.GetDeployment(rf.Namespace, GetSentinelName(rf))
-	if err != nil {
-		return err
-	}
-	if rf.Spec.Sentinel.Replicas != *d.Spec.Replicas {
-		return errors.New("number of sentinel pods differ from specification")
 	}
 	return nil
 }
@@ -393,10 +384,14 @@ func (r *RedisFailoverChecker) GetRedisesIPs(rf *redisfailoverv1.RedisFailover) 
 	return redises, nil
 }
 
+func (r *RedisFailoverChecker) getSentinelPods(rf *redisfailoverv1.RedisFailover) (*corev1.PodList, error) {
+	return r.k8sService.GetStatefulSetPods(rf.Namespace, GetSentinelName(rf))
+}
+
 // GetSentinelsIPs returns the IPs of the Sentinel nodes
 func (r *RedisFailoverChecker) GetSentinelsIPs(rf *redisfailoverv1.RedisFailover) ([]string, error) {
 	sentinels := []string{}
-	rps, err := r.k8sService.GetDeploymentPods(rf.Namespace, GetSentinelName(rf))
+	rps, err := r.getSentinelPods(rf)
 	if err != nil {
 		return nil, err
 	}
@@ -406,6 +401,27 @@ func (r *RedisFailoverChecker) GetSentinelsIPs(rf *redisfailoverv1.RedisFailover
 		}
 	}
 	return sentinels, nil
+}
+
+// GetSentinelsAddresses maps each running Sentinel pod to the address it
+// answers on.
+//
+// GetSentinelsIPs gives the same addresses without saying which pod each
+// belongs to, which is enough to ask every Sentinel a question and not enough
+// to know whether a particular one answered.
+func (r *RedisFailoverChecker) GetSentinelsAddresses(rf *redisfailoverv1.RedisFailover) (map[string]string, error) {
+	pods, err := r.getSentinelPods(rf)
+	if err != nil {
+		return nil, err
+	}
+
+	addresses := map[string]string{}
+	for _, sp := range pods.Items {
+		if sp.Status.Phase == corev1.PodRunning && sp.DeletionTimestamp == nil {
+			addresses[sp.ObjectMeta.Name] = sp.Status.PodIP
+		}
+	}
+	return addresses, nil
 }
 
 // GetMaxRedisPodTime returns the MAX uptime among the active Pods
@@ -524,7 +540,17 @@ func (r *RedisFailoverChecker) GetRedisesPodsWaitingOnFilesystemResize(rFailover
 // GetStatefulSetUpdateRevision returns current version for the statefulSet
 // If the label don't exists, we return an empty value and no error, so previous versions don't break
 func (r *RedisFailoverChecker) GetStatefulSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error) {
-	ss, err := r.k8sService.GetStatefulSet(rFailover.Namespace, GetRedisName(rFailover))
+	return r.updateRevisionOf(rFailover, GetRedisName(rFailover))
+}
+
+// GetSentinelSetUpdateRevision returns the revision the Sentinel set would
+// create a pod from now.
+func (r *RedisFailoverChecker) GetSentinelSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error) {
+	return r.updateRevisionOf(rFailover, GetSentinelName(rFailover))
+}
+
+func (r *RedisFailoverChecker) updateRevisionOf(rFailover *redisfailoverv1.RedisFailover, name string) (string, error) {
+	ss, err := r.k8sService.GetStatefulSet(rFailover.Namespace, name)
 	if err != nil {
 		return "", err
 	}
@@ -536,8 +562,65 @@ func (r *RedisFailoverChecker) GetStatefulSetUpdateRevision(rFailover *redisfail
 	return ss.Status.UpdateRevision, nil
 }
 
-// GetRedisRevisionHash returns the statefulset uid for the pod
-func (r *RedisFailoverChecker) GetRedisRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error) {
+// GetSentinelsPods names the Sentinel pods, as GetSentinelsIPs addresses them.
+func (r *RedisFailoverChecker) GetSentinelsPods(rFailover *redisfailoverv1.RedisFailover) ([]string, error) {
+	pods, err := r.getSentinelPods(rFailover)
+	if err != nil {
+		return nil, err
+	}
+
+	names := []string{}
+	for _, sp := range pods.Items {
+		if sp.DeletionTimestamp == nil {
+			names = append(names, sp.ObjectMeta.Name)
+		}
+	}
+	return names, nil
+}
+
+// CheckSentinelsCanSpareOne reports whether taking one Sentinel away leaves
+// enough of them to agree a failover.
+//
+// reporting is how many answered with the master they were expected to be
+// watching, which is what agreeing a failover depends on.
+//
+// Not pod readiness, which the same question reaches through a probe carrying
+// `initialDelaySeconds: 30`: a Sentinel that is already monitoring the master
+// and able to vote reads unready for half a minute, and waiting that out would
+// hold each replacement back for no reason.
+func (r *RedisFailoverChecker) CheckSentinelsCanSpareOne(rFailover *redisfailoverv1.RedisFailover, reporting, losing int32) error {
+	quorum := getQuorum(rFailover)
+	replicas := rFailover.Spec.Sentinel.Replicas
+
+	// A pod that is already down is not in reporting, so losing is zero and this
+	// subtracts nothing. The failover is no worse off and the check below lets
+	// the replacement go ahead.
+	//
+	// When no Sentinel reports, stillReporting is zero and that same check
+	// refuses. The operator cannot see the Sentinels, so it must not delete
+	// them one per pass while their quorum may be intact.
+	stillReporting := reporting - losing
+
+	// Only one and two Sentinel failovers reach here: one needs one Sentinel to
+	// agree a failover, two need two, so replacing either leaves too few. A
+	// quorum rule would refuse every time and strand the pod on its old
+	// template, so this asks for less: that every Sentinel except the one being
+	// replaced reports. Such a failover spends the replacement below quorum.
+	if replicas <= quorum {
+		if stillReporting < replicas-1 {
+			return fmt.Errorf("%d of %d sentinels would still report the master, and this failover has none to spare", stillReporting, replicas)
+		}
+		return nil
+	}
+
+	if stillReporting < quorum {
+		return fmt.Errorf("%d of %d sentinels would still report the master, and %d are needed to agree a failover", stillReporting, replicas, quorum)
+	}
+	return nil
+}
+
+// GetPodRevisionHash returns the revision the pod was created from.
+func (r *RedisFailoverChecker) GetPodRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error) {
 	pod, err := r.k8sService.GetPod(rFailover.Namespace, podName)
 	if err != nil {
 		return "", err
@@ -575,7 +658,7 @@ func (r *RedisFailoverChecker) IsRedisRunning(rFailover *redisfailoverv1.RedisFa
 
 // IsSentinelRunning returns true if all the pods are Running
 func (r *RedisFailoverChecker) IsSentinelRunning(rFailover *redisfailoverv1.RedisFailover) bool {
-	dp, err := r.k8sService.GetDeploymentPods(rFailover.Namespace, GetSentinelName(rFailover))
+	dp, err := r.getSentinelPods(rFailover)
 	return err == nil && len(dp.Items) > int(rFailover.Spec.Sentinel.Replicas-1) && AreAllRunning(dp, int(rFailover.Spec.Sentinel.Replicas))
 }
 
