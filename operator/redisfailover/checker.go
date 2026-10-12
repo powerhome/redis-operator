@@ -53,7 +53,7 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 
 	// Update stale pods with slave role
 	for _, pod := range redisesPods {
-		revision, err := r.rfChecker.GetRedisRevisionHash(pod, rf)
+		revision, err := r.rfChecker.GetPodRevisionHash(pod, rf)
 		if err != nil {
 			return err
 		}
@@ -74,7 +74,7 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 			return err
 		}
 
-		masterRevision, err := r.rfChecker.GetRedisRevisionHash(master, rf)
+		masterRevision, err := r.rfChecker.GetPodRevisionHash(master, rf)
 		if err != nil {
 			return err
 		}
@@ -170,7 +170,27 @@ func (r *RedisFailoverHandler) reportMasterUnknown(rf *redisfailoverv1.RedisFail
 
 // CheckAndHeal runs verifcation checks to ensure the RedisFailover is in an expected and healthy state.
 // If the checks do not match up to expectations, an attempt will be made to "heal" the RedisFailover into a healthy state.
+// Replacing a stale Sentinel sits outside the checks below, which stop as soon
+// as the number of ready Sentinels disagrees with the spec. A Sentinel on an old
+// pod template can be why it disagrees, and on `OnDelete` nothing else replaces
+// one.
 func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) error {
+	healed := r.checkAndHeal(rf)
+
+	// Run even when the heal failed, because what failed can be the Sentinel
+	// that needs replacing: configuring an unreachable one fails every pass, so
+	// skipping the replacement would skip it for as long as the pod stays
+	// broken. Taking a Sentinel is safe to attempt here because
+	// `CheckSentinelsCanSpareOne` decides it, not the success of the pass.
+	replaced := r.UpdateSentinelPods(rf)
+
+	if healed != nil {
+		return healed
+	}
+	return replaced
+}
+
+func (r *RedisFailoverHandler) checkAndHeal(rf *redisfailoverv1.RedisFailover) error {
 	if rf.Bootstrapping() {
 		return r.checkAndHealBootstrapMode(rf)
 	}
@@ -343,7 +363,124 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 			}
 		}
 	}
+
 	return r.checkAndHealSentinels(rf, sentinels)
+}
+
+// UpdateSentinelPods replaces at most one Sentinel running an old pod template.
+//
+// One per pass, so a failover never loses two at once, and only while enough of
+// the others still agree on the master for a failover to carry.
+func (r *RedisFailoverHandler) UpdateSentinelPods(rf *redisfailoverv1.RedisFailover) error {
+	if !rf.SentinelsAllowed() {
+		return nil
+	}
+
+	stale, err := r.staleSentinelPod(rf)
+	if err != nil {
+		return err
+	}
+	if stale == "" {
+		return nil
+	}
+
+	hold := func(reason string) {
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
+			Warningf("Waiting to replace sentinel %s: %s", stale, reason)
+	}
+
+	master, masterPort, err := r.expectedMaster(rf)
+	if err != nil {
+		// A failover between masters has nothing to compare the Sentinels
+		// against, which is ordinary and is not a pass to take one away in.
+		hold(err.Error())
+		return nil
+	}
+
+	reporting, err := r.sentinelsReportingMaster(rf, master, masterPort)
+	if err != nil {
+		// Reading the Sentinels failed, which is not the same as the Sentinels
+		// disagreeing. Reported, so the pass does not read as a healthy one.
+		return err
+	}
+
+	losing := int32(0)
+	if reporting[stale] {
+		losing = 1
+	}
+
+	if err := r.rfChecker.CheckSentinelsCanSpareOne(rf, int32(len(reporting)), losing); err != nil {
+		hold(err.Error())
+		return nil
+	}
+
+	return r.rfHealer.DeletePod(stale, rf)
+}
+
+// staleSentinelPod names the first Sentinel pod running something other than
+// the set's current template, or "" when they all match.
+//
+// Asked before anything is read from Redis, because every failover answers this
+// on every pass and almost all of them answer that nothing is stale.
+func (r *RedisFailoverHandler) staleSentinelPod(rf *redisfailoverv1.RedisFailover) (string, error) {
+	want, err := r.rfChecker.GetSentinelSetUpdateRevision(rf)
+	if err != nil {
+		return "", err
+	}
+
+	pods, err := r.rfChecker.GetSentinelsPods(rf)
+	if err != nil {
+		return "", err
+	}
+
+	for _, pod := range pods {
+		revision, err := r.rfChecker.GetPodRevisionHash(pod, rf)
+		if err != nil {
+			return "", err
+		}
+		if revision != want {
+			return pod, nil
+		}
+	}
+	return "", nil
+}
+
+// expectedMaster addresses the Redis the Sentinels are meant to be watching.
+//
+// A bootstrapping failover has no master of its own: every one of its Redis
+// instances replicates the external node, so none of them reports as one.
+func (r *RedisFailoverHandler) expectedMaster(rf *redisfailoverv1.RedisFailover) (string, string, error) {
+	if rf.Bootstrapping() {
+		return rf.Spec.BootstrapNode.Host, rf.Spec.BootstrapNode.Port, nil
+	}
+
+	master, err := r.rfChecker.GetMasterIP(rf)
+	if err != nil {
+		return "", "", err
+	}
+	return master, rf.Spec.Redis.Port.ToString(), nil
+}
+
+// sentinelsReportingMaster names the Sentinels answering with the given master,
+// which is what agreeing a failover depends on.
+//
+// Named rather than counted, because the gate needs to know whether the pod
+// about to be replaced is among them. Read here rather than taken from the pass
+// that repoints them, so it holds when the pod is taken.
+func (r *RedisFailoverHandler) sentinelsReportingMaster(rf *redisfailoverv1.RedisFailover, master, masterPort string) (map[string]bool, error) {
+	addresses, err := r.rfChecker.GetSentinelsAddresses(rf)
+	if err != nil {
+		return nil, err
+	}
+
+	reporting := map[string]bool{}
+	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	for pod, sip := range addresses {
+		if err := r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, master, masterPort); err == nil {
+			reporting[pod] = true
+		}
+	}
+	return reporting, nil
 }
 
 func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.RedisFailover) error {
@@ -412,6 +549,7 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 				}
 			}
 		}
+
 		return r.checkAndHealSentinels(rf, sentinels)
 	}
 	return nil

@@ -11,7 +11,8 @@ The Redis-Operator creates Redis Failovers, with all the needed pieces. So, when
   - Redis statefulset
   - Sentinel service
   - Sentinel configmap
-  - Sentinel deployment
+  - Sentinel statefulset
+  - Sentinel headless service
 - Check & Heal: will connect to every Redis and Sentinel and will ensure that they are working as they are supposed to do. If this is not the case, it will reconfigure the nodes to move them to the desire state. It will check the following:
   - Number of Redis is equal as the set on the RF spec
   - Number of Sentinel is equal as the set on the RF spec

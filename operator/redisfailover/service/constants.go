@@ -27,6 +27,7 @@ const (
 const (
 	baseName                    = "rf"
 	sentinelName                = "s"
+	sentinelHeadlessName        = "s-h"
 	sentinelRoleName            = "sentinel"
 	sentinelConfigFileName      = "sentinel.conf"
 	sentinelNetworkPolicyName   = "s-np"

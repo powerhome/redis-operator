@@ -96,7 +96,16 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 			return err
 		}
 
-		if err := w.rfService.EnsureSentinelDeployment(rf, labels, or); err != nil {
+		// The Deployment an earlier release ran is removed before the set is
+		// created. Both produce pods under the same labels, so leaving one
+		// behind runs both at once and they agree a quorum among all of them.
+		if err := w.rfService.DestroySentinelDeployment(rf); err != nil {
+			return err
+		}
+		if err := w.rfService.EnsureSentinelHeadlessService(rf, labels, or); err != nil {
+			return err
+		}
+		if err := w.rfService.EnsureSentinelStatefulSet(rf, labels, or); err != nil {
 			return err
 		}
 	} else {

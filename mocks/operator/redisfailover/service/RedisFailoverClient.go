@@ -50,6 +50,24 @@ func (_m *RedisFailoverClient) DestroyOrphanedRedisSlaveHaProxy(rFailover *v1.Re
 	return r0
 }
 
+// DestroySentinelDeployment provides a mock function with given fields: rFailover
+func (_m *RedisFailoverClient) DestroySentinelDeployment(rFailover *v1.RedisFailover) error {
+	ret := _m.Called(rFailover)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DestroySentinelDeployment")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) error); ok {
+		r0 = rf(rFailover)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DestroySentinelResources provides a mock function with given fields: rFailover
 func (_m *RedisFailoverClient) DestroySentinelResources(rFailover *v1.RedisFailover) error {
 	ret := _m.Called(rFailover)
@@ -320,12 +338,12 @@ func (_m *RedisFailoverClient) EnsureSentinelConfigMap(rFailover *v1.RedisFailov
 	return r0
 }
 
-// EnsureSentinelDeployment provides a mock function with given fields: rFailover, labels, ownerRefs
-func (_m *RedisFailoverClient) EnsureSentinelDeployment(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+// EnsureSentinelHeadlessService provides a mock function with given fields: rFailover, labels, ownerRefs
+func (_m *RedisFailoverClient) EnsureSentinelHeadlessService(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	ret := _m.Called(rFailover, labels, ownerRefs)
 
 	if len(ret) == 0 {
-		panic("no return value specified for EnsureSentinelDeployment")
+		panic("no return value specified for EnsureSentinelHeadlessService")
 	}
 
 	var r0 error
@@ -362,6 +380,24 @@ func (_m *RedisFailoverClient) EnsureSentinelService(rFailover *v1.RedisFailover
 
 	if len(ret) == 0 {
 		panic("no return value specified for EnsureSentinelService")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover, map[string]string, []metav1.OwnerReference) error); ok {
+		r0 = rf(rFailover, labels, ownerRefs)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// EnsureSentinelStatefulSet provides a mock function with given fields: rFailover, labels, ownerRefs
+func (_m *RedisFailoverClient) EnsureSentinelStatefulSet(rFailover *v1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+	ret := _m.Called(rFailover, labels, ownerRefs)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EnsureSentinelStatefulSet")
 	}
 
 	var r0 error
