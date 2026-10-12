@@ -1389,7 +1389,7 @@ func TestTheOnlyRedisIsReplacedWithoutAskingTheSentinels(t *testing.T) {
 	mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
 	mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
 	mrfc.On("GetRedisesMasterPod", rf).Once().Return("master", nil)
-	mrfc.On("GetRedisRevisionHash", "master", rf).Once().Return("1", nil)
+	mrfc.On("GetPodRevisionHash", "master", rf).Once().Return("1", nil)
 
 	mrfh := &mRFService.RedisFailoverHeal{}
 	mrfh.On("DeletePod", "master", rf).Once().Return(nil)
@@ -1423,9 +1423,12 @@ func TestReplacingTheMasterEndsTheReconcile(t *testing.T) {
 	mrfc.On("GetRedisesIPs", rf).Return([]string{master}, nil)
 	mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("2", nil)
 	mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+	// Replacing a stale Sentinel runs on every pass, and none is stale here.
+	mrfc.On("GetSentinelSetUpdateRevision", rf).Maybe().Return("1", nil)
+	mrfc.On("GetSentinelsPods", rf).Maybe().Return([]string{}, nil)
 	mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
 	mrfc.On("GetRedisesMasterPod", rf).Once().Return("master", nil)
-	mrfc.On("GetRedisRevisionHash", "master", rf).Once().Return("1", nil)
+	mrfc.On("GetPodRevisionHash", "master", rf).Once().Return("1", nil)
 	mrfc.On("CheckSentinelsCanFailover", rf).Once().Return(nil)
 
 	mrfh := &mRFService.RedisFailoverHeal{}

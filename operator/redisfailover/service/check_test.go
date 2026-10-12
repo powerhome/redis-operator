@@ -1500,7 +1500,7 @@ func TestCheckSentinelsCanFailover(t *testing.T) {
 			rf := generateRF()
 
 			ms := &mK8SService.Services{}
-			ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(sentinelPods, nil)
+			ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(sentinelPods, nil)
 
 			mr := &mRedisService.Client{}
 			if test.askingFails {
@@ -1532,7 +1532,7 @@ func TestCheckSentinelsCanFailoverWithNoSentinels(t *testing.T) {
 	rf := generateRF()
 
 	ms := &mK8SService.Services{}
-	ms.On("GetDeploymentPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(&corev1.PodList{}, nil)
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetSentinelName(rf)).Once().Return(&corev1.PodList{}, nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, &mRedisService.Client{}, log.DummyLogger{}, metrics.Dummy)
 
