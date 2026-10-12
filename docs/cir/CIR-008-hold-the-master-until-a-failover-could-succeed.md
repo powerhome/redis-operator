@@ -21,6 +21,15 @@ Stop the rolling update from removing a master that nothing can replace.
 - WHEN the operator asks what could be promoted
 - THEN that replica does not count, because Sentinel will not promote it either
 
+- GIVEN a replica Sentinel reports with `slave-priority 0`
+- WHEN the operator asks what could be promoted
+- THEN that replica does not count, because Sentinel will not promote it either
+
+- GIVEN a failover whose `redis.customConfig` carries `replica-priority 0`
+- WHEN any of its pods runs an old pod template
+- THEN none is replaced for as long as that setting stands, because the setting
+  applies to every Redis in the failover and leaves nothing to promote
+
 - GIVEN a failover of one Redis
 - WHEN its only pod runs an old pod template
 - THEN it is replaced without asking, since no replica exists to promote and

@@ -172,7 +172,8 @@ func (c *client) ReplicasUp(ip string, sentinelPort string) (int32, error) {
 			c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.GET_NUM_REDIS_SLAVES_IN_MEM, metrics.FAIL, metrics.MISC)
 			return 0, fmt.Errorf("sentinel described a replica as %T, expected a list of fields", replica)
 		}
-		if isReachable(fieldsOf(described)["flags"]) {
+		fields := fieldsOf(described)
+		if isReachable(fields["flags"]) && isPromotable(fields["slave-priority"]) {
 			up++
 		}
 	}
@@ -191,6 +192,21 @@ func fieldsOf(described []interface{}) map[string]string {
 		}
 	}
 	return fields
+}
+
+// Sentinel never promotes a replica whose priority is zero, whatever its flags
+// say, so a failover whose replicas all carry it cannot fail over at all.
+//
+// `spec.redis.customConfig` is one list applied to every Redis, so a zero there
+// marks all of them. The operator also sets it itself while a failover follows
+// an external master, which is why the caller of this skips bootstrapping
+// failovers rather than relying on this.
+//
+// An absent or unparseable value counts as promotable: Sentinel's own default is
+// 100, and refusing to promote on a field this did not understand would hold a
+// master for a reason nobody could see.
+func isPromotable(priority string) bool {
+	return priority != "0"
 }
 
 // Sentinel will not promote a replica it has stopped hearing from, whether it

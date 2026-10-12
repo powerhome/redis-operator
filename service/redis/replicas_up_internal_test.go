@@ -84,10 +84,72 @@ func TestReplicasUpRejectsAReplicaItCannotRead(t *testing.T) {
 }
 
 // SENTINEL replicas answers with one list of fields per replica.
+func describeReplicasWithPriority(flags, priorities []string) string {
+	reply := fmt.Sprintf("*%d\r\n", len(flags))
+	for i, flag := range flags {
+		reply += respArray("name", fmt.Sprintf("replica-%d", i),
+			"flags", flag, "slave-priority", priorities[i])
+	}
+	return reply
+}
+
 func describeReplicas(flags []string) string {
 	reply := fmt.Sprintf("*%d\r\n", len(flags))
 	for i, flag := range flags {
 		reply += respArray("name", fmt.Sprintf("replica-%d", i), "flags", flag)
 	}
 	return reply
+}
+
+// The values Sentinel reports, against what the operator may promote.
+func TestIsPromotable(t *testing.T) {
+	tests := []struct {
+		name       string
+		priority   string
+		promotable bool
+	}{
+		{name: "the default sentinel reports", priority: "100", promotable: true},
+		{name: "lowered but still eligible", priority: "1", promotable: true},
+		{name: "never promote this one", priority: "0", promotable: false},
+		// Sentinel's own default is 100, and holding a master over a field this
+		// did not understand would be a wait nobody could account for.
+		{name: "a sentinel that did not report it", priority: "", promotable: true},
+		{name: "something unparseable", priority: "banana", promotable: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.promotable, isPromotable(test.priority))
+		})
+	}
+}
+
+func TestReplicasUpSkipsAReplicaSentinelWouldNotPromote(t *testing.T) {
+	tests := []struct {
+		name       string
+		flags      []string
+		priorities []string
+		expected   int32
+	}{
+		{name: "reachable and eligible", flags: []string{"slave"}, priorities: []string{"100"}, expected: 1},
+		{name: "reachable but never promoted", flags: []string{"slave"}, priorities: []string{"0"}, expected: 0},
+		{name: "one of each", flags: []string{"slave", "slave"}, priorities: []string{"0", "100"}, expected: 1},
+		// What a failover carrying `replica-priority 0` looks like: every replica
+		// answers, and none of them can be promoted.
+		{name: "every replica barred", flags: []string{"slave", "slave"}, priorities: []string{"0", "0"}, expected: 0},
+		{name: "barred and unreachable", flags: []string{"s_down,slave"}, priorities: []string{"0"}, expected: 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sentinel := startStatefulSentinel(t, func(args []string) string {
+				return describeReplicasWithPriority(test.flags, test.priorities)
+			})
+
+			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port)
+
+			require.NoError(t, err)
+			assert.Equal(t, test.expected, up)
+		})
+	}
 }
