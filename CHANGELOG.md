@@ -17,11 +17,18 @@ Clients are not affected by that window. HAProxy picks the master by asking each
 
 Run one replica of the operator across this upgrade. An operator that runs the Sentinels as a set removes a Deployment it finds, but an older one that finds a set leaves it running, so two of them reconciling the same failover can leave both.
 
+The master is replaced last during a rolling update, and only once every Sentinel reports a replica it could promote, so an upgrade can pause with one pod still on the previous template while the Sentinels catch up. The operator names the Sentinel it is waiting on.
+
+Expect a short window with no master while the pod holding that role is replaced and Sentinel elects one of the others. On a two node failover that window is around twenty seconds. Clients reconnect as they would for any failover.
+
 ### Added
 
 - [Run the Sentinels as a StatefulSet](https://github.com/powerhome/redis-operator/pull/143). Only a StatefulSet gives a Sentinel pod a name in DNS, which is what the operator needs before it can address an instance by name rather than by whatever address it currently holds. The set replaces the Deployment for every failover, whose Sentinel pods are removed before the set is created. See [CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md)
 - [Replace a Sentinel running an old pod template](https://github.com/powerhome/redis-operator/pull/143). The set is created with `OnDelete`, so the StatefulSet controller will not replace a pod to apply a new template, and a StatefulSet cannot bring up a spare ahead of the one it replaces the way the Deployment it succeeded did. The operator replaces one Sentinel per reconcile, and only once the Sentinels that would remain could still agree a failover, naming the ones it is waiting on. A failover with no more Sentinels than its own quorum is asked only that every Sentinel other than the one being replaced reports the master, because asking for a quorum could never be answered yes. A Sentinel that is not reporting at all is replaced whatever the others say, since it casts no vote, and no Sentinel is replaced while none of them reports. See [CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md)
 
+### Fixed
+
+- [Replace the master only once the Sentinels could promote a replica](https://github.com/powerhome/redis-operator/pull/144). The rolling update asked each replica whether it had finished syncing, which a replica holding no data answers within milliseconds of being told to replicate. A Sentinel that has just been reset, or has just been given a different master to watch, holds no replica it would promote, so removing the master left the failover with none: Sentinel answered `-failover-abort-no-good-slave`, the surviving replica kept the address of a pod that no longer existed, and the operator seeds a master only when every Redis reports `127.0.0.1`, so neither acted again. No Redis is now replaced until every Sentinel reports a replica it could promote, the master included, and the reconcile that replaces the master ends there rather than going on to reset the Sentinels it just asked. Replacing a replica waits on the same condition, because taking one away removes the candidate the Sentinels would promote. A replica Sentinel reports with `slave-priority 0` does not count, since Sentinel will not promote one. `redis.customConfig` applies to every Redis in a failover, so a `replica-priority 0` there leaves nothing to promote and holds every pod on its current template until the setting changes. See [CIR-008](docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md)
 
 ## [v4.8.0] - 2026-10-02
 
