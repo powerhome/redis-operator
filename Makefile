@@ -41,6 +41,13 @@ GOLANGCI_LINT_IMAGE := golangci/golangci-lint:$(GOLANGCI_LINT_VERSION)
 
 ACTIONLINT_VERSION := 1.7.12
 
+# The integration tests run against a kind cluster. The default node image is the
+# newest Kubernetes release this kind version publishes; CI overrides it to cover
+# each release in its matrix. Node images are pinned by digest, as the kind
+# release notes publish them.
+KIND_VERSION := 0.33.0
+KIND_NODE_IMAGE ?= kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+
 # workdir
 WORKDIR := /go/src/github.com/spotahome/redis-operator
 
@@ -49,7 +56,7 @@ UNIT_TEST_CMD := go test `go list ./... | grep -v /vendor/` -v
 HELM_TEST_CMD := ./scripts/helm-tests.sh
 WORKFLOW_LINT_CMD := ./scripts/lint-workflows.sh
 GO_GENERATE_CMD := go generate `go list ./... | grep -v /vendor/`
-GO_INTEGRATION_TEST_CMD := go test `go list ./... | grep test/integration` -v -tags='integration'
+INTEGRATION_TEST_CMD := ./scripts/integration-tests.sh
 MOCKS_CMD := go generate ./mocks
 DOCKER_RUN_CMD :=	$(DOCKER) run -ti --rm \
 	  -v $(PWD):$(WORKDIR) \
@@ -118,19 +125,20 @@ test-unit: image-dev-tools
 test-helm:
 	$(DOCKER_RUN_CMD) $(HELM_TEST_CMD)
 
+# Run integration tests against a throwaway kind cluster. Needs Go and Docker on
+# the host. CI runs this same target.
+.PHONY: test-integration
+test-integration: ensure-docker
+	KIND_VERSION=$(KIND_VERSION) KIND_NODE_IMAGE=$(KIND_NODE_IMAGE) $(INTEGRATION_TEST_CMD)
+
 # Run all (DEV) tests
 .PHONY: test
-test: test-unit test-helm
+test: test-unit test-helm test-integration
 
 # Run unit tests on the host (CI)
 .PHONY: test-unit-ci
 test-unit-ci:
 	$(UNIT_TEST_CMD)
-
-# Run integration tests on the host (CI)
-.PHONY: test-integration-ci
-test-integration-ci:
-	$(GO_INTEGRATION_TEST_CMD)
 
 # Run helm tests on the host (CI)
 .PHONY: test-helm-ci
