@@ -396,18 +396,34 @@ func (r *RedisFailoverHandler) checkAndHeal(rf *redisfailoverv1.RedisFailover) e
 
 	port := rf.Spec.Redis.Port.ToString()
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	var monitorErrs []error
 	for _, sip := range sentinels {
 		err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, master, port)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Fixing sentinel not monitoring expected master: %s", err.Error())
 			if err := r.rfHealer.NewSentinelMonitor(sip, master, rf); err != nil {
-				return err
+				monitorErrs = append(monitorErrs, fmt.Errorf("pointing sentinel %s at %s: %w", sip, master, err))
+				// An answer refuses what was asked, and the rest would refuse it
+				// for the same reason, whether that is an address Sentinel will
+				// not accept or a password it will not take. Silence says nothing
+				// about the next Sentinel, and the Sentinels after it are still
+				// worth asking. See
+				// docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md.
+				if redis.IsServerRejection(err) {
+					break
+				}
 			}
 		}
 	}
 
-	return r.checkAndHealSentinels(rf, sentinels)
+	// SENTINEL REMOVE drops the timings along with everything else a Sentinel
+	// holds for mymaster, and checkAndHealSentinels is what puts
+	// spec.sentinel.customConfig back. It runs whatever any one Sentinel did with
+	// its master, so a refusal costs that Sentinel its master and not every
+	// Sentinel its settings.
+	monitorErrs = append(monitorErrs, r.checkAndHealSentinels(rf, sentinels))
+	return errors.Join(monitorErrs...)
 }
 
 // UpdateSentinelPods replaces at most one Sentinel running an old pod template.
@@ -612,13 +628,14 @@ func (r *RedisFailoverHandler) applyRedisCustomConfig(rf *redisfailoverv1.RedisF
 
 func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFailover, sentinels []string) error {
 	sentinelPort := rf.Spec.Sentinel.Port.ToString()
+	var errs []error
 	for _, sip := range sentinels {
 		err := r.rfChecker.CheckSentinelNumberInMemory(sip, rf)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_NUMBER_IN_MEMORY_MISMATCH, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Sentinel %s mismatch number of sentinels in memory. resetting", sip)
 			if err := r.rfHealer.RestoreSentinel(sip, sentinelPort); err != nil {
-				return err
+				errs = append(errs, fmt.Errorf("resetting sentinel %s: %w", sip, err))
 			}
 		}
 
@@ -629,7 +646,7 @@ func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFa
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Sentinel %s mismatch number of expected slaves in memory. resetting", sip)
 			if err := r.rfHealer.RestoreSentinel(sip, sentinelPort); err != nil {
-				return err
+				errs = append(errs, fmt.Errorf("resetting sentinel %s: %w", sip, err))
 			}
 		}
 	}
@@ -637,10 +654,10 @@ func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFa
 		err := r.rfHealer.SetSentinelCustomConfig(sip, rf)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.APPLY_SENTINEL_CONFIG, sip, err)
 		if err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("applying sentinel config to %s: %w", sip, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func setRedisCheckerMetrics(metricsClient metrics.Recorder, mode /* redis or sentinel? */ string, rfNamespace string, rfName string, property string, IP string, err error) {

@@ -623,6 +623,16 @@ func IsAuthError(err error) bool {
 		strings.Contains(msg, noPasswordSetLegacyReply)
 }
 
+// IsServerRejection reports whether a Redis instance replied to refuse a
+// command, as against the operator failing to reach it. Only a reply means the
+// command was considered and found unacceptable, which is what makes the next
+// instance's answer predictable. A dial failure, a timeout or a closed client
+// leaves the command untried and says nothing about it.
+func IsServerRejection(err error) bool {
+	var reply rediscli.Error
+	return errors.As(err, &reply)
+}
+
 func getRedisError(err error) string {
 	if strings.Contains(err.Error(), noAuthReply) {
 		return metrics.NOAUTH

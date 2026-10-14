@@ -1442,3 +1442,137 @@ func TestReplacingTheMasterEndsTheReconcile(t *testing.T) {
 	mrfh.AssertExpectations(t)
 	mrfc.AssertNotCalled(t, "GetSentinelsIPs", rf)
 }
+
+// Pointing a Sentinel at a master removes what it holds for mymaster first, and
+// the settings come back only from checkAndHealSentinels. A Sentinel that
+// refuses its master must not cost the others that call.
+// sentinelReply is an answer from a Sentinel, as against a failure to reach
+// one. go-redis keeps its own type for these internal to that module, and the
+// RedisError method is the whole of what the operator reads.
+type sentinelReply string
+
+func (e sentinelReply) Error() string { return string(e) }
+
+func (sentinelReply) RedisError() {}
+
+// A Sentinel in phase Running may still be unreachable, since GetSentinelsIPs
+// reads the pod's phase and not whether anything answers on its port. Such a
+// Sentinel refuses nothing: the remove that precedes the monitor never landed
+// either, so it keeps whatever master it had, and it says nothing about whether
+// the next Sentinel would take the address. The Sentinels behind it are listed
+// in a fixed order, so stopping at this one would leave the same Sentinels
+// unrepointed on every pass for as long as the pod stayed up and silent.
+func TestCheckAndHealRepointsTheSentinelsBehindOneItCannotReach(t *testing.T) {
+	assert := assert.New(t)
+
+	unreachable := "1.1.1.1"
+	behind := "2.2.2.2"
+	alsoBehind := "3.3.3.3"
+	master := "0.0.0.0"
+
+	dialFailed := errors.New("dial tcp 1.1.1.1:26379: i/o timeout")
+
+	rf := generateRF(false, false)
+	mrfc := &mRFService.RedisFailoverCheck{}
+	mrfh := &mRFService.RedisFailoverHeal{}
+
+	mrfc.On("IsRedisRunning", rf).Once().Return(true)
+	mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+	mrfc.On("GetNumberMasters", rf).Once().Return(1, nil)
+	mrfc.On("GetMasterIP", rf).Twice().Return(master, nil)
+	mrfc.On("CheckAllSlavesFromMaster", master, rf).Once().Return(nil)
+	mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)
+	mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{master}, nil)
+	mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+	mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+	mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+	mrfc.On("GetRedisesMasterPod", rf).Once().Return(master, nil)
+	mrfc.On("GetPodRevisionHash", master, rf).Once().Return("1", nil)
+	mrfh.On("SetRedisCustomConfig", master, rf).Once().Return(nil)
+
+	mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{unreachable, behind, alsoBehind}, nil)
+
+	mrfc.On("CheckSentinelMonitor", unreachable, "26379", master, "0").Once().Return(dialFailed)
+	mrfh.On("NewSentinelMonitor", unreachable, master, rf).Once().Return(dialFailed)
+	for _, sip := range []string{behind, alsoBehind} {
+		mrfc.On("CheckSentinelMonitor", sip, "26379", master, "0").Once().Return(errors.New("monitoring 9.9.9.9"))
+		mrfh.On("NewSentinelMonitor", sip, master, rf).Once().Return(nil)
+	}
+
+	for _, sip := range []string{unreachable, behind, alsoBehind} {
+		mrfc.On("CheckSentinelNumberInMemory", sip, rf).Once().Return(nil)
+		mrfc.On("CheckSentinelSlavesNumberInMemory", sip, rf).Once().Return(nil)
+		mrfh.On("SetSentinelCustomConfig", sip, rf).Once().Return(nil)
+	}
+
+	// Replacing a stale Sentinel is reached on this pass too, and an unreachable
+	// Sentinel is not what it looks at.
+	mrfc.On("GetSentinelSetUpdateRevision", rf).Maybe().Return("1", nil)
+	mrfc.On("GetSentinelsPods", rf).Maybe().Return([]string{}, nil)
+
+	handler := rfOperator.NewRedisFailoverHandler(generateConfig(), &mRFService.RedisFailoverClient{}, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
+
+	err := handler.CheckAndHeal(rf)
+	assert.ErrorContains(err, "i/o timeout")
+
+	mrfc.AssertExpectations(t)
+	mrfh.AssertExpectations(t)
+}
+
+func TestCheckAndHealAppliesSentinelSettingsWhenOneSentinelRefusesTheMaster(t *testing.T) {
+	assert := assert.New(t)
+
+	refused := sentinelReply("ERR Invalid IP address or hostname specified")
+
+	master := "0.0.0.0"
+	refusing := "1.1.1.1"
+	accepting := "2.2.2.2"
+
+	config := generateConfig()
+	rf := generateRF(false, false)
+	mrfs := &mRFService.RedisFailoverClient{}
+	mrfc := &mRFService.RedisFailoverCheck{}
+	mrfh := &mRFService.RedisFailoverHeal{}
+	mk := &mK8SService.Services{}
+
+	mrfc.On("IsRedisRunning", rf).Once().Return(true)
+	mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+	mrfc.On("GetNumberMasters", rf).Once().Return(1, nil)
+	mrfc.On("GetMasterIP", rf).Twice().Return(master, nil)
+	mrfc.On("CheckAllSlavesFromMaster", master, rf).Once().Return(nil)
+	mrfc.On("CheckNumberRedisConnectedSlaves", master, rf).Once().Return(nil)
+	mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{master}, nil)
+	mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+	mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+	mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+	mrfc.On("GetRedisesMasterPod", rf).Once().Return(master, nil)
+	mrfc.On("GetPodRevisionHash", master, rf).Once().Return("1", nil)
+	mrfh.On("SetRedisCustomConfig", master, rf).Once().Return(nil)
+
+	mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{refusing, accepting}, nil)
+
+	mrfc.On("CheckSentinelMonitor", refusing, "26379", master, "0").Once().Return(errors.New(""))
+	mrfh.On("NewSentinelMonitor", refusing, master, rf).Once().Return(refused)
+	// Not reached: repointing stops at the first Sentinel that rejects the master.
+	mrfc.On("CheckSentinelMonitor", accepting, "26379", master, "0").Maybe().Return(nil)
+
+	mrfc.On("CheckSentinelNumberInMemory", refusing, rf).Once().Return(nil)
+	mrfc.On("CheckSentinelNumberInMemory", accepting, rf).Once().Return(nil)
+	mrfc.On("CheckSentinelSlavesNumberInMemory", refusing, rf).Once().Return(nil)
+	mrfc.On("CheckSentinelSlavesNumberInMemory", accepting, rf).Once().Return(nil)
+	mrfh.On("SetSentinelCustomConfig", refusing, rf).Once().Return(nil)
+	mrfh.On("SetSentinelCustomConfig", accepting, rf).Once().Return(nil)
+
+	// Replacing a stale Sentinel is reached on this pass too, and a refused
+	// master is not what it looks at.
+	mrfc.On("GetSentinelSetUpdateRevision", rf).Maybe().Return("1", nil)
+	mrfc.On("GetSentinelsPods", rf).Maybe().Return([]string{}, nil)
+
+	handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
+
+	err := handler.CheckAndHeal(rf)
+	assert.ErrorContains(err, "Invalid IP address or hostname specified")
+
+	mrfc.AssertExpectations(t)
+	mrfh.AssertExpectations(t)
+}
