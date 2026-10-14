@@ -619,18 +619,26 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 			return err
 		}
 		sentinelPort := rf.Spec.Sentinel.Port.ToString()
+		var monitorErrs []error
 		for _, sip := range sentinels {
 			err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, bootstrapSettings.Host, bootstrapSettings.Port)
 			setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
 			if err != nil {
 				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Fixing sentinel not monitoring expected master: %s", err.Error())
 				if err := r.rfHealer.NewSentinelMonitorWithPort(sip, bootstrapSettings.Host, bootstrapSettings.Port, rf); err != nil {
-					return err
+					monitorErrs = append(monitorErrs, fmt.Errorf("pointing sentinel %s at %s: %w", sip, bootstrapSettings.Host, err))
+					if redis.IsServerRejection(err) {
+						break
+					}
 				}
 			}
 		}
 
-		return r.checkAndHealSentinels(rf, sentinels)
+		// A failover following an external master loses its timings to
+		// SENTINEL REMOVE exactly as any other does, so the settings are applied
+		// whatever any one Sentinel did with its master.
+		monitorErrs = append(monitorErrs, r.checkAndHealSentinels(rf, sentinels))
+		return errors.Join(monitorErrs...)
 	}
 	return nil
 }
