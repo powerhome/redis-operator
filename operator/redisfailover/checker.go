@@ -10,6 +10,14 @@ import (
 	"github.com/spotahome/redis-operator/service/redis"
 )
 
+// A failover of one master and one replica has nothing to spare: taking the
+// replica away always leaves zero promotable, so a check that excluded it could
+// never pass and the rolling update would stop at that pod and stay there.
+func hasReplicaToSpare(live int) bool {
+	const masterAndTheReplicaLeaving = 2
+	return live > masterAndTheReplicaLeaving
+}
+
 // UpdateRedisesPods replaces at most one Redis pod running an old pod template,
 // replicas before the master, and reports whether the one it replaced was the
 // master.
@@ -53,11 +61,17 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 	//
 	// A failover of one Redis has no replica to promote and never will, and one
 	// following an external master may have no Sentinels at all.
-	failoverPossible := func() error {
+	failoverPossible := func(podBeingReplaced string) error {
 		if rf.Spec.Redis.Replicas <= 1 || rf.Bootstrapping() {
 			return nil
 		}
-		return r.rfChecker.CheckSentinelsCanFailover(rf)
+		if hasReplicaToSpare(len(redises)) {
+			return r.rfChecker.CheckSentinelsCanFailover(rf, podBeingReplaced)
+		}
+		// Such a failover is asked only that the Sentinels hold a promotable
+		// replica before the pod is disturbed. The window while the replacement
+		// syncs is accepted, because nothing about this shape avoids it.
+		return r.rfChecker.CheckSentinelsCanFailover(rf, "")
 	}
 
 	// A pod waiting on its filesystem needs replacing, the same as one running
@@ -74,9 +88,14 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 			return false, err
 		}
 		if revision != ssUR || waitingOnResize[pod] {
-			if err := failoverPossible(); err != nil {
+			// On to the next stale pod rather than out of the pass. The pod a
+			// Sentinel will not promote is the pod most in need of replacing, and
+			// it is the one whose exclusion leaves the others uncounted: stopping
+			// at the first refusal lets that pod's refusal stand in for every
+			// stale pod behind it, and nothing replaces any of them again.
+			if err := failoverPossible(pod); err != nil {
 				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace %s: %s", pod, err.Error())
-				return false, nil
+				continue
 			}
 			//Delete pod and wait next round to check if the new one is synced
 			err = r.rfHealer.DeletePod(pod, rf)
@@ -110,7 +129,9 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 			// keeps localhost, and neither the Sentinels nor the operator will act
 			// again. Holding the master back leaves it serving, which is visible
 			// and recoverable.
-			if err := failoverPossible(); err != nil {
+			// A master is not among its own replicas, so it names no pod. See
+			// docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md.
+			if err := failoverPossible(""); err != nil {
 				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Waiting to replace the master %s: %s", master, err.Error())
 				return false, nil
 			}
@@ -419,9 +440,9 @@ func (r *RedisFailoverHandler) checkAndHeal(rf *redisfailoverv1.RedisFailover) e
 
 	// SENTINEL REMOVE drops the timings along with everything else a Sentinel
 	// holds for mymaster, and checkAndHealSentinels is what puts
-	// spec.sentinel.customConfig back. It runs whatever any one Sentinel did with
-	// its master, so a refusal costs that Sentinel its master and not every
-	// Sentinel its settings.
+	// spec.sentinel.customConfig back. checkAndHealSentinels runs whatever any one
+	// Sentinel did with its master, so a refusal costs that Sentinel its master
+	// and not every Sentinel its settings.
 	monitorErrs = append(monitorErrs, r.checkAndHealSentinels(rf, sentinels))
 	return errors.Join(monitorErrs...)
 }
