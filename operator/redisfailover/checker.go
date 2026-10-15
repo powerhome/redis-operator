@@ -618,8 +618,9 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 		if err != nil {
 			return err
 		}
+		sentinelPort := rf.Spec.Sentinel.Port.ToString()
 		for _, sip := range sentinels {
-			err = r.rfChecker.CheckSentinelMonitor(sip, bootstrapSettings.Host, bootstrapSettings.Port)
+			err = r.rfChecker.CheckSentinelMonitor(sip, sentinelPort, bootstrapSettings.Host, bootstrapSettings.Port)
 			setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
 			if err != nil {
 				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Fixing sentinel not monitoring expected master: %s", err.Error())
