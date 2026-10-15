@@ -17,7 +17,7 @@ Clients are not affected by that window. HAProxy picks the master by asking each
 
 Run one replica of the operator across this upgrade. An operator that runs the Sentinels as a set removes a Deployment it finds, but an older one that finds a set leaves it running, so two of them reconciling the same failover can leave both.
 
-The master is replaced last during a rolling update, and only once every Sentinel reports a replica it could promote, so an upgrade can pause with one pod still on the previous template while the Sentinels catch up. The operator names the Sentinel it is waiting on.
+Replicas are replaced before the master during a rolling update, and each pod only once every Sentinel reports a replica it could promote with that pod gone, so an upgrade can pause with one pod still on the previous template while the Sentinels catch up. The operator names the Sentinel it is waiting on. A replica no Sentinel would promote does not hold the master back: the master is replaced ahead of that pod, and the pod follows once a Sentinel holds something to promote in its place, which costs a second election.
 
 Expect a short window with no master while the pod holding that role is replaced and Sentinel elects one of the others. On a two node failover that window is around twenty seconds. Clients reconnect as they would for any failover.
 

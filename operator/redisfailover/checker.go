@@ -20,7 +20,8 @@ func hasReplicaToSpare(live int) bool {
 
 // UpdateRedisesPods replaces at most one Redis pod running an old pod template,
 // replicas before the master, and reports whether the one it replaced was the
-// master.
+// master. A replica the gate refuses does not hold the master back, as recorded
+// in docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md.
 func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailover) (masterReplaced bool, err error) {
 	redises, err := r.rfChecker.GetRedisesIPs(rf)
 	if err != nil {

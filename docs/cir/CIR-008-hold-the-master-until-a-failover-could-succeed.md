@@ -55,6 +55,12 @@ Stop the rolling update from removing a master that nothing can replace.
 - THEN it waits on the same condition, because losing a replica takes away the
   candidate the Sentinels would promote
 
+- GIVEN a stale replica the operator will not replace, because it is the only
+  one the Sentinels would promote
+- WHEN the master also runs an old pod template
+- THEN the master is replaced, promoting that replica, which is replaced in turn
+  once the pod that took the master's place has synced
+
 - GIVEN the operator has just replaced the master
 - WHEN the reconcile would carry on
 - THEN it ends instead, so nothing further in that pass points a Sentinel at the
@@ -246,6 +252,22 @@ correct, which each of them was, but what becomes of the pod it says no to: a
 guard that refuses is only safe when something else can still make progress, or
 when the refusal is expected to clear on its own. A guard whose refusal is both
 permanent and exclusive is a stall wearing the clothes of a safety check.
+
+**A refused replica does not hold the master back.** Replicas go before the
+master by preference, and holding the master behind any refusal would keep that
+order. It would also be a fifth instance of the stall above. The gate refuses a
+replica when it is the only one the Sentinels would promote, and that lasts as
+long as the others stay unpromotable. Replacing the master promotes that replica.
+As master, its own replacement waits only on the pod that replaced the old
+master, which the Sentinels can promote once it has synced. The cost is a
+second failover, when that replica is replaced in turn.
+
+The refusal need not last for the master to go first. A replacement that reports
+itself synced before the Sentinels have read it from the master's replica list
+leaves the stale replica as the only one they could promote, so the master is
+taken over a refusal that the next pass would have cleared. The cost is the same
+second failover, and telling that case from a lasting refusal would mean carrying
+state between passes.
 
 **Widening the operator's own recovery is the other half, and is not here.** The
 operator will seed a master only when every Redis reports `127.0.0.1`; widening

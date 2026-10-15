@@ -1732,6 +1732,45 @@ func TestARefusedPodDoesNotBlockTheStalePodsBehindIt(t *testing.T) {
 	mrfh.AssertNotCalled(t, "DeletePod", "rfr-test-1", rf)
 }
 
+func TestARefusedReplicaDoesNotHoldBackTheMaster(t *testing.T) {
+	assert := assert.New(t)
+
+	master := "1.1.1.1"
+	onlyCandidate := "2.2.2.2"
+	unpromotable := "3.3.3.3"
+	rf := generateRF(false, false)
+	rf.Spec.Redis.Replicas = 3
+
+	mrfc := &mRFService.RedisFailoverCheck{}
+	mrfc.On("GetRedisesIPs", rf).Once().Return([]string{master, onlyCandidate, unpromotable}, nil)
+	mrfc.On("GetMasterIP", rf).Once().Return(master, nil)
+	mrfc.On("CheckRedisSlavesReady", onlyCandidate, rf).Once().Return(true, nil)
+	mrfc.On("CheckRedisSlavesReady", unpromotable, rf).Once().Return(true, nil)
+	mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("2", nil)
+	mrfc.On("GetRedisesPodsWaitingOnFilesystemResize", rf).Once().Return(map[string]bool{}, nil)
+	mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{"rfr-test-1", "rfr-test-2"}, nil)
+	mrfc.On("GetPodRevisionHash", "rfr-test-1", rf).Once().Return("1", nil)
+	mrfc.On("GetPodRevisionHash", "rfr-test-2", rf).Once().Return("2", nil)
+	mrfc.On("GetRedisesMasterPod", rf).Once().Return("rfr-test-0", nil)
+	mrfc.On("GetPodRevisionHash", "rfr-test-0", rf).Once().Return("1", nil)
+
+	noCandidate := errors.New("sentinel 9.9.9.9 holds no replica it could promote once rfr-test-1 is gone")
+	mrfc.On("CheckSentinelsCanFailover", rf, "rfr-test-1").Once().Return(noCandidate)
+	mrfc.On("CheckSentinelsCanFailover", rf, "").Once().Return(nil)
+
+	mrfh := &mRFService.RedisFailoverHeal{}
+	mrfh.On("DeletePod", "rfr-test-0", rf).Once().Return(nil)
+
+	handler := rfOperator.NewRedisFailoverHandler(generateConfig(), &mRFService.RedisFailoverClient{}, mrfc, mrfh, &mK8SService.Services{}, metrics.Dummy, log.Dummy)
+
+	replacedMaster, err := handler.UpdateRedisesPods(rf)
+	assert.NoError(err)
+	assert.True(replacedMaster)
+	mrfc.AssertExpectations(t)
+	mrfh.AssertExpectations(t)
+	mrfh.AssertNotCalled(t, "DeletePod", "rfr-test-1", rf)
+}
+
 // A failover following an external master loses its timings to SENTINEL REMOVE
 // exactly as any other does, so one Sentinel refusing that master must not cost
 // the others their settings here either.
