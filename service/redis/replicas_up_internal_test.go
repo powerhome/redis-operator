@@ -51,7 +51,7 @@ func TestReplicasUpCountsOnlyReachableReplicas(t *testing.T) {
 				return describeReplicas(test.flags)
 			})
 
-			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port)
+			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, "")
 
 			require.NoError(t, err)
 			assert.Equal(t, test.expected, up)
@@ -64,7 +64,7 @@ func TestReplicasUpAsksSentinelForTheMastersReplicas(t *testing.T) {
 		return describeReplicas([]string{"slave"})
 	})
 
-	_, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port)
+	_, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, "")
 
 	require.NoError(t, err)
 	asked := sentinel.asked()
@@ -78,7 +78,7 @@ func TestReplicasUpRejectsAReplicaItCannotRead(t *testing.T) {
 		return "*1\r\n$8\r\nmymaster\r\n"
 	})
 
-	_, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port)
+	_, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, "")
 
 	assert.ErrorContains(t, err, "expected a list of fields")
 }
@@ -146,7 +146,46 @@ func TestReplicasUpSkipsAReplicaSentinelWouldNotPromote(t *testing.T) {
 				return describeReplicasWithPriority(test.flags, test.priorities)
 			})
 
-			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port)
+			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, "")
+
+			require.NoError(t, err)
+			assert.Equal(t, test.expected, up)
+		})
+	}
+}
+
+func describeReplicasAt(ips []string) string {
+	reply := fmt.Sprintf("*%d\r\n", len(ips))
+	for _, ip := range ips {
+		reply += respArray("name", fmt.Sprintf("%s:6379", ip),
+			"ip", ip, "flags", "slave", "slave-priority", "100")
+	}
+	return reply
+}
+
+// Asking whether a failover could happen once a pod is gone means asking about
+// the replicas that will still be there. A replica on its way out cannot take
+// over for a master, so it does not count towards what a Sentinel could promote.
+func TestReplicasUpSkipsTheReplicaThatIsLeaving(t *testing.T) {
+	tests := []struct {
+		name     string
+		ips      []string
+		leaving  string
+		expected int32
+	}{
+		{name: "nothing is leaving", ips: []string{"10.0.0.1", "10.0.0.2"}, leaving: "", expected: 2},
+		{name: "one of two is leaving", ips: []string{"10.0.0.1", "10.0.0.2"}, leaving: "10.0.0.1", expected: 1},
+		{name: "the only replica is leaving", ips: []string{"10.0.0.1"}, leaving: "10.0.0.1", expected: 0},
+		{name: "an address no replica holds", ips: []string{"10.0.0.1"}, leaving: "10.0.0.9", expected: 1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sentinel := startStatefulSentinel(t, func(args []string) string {
+				return describeReplicasAt(test.ips)
+			})
+
+			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, test.leaving)
 
 			require.NoError(t, err)
 			assert.Equal(t, test.expected, up)
