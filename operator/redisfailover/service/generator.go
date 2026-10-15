@@ -36,7 +36,7 @@ rename-command "{{.From}}" "{{.To}}"
 {{- end}}
 `
 
-	sentinelConfigTemplate = `sentinel monitor mymaster 127.0.0.1 {{.Spec.Redis.Port}} 2
+	sentinelConfigTemplate = `sentinel monitor mymaster 127.0.0.1 {{.Spec.Redis.Port}} {{quorum .}}
 sentinel down-after-milliseconds mymaster 1000
 sentinel failover-timeout mymaster 3000
 sentinel announce-port {{.Spec.Sentinel.Port}}
@@ -580,7 +580,7 @@ func generateSentinelConfigMap(rf *redisfailoverv1.RedisFailover, labels map[str
 
 	labels = util.MergeLabels(labels, generateSelectorLabels(sentinelRoleName, rf.Name))
 
-	tmpl, err := template.New("sentinel").Parse(sentinelConfigTemplate)
+	tmpl, err := template.New("sentinel").Funcs(template.FuncMap{"quorum": getQuorum}).Parse(sentinelConfigTemplate)
 	if err != nil {
 		panic(err)
 	}
