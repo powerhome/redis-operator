@@ -46,13 +46,13 @@ You can do the following commands with make:
   `make image-local`
 - Connect to a BASH shell the development environment docker image
   `make shell`
-- Run unit tests in the development docker container
+- Run the unit tests, as CI does. Needs Go on the host, of any patch version: Go fetches the toolchain `go.mod` names.
   `make test-unit`
-- Run helm tests in the development docker container
+- Run the chart tests, as CI does. Needs nothing on the host; helm is fetched into `bin/` at the version the Makefile names.
   `make test-helm`
 - Run integration tests against a throwaway kind cluster, as CI does. Needs Go and Docker on the host; kind is fetched into `bin/`.
   `make test-integration`
-- Run all development tests
+- Run every test
   `make test`
 
 Releasing has its own commands and order. See [releasing](releasing.md).

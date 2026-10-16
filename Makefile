@@ -45,6 +45,19 @@ GOLANGCI_LINT_IMAGE := golangci/golangci-lint:$(GOLANGCI_LINT_VERSION)
 
 ACTIONLINT_VERSION := 1.7.12
 
+# The chart tests name the helm they run rather than taking whichever one a
+# machine happens to have. `helm lint` and `helm template` change what they
+# accept and what they render between releases, so a chart that passes against
+# one helm can fail against another, and the release that gates a merge should
+# be the release a contributor runs.
+#
+# Renovate finds it through the comment below. Only whitespace may separate the
+# two, and the variable name has to end in _VERSION. helm tags its releases with
+# a leading v while scripts/helm-tests.sh builds its download URL as
+# v${version}, so extractVersion takes the v off.
+# renovate: datasource=github-releases depName=helm/helm extractVersion=^v(?<version>.+)$
+HELM_VERSION := 3.22.1
+
 # The integration tests run against a kind cluster. KIND_NODE_IMAGE names the node
 # image `make test-integration` uses when CI names none, and every CI job names one
 # from its matrix. kind publishes a set of node images with each release, and its
@@ -71,7 +84,11 @@ WORKFLOW_LINT_CMD := ./scripts/lint-workflows.sh
 GO_GENERATE_CMD := go generate `go list ./... | grep -v /vendor/`
 INTEGRATION_TEST_CMD := ./scripts/integration-tests.sh
 MOCKS_CMD := go generate ./mocks
-DOCKER_RUN_CMD :=	$(DOCKER) run -ti --rm \
+# The interactive shell into the dev container, and the only target that wants a
+# terminal. Nothing else below allocates one: a generator and a linter read no
+# input, and `docker run -it` refuses to start where stdin is not a terminal,
+# which is what a CI step and a git hook give it.
+DOCKER_RUN_CMD := $(DOCKER) run -it --rm \
 	  -v $(PWD):$(WORKDIR) \
 	  -u $(UID):$(UID) \
 	  --name $(SERVICE_NAME) \
@@ -128,15 +145,18 @@ tag-chart:
 .PHONY: tag
 tag: tag-operator tag-chart
 
-# Run unit tests in the development docker container (DEV)
+# Run the unit tests. Needs Go on the host, of any patch version: the go
+# directive in go.mod names the toolchain, and Go fetches it when the installed
+# one is older. CI runs this same target.
 .PHONY: test-unit
-test-unit: image-dev-tools
-	$(DOCKER_RUN_CMD) /bin/sh -c '$(UNIT_TEST_CMD)'
+test-unit:
+	$(UNIT_TEST_CMD)
 
-# Run helm tests in the development docker container (DEV)
+# Run the chart tests. Needs nothing on the host: helm is fetched into bin/ at
+# the version named above. CI runs this same target.
 .PHONY: test-helm
 test-helm:
-	$(DOCKER_RUN_CMD) $(HELM_TEST_CMD)
+	HELM_VERSION=$(HELM_VERSION) $(HELM_TEST_CMD)
 
 # Run integration tests against a throwaway kind cluster. Needs Go and Docker on
 # the host. CI runs this same target.
@@ -144,25 +164,15 @@ test-helm:
 test-integration: ensure-docker
 	KIND_VERSION=$(KIND_VERSION) KIND_NODE_IMAGE=$(KIND_NODE_IMAGE) $(INTEGRATION_TEST_CMD)
 
-# Run all (DEV) tests
+# Run every test. CI runs these as three jobs rather than this target.
 .PHONY: test
 test: test-unit test-helm test-integration
-
-# Run unit tests on the host (CI)
-.PHONY: test-unit-ci
-test-unit-ci:
-	$(UNIT_TEST_CMD)
-
-# Run helm tests on the host (CI)
-.PHONY: test-helm-ci
-test-helm-ci:
-	$(HELM_TEST_CMD)
 
 # Generate kubernetes client
 .PHONY: generate-client
 generate-client:
 	@echo ">> Generating code for Kubernetes CRD types..."
-	docker run --rm $(DOCKER_INTERACTIVE) \
+	docker run --rm \
 		--platform $(CODEGEN_PLATFORM) \
 		-e GOTOOLCHAIN=auto \
 		-v $(PWD):$(WORKDIR) \
@@ -170,10 +180,6 @@ generate-client:
 		$(CODEGEN_IMAGE) \
 		--apis-in ./api \
 		--go-gen-out ./client/k8s
-
-# Allocate a TTY for interactive local runs, but let CI override it with
-# `DOCKER_INTERACTIVE=` so `make generate-crd` works on a runner with no TTY.
-DOCKER_INTERACTIVE ?= -it
 
 # Make every version marker agree with VERSION above, after editing it.
 #
@@ -188,7 +194,7 @@ prepare-release:
 # Generate kubernetes Custom Resource Definitions
 .PHONY: generate-crd
 generate-crd:
-	docker run --rm $(DOCKER_INTERACTIVE) \
+	docker run --rm \
 		--platform $(CODEGEN_PLATFORM) \
 		-e GOTOOLCHAIN=auto \
 		-v $(PWD):$(WORKDIR) \
@@ -201,7 +207,7 @@ generate-crd:
 
 .PHONY: generate-go
 generate-go: image-dev-tools
-	docker run --rm $(DOCKER_INTERACTIVE) \
+	docker run --rm \
 	  -v $(PWD):$(WORKDIR) \
 	  -u $(UID):$(UID) \
 	  --name $(SERVICE_NAME) $(REPOSITORY)-dev \
@@ -210,7 +216,7 @@ generate-go: image-dev-tools
 # Generate testing mocks
 .PHONY: generate-mocks
 generate-mocks: image-dev-tools
-	docker run --rm $(DOCKER_INTERACTIVE) \
+	docker run --rm \
 	  -v $(PWD):$(WORKDIR) \
 	  -u $(UID):$(UID) \
 	  --name $(SERVICE_NAME) \
@@ -219,7 +225,7 @@ generate-mocks: image-dev-tools
 # Run lint
 .PHONY: lint
 lint:
-	docker run --rm $(DOCKER_INTERACTIVE) \
+	docker run --rm \
 	  -v $(PWD):$(WORKDIR) \
 	  -w $(WORKDIR) \
 	  $(GOLANGCI_LINT_IMAGE) \
