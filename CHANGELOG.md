@@ -36,6 +36,10 @@ Expect a short window with no master while the pod holding that role is replaced
 
 - [Ask a Sentinel for its master on the Sentinel's own port while bootstrapping](https://github.com/powerhome/redis-operator/pull/147). A failover with `spec.bootstrapNode` checks which master each Sentinel monitors, and the external master's address was passed where the Sentinel's port belongs, so the check dialled every Sentinel at an address it does not listen on. It failed on every pass, and the operator took the repair branch every time: `SENTINEL REMOVE` and `SENTINEL MONITOR` on every Sentinel of every bootstrapped failover, every reconcile, raising `SENTINEL_WRONG_MASTER` alongside. The repair pointed them at the right master, so the fault showed as a failover whose Sentinels were reset perpetually rather than one pointing anywhere wrong. The transposition dates from `70b9697e`, which first allowed Sentinels in bootstrap mode.
 
+### Security
+
+- Remove trust in the compromised eMudhra certificate authorities from the image. The private keys of eight eMudhra intermediate certificate authorities have too little randomness. A party that recovers one can issue a certificate for any host. Every published image trusts `emSign ECC Root CA - G3`, which those intermediates chain to. The image installs Alpine `ca-certificates 20261020-r0`, which removes that root. The build compiles the operator with Go 1.26.10, which carries the same fix. Go 1.25 gets no fix. The operator verifies the Kubernetes API with the service account's certificate authority. It uses plain TCP to Redis and Sentinel. So the system trust store guards no connection that the operator makes. See the [eMudhra statement](https://emudhra.com/en/post/certificate-security-incident)
+
 ## [v4.8.0] - 2026-10-02
 
 ### Deprecated
