@@ -2,7 +2,7 @@
 # contain a known toolchain. The tag names what the digest was when it was
 # recorded; the digest is what actually resolves, and it wins if the two ever
 # disagree.
-FROM --platform=$BUILDPLATFORM golang:1.25.14-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS build
 RUN apk --no-cache add \
   bash
 
