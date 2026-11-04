@@ -4205,7 +4205,8 @@ func TestSentinelPodDisruptionBudgetKeepsAQuorum(t *testing.T) {
 		sentinelReplicas int32
 		expMinAvailable  int
 	}{
-		{name: "one sentinel", redisReplicas: 2, sentinelReplicas: 1, expMinAvailable: 1},
+		{name: "one sentinel keeps none, so a drain is not blocked", redisReplicas: 2, sentinelReplicas: 1, expMinAvailable: 0},
+		{name: "two sentinels keep one, below their own quorum", redisReplicas: 2, sentinelReplicas: 2, expMinAvailable: 1},
 		{name: "default: three sentinels and two redis", redisReplicas: 2, sentinelReplicas: 3, expMinAvailable: 2},
 		{name: "four sentinels", redisReplicas: 3, sentinelReplicas: 4, expMinAvailable: 3},
 		{name: "five sentinels", redisReplicas: 3, sentinelReplicas: 5, expMinAvailable: 3},
@@ -4243,6 +4244,7 @@ func TestRedisPodDisruptionBudgetFollowsTheRedisCount(t *testing.T) {
 		sentinelReplicas int32
 		expMinAvailable  int
 	}{
+		{name: "one redis keeps none, since it has no replica to promote", redisReplicas: 1, sentinelReplicas: 3, expMinAvailable: 0},
 		{name: "two redis", redisReplicas: 2, sentinelReplicas: 5, expMinAvailable: 1},
 		{name: "three redis", redisReplicas: 3, sentinelReplicas: 1, expMinAvailable: 2},
 	}
@@ -4303,4 +4305,35 @@ func TestSentinelConfigStartsWithTheQuorum(t *testing.T) {
 			assert.Contains(sentinelConf, monitor)
 		})
 	}
+}
+
+func TestHaproxyWithoutAReplicaCountRunsOneProxy(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+	rf.Spec.Haproxy = &redisfailoverv1.HaproxySettings{}
+	assert.NoError(rf.Validate())
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        rfservice.GetHaproxyMasterName(rf),
+			Namespace:   namespace,
+			Annotations: map[string]string{"checksum/haproxy-cfg": "whatever"},
+		},
+	}
+
+	var dep *appsv1.Deployment
+	ms := &mK8SService.Services{}
+	ms.On("GetConfigMap", namespace, mock.Anything).Return(cm, nil)
+	ms.On("GetDeployment", namespace, mock.Anything).Return(nil, notFound("deployments", name))
+	ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		dep = args.Get(1).(*appsv1.Deployment)
+	}).Return(nil)
+
+	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+	assert.NoError(client.EnsureHAProxyRedisMasterDeployment(rf, nil, []metav1.OwnerReference{}))
+
+	assert.NotNil(dep.Spec.Replicas)
+	assert.EqualValues(1, *dep.Spec.Replicas,
+		"a spec that asks for haproxy and names no count runs one proxy, not a deployment of none")
 }

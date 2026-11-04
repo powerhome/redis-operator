@@ -71,13 +71,19 @@ func TestValidate(t *testing.T) {
 			name:                  "HAProxy config no image provided",
 			rfName:                "test",
 			rfHAProxyConfig:       &HaproxySettings{},
-			expectedHAProxyConfig: &HaproxySettings{Image: defaultHAProxyImage},
+			expectedHAProxyConfig: &HaproxySettings{Image: defaultHAProxyImage, Replicas: defaultHaproxyNumber},
 		},
 		{
 			name:                  "HAProxy config custom image",
 			rfName:                "test",
 			rfHAProxyConfig:       &HaproxySettings{Image: "haproxy:0.0.1"},
-			expectedHAProxyConfig: &HaproxySettings{Image: "haproxy:0.0.1"},
+			expectedHAProxyConfig: &HaproxySettings{Image: "haproxy:0.0.1", Replicas: defaultHaproxyNumber},
+		},
+		{
+			name:                  "HAProxy keeps the replica count it is given",
+			rfName:                "test",
+			rfHAProxyConfig:       &HaproxySettings{Image: "_", Replicas: 3},
+			expectedHAProxyConfig: &HaproxySettings{Image: "_", Replicas: 3},
 		},
 		{
 			name:   "HAProxy Exporter default port",
@@ -89,7 +95,8 @@ func TestValidate(t *testing.T) {
 				},
 			},
 			expectedHAProxyConfig: &HaproxySettings{
-				Image: "_",
+				Image:    "_",
+				Replicas: defaultHaproxyNumber,
 				Exporter: &HaproxyExporterSettings{
 					Enabled: true,
 					Port:    DefaultHaproxyExporterPort,

@@ -146,6 +146,38 @@ This redis-failover will be managed by the operator, resulting in the following 
 **NOTE**: `NAME` is the named provided when creating the RedisFailover.
 **IMPORTANT**: the name of the redis-failover to be created cannot be longer that 48 characters, due to prepend of redis/sentinel identification and statefulset limitation.
 
+### How many of each to run
+
+A failover survives losing a pod only if enough of each component is left to
+replace it. The counts below are what that takes.
+
+| Component | Default | Minimum | Why |
+|---|---|---|---|
+| `redis.replicas` | 3 | 2 | Losing the master is survived by promoting a replica. One Redis has none to promote. |
+| `sentinel.replicas` | 3 | 3 | A failover is carried out by a Sentinel the others elect, and an election needs a majority of all of them. Two Sentinels cannot reach one after losing either. This is [the minimum Redis documents](https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/). |
+| `haproxy.replicas` | 1 | 1 | A proxy that is asked for and never runs leaves a service with no endpoints. |
+
+Run an odd number of Sentinels. Four Sentinels need three to elect, the same as
+five, so the fourth adds cost and no tolerance.
+
+A count below its minimum is reported, not refused. The operator reconciles the
+failover as it always did and names what it cannot make safe in
+`status.warnings`:
+
+```
+kubectl get redisfailover my-failover -o jsonpath='{.status.warnings}'
+["sentinel.replicas is 2. A failover needs 3 Sentinels to elect the one that carries it out."]
+```
+
+The entry leaves when the count does, with no restart and no other edit. The
+operator logs the same sentence once when it starts being true, and once more
+when it stops.
+
+Below a minimum, a disruption budget keeps all but one pod rather than the
+whole set, so a node drain still completes. Such a failover cannot survive the
+loss whatever the budget holds, and a budget that permits no eviction would
+block the drain for as long as it exists.
+
 ### Persistence
 
 The operator has the ability of add persistence to Redis data. By default an `emptyDir` will be used, so the data is not saved.

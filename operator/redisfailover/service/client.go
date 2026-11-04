@@ -287,9 +287,7 @@ func (r *RedisFailoverKubeClient) EnsureSentinelHeadlessService(rf *redisfailove
 // state.
 func (r *RedisFailoverKubeClient) EnsureSentinelStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	if !rf.Spec.Sentinel.DisablePodDisruptionBudget {
-		// Keep as many Sentinels as it takes to elect the one that runs a
-		// failover, so a drain can never leave too few of them to fail over.
-		minAvailable := intstr.FromInt(int(getQuorum(rf)))
+		minAvailable := intstr.FromInt(int(sentinelBudgetFloor(rf)))
 		if err := r.ensurePodDisruptionBudget(rf, sentinelName, sentinelRoleName, minAvailable, labels, ownerRefs); err != nil {
 			return err
 		}
@@ -438,10 +436,7 @@ func (r *RedisFailoverKubeClient) DestroyOrphanedRedisSlaveHaProxy(rf *redisfail
 // EnsureRedisStatefulset makes sure the redis statefulset exists in the desired state
 func (r *RedisFailoverKubeClient) EnsureRedisStatefulset(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	if !rf.Spec.Redis.DisablePodDisruptionBudget {
-		minAvailable := intstr.FromInt(2)
-		if rf.Spec.Redis.Replicas <= 2 {
-			minAvailable = intstr.FromInt(1)
-		}
+		minAvailable := intstr.FromInt(int(redisBudgetFloor(rf.Spec.Redis.Replicas)))
 		if err := r.ensurePodDisruptionBudget(rf, redisName, redisRoleName, minAvailable, labels, ownerRefs); err != nil {
 			return err
 		}

@@ -1025,6 +1025,9 @@ spec:
                   redisHost:
                     type: string
                   replicas:
+                    description: |-
+                      Replicas is how many proxies run. One by default, since a block that
+                      asks for haproxy and names no count still wants a proxy.
                     format: int32
                     type: integer
                   resources:
@@ -7872,6 +7875,11 @@ spec:
                   priorityClassName:
                     type: string
                   replicas:
+                    description: |-
+                      Replicas is how many Redis run, the master among them. Three by
+                      default, and two at least: a failover promotes a replica when it loses
+                      the master, and one Redis has none to promote. A failover below two is
+                      reported in status.warnings and is not refused.
                     format: int32
                     type: integer
                   resources:
@@ -15834,6 +15842,14 @@ spec:
                   priorityClassName:
                     type: string
                   replicas:
+                    description: |-
+                      Replicas is how many Sentinels run. Three by default, and three at
+                      least, which is the minimum Redis documents: a failover is carried out
+                      by a Sentinel the others elect, and an election needs a majority of all
+                      of them. See
+                      https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/
+                      A failover below three is reported in status.warnings and is not
+                      refused.
                     format: int32
                     type: integer
                   resources:
@@ -16371,6 +16387,14 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              warnings:
+                description: |-
+                  Warnings is what this spec asks for that the operator cannot make safe.
+                  It holds the current answer: an entry leaves when the spec stops
+                  deserving it.
+                items:
+                  type: string
+                type: array
             type: object
         required:
         - spec

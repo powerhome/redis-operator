@@ -89,6 +89,10 @@ type Recorder interface {
 	SetClusterError(namespace string, name string)
 	DeleteCluster(namespace string, name string)
 
+	// Whether a component's replica count can survive the loss of a pod
+	SetReplicaCountOK(namespace string, name string, component string)
+	SetReplicaCountUnsupported(namespace string, name string, component string)
+
 	// Indicate redis instances being monitored
 	RecordEnsureOperation(objectNamespace string, objectName string, objectKind string, resourceName string, status string)
 
@@ -103,6 +107,7 @@ type Recorder interface {
 type recorder struct {
 	// Metrics fields.
 	clusterOK            *prometheus.GaugeVec   // clusterOk is the status of a cluster
+	replicaCountOK       *prometheus.GaugeVec   // whether a component's replica count can survive the loss of a pod
 	ensureResource       *prometheus.CounterVec // number of successful "ensure" operators performed by the controller.
 	redisCheck           *prometheus.CounterVec // indicates any error encountered in managed redis instance(s)
 	sentinelCheck        *prometheus.CounterVec // indicates any error encountered in managed sentinel instance(s)
@@ -120,6 +125,13 @@ func NewRecorder(namespace string, reg prometheus.Registerer) Recorder {
 		Name:      "cluster_ok",
 		Help:      "Number of failover clusters managed by the operator.",
 	}, []string{"namespace", "name"})
+
+	replicaCountOK := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Subsystem: promControllerSubsystem,
+		Name:      "replica_count_ok",
+		Help:      "Whether a component's replica count can survive the loss of a pod (1) or cannot (0).",
+	}, []string{"namespace", "name", "component"})
 
 	ensureResource := prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
@@ -161,6 +173,7 @@ func NewRecorder(namespace string, reg prometheus.Registerer) Recorder {
 	// Create the instance.
 	r := recorder{
 		clusterOK:            clusterOK,
+		replicaCountOK:       replicaCountOK,
 		ensureResource:       ensureResource,
 		redisCheck:           redisCheck,
 		sentinelCheck:        sentinelCheck,
@@ -174,6 +187,7 @@ func NewRecorder(namespace string, reg prometheus.Registerer) Recorder {
 	// Register metrics.
 	reg.MustRegister(
 		r.clusterOK,
+		r.replicaCountOK,
 		r.ensureResource,
 		r.redisCheck,
 		r.sentinelCheck,
@@ -197,6 +211,17 @@ func (r recorder) SetClusterError(namespace string, name string) {
 // DeleteCluster set the cluster status to Error
 func (r recorder) DeleteCluster(namespace string, name string) {
 	r.clusterOK.DeleteLabelValues(namespace, name)
+	r.replicaCountOK.DeletePartialMatch(prometheus.Labels{"namespace": namespace, "name": name})
+}
+
+// SetReplicaCountOK records that a component's replica count can survive the loss of a pod
+func (r recorder) SetReplicaCountOK(namespace string, name string, component string) {
+	r.replicaCountOK.WithLabelValues(namespace, name, component).Set(1)
+}
+
+// SetReplicaCountUnsupported records that a component's replica count cannot survive the loss of a pod
+func (r recorder) SetReplicaCountUnsupported(namespace string, name string, component string) {
+	r.replicaCountOK.WithLabelValues(namespace, name, component).Set(0)
 }
 
 func (r recorder) RecordEnsureOperation(objectNamespace string, objectName string, objectKind string, resourceName string, status string) {

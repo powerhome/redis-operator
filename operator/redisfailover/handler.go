@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"sync"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -108,6 +110,12 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 		return err
 	}
 
+	if err := r.reportUnsupportedReplicaCounts(rf); err != nil {
+		r.mClient.SetClusterError(rf.Namespace, rf.Name)
+		r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
+		return err
+	}
+
 	// Create owner refs so the objects manager by this handler have ownership to the
 	// received RF.
 	oRefs := r.createOwnerReferences(rf)
@@ -187,4 +195,54 @@ func (w *RedisFailoverHandler) createOwnerReferences(rf *redisfailoverv1.RedisFa
 	return []metav1.OwnerReference{
 		*metav1.NewControllerRef(rf, rfvk),
 	}
+}
+
+func alreadyReported(rf *redisfailoverv1.RedisFailover, reasons []string) bool {
+	return slices.Equal(reasons, rf.Status.Warnings)
+}
+
+func (r *RedisFailoverHandler) reportUnsupportedReplicaCounts(rf *redisfailoverv1.RedisFailover) error {
+	unsupported := rf.UnsupportedReplicaCounts()
+
+	belowMinimum := make(map[string]bool, len(unsupported))
+	reasons := make([]string, 0, len(unsupported))
+	for _, count := range unsupported {
+		belowMinimum[count.Component] = true
+		reasons = append(reasons, count.Reason)
+	}
+
+	for _, component := range redisfailoverv1.ReplicaCountComponents() {
+		if belowMinimum[component] {
+			r.mClient.SetReplicaCountUnsupported(rf.Namespace, rf.Name, component)
+			continue
+		}
+		r.mClient.SetReplicaCountOK(rf.Namespace, rf.Name, component)
+	}
+
+	if alreadyReported(rf, reasons) {
+		return nil
+	}
+
+	rf.Status.Warnings = reasons
+	if _, err := r.rfService.UpdateStatus(rf); err != nil {
+		// The status this reconcile holds is one version behind whenever the
+		// spec has just been written, and these warnings are derived state
+		// that the next reconcile recomputes a few seconds from now. Failing
+		// the reconcile over them would mark the cluster in error for a
+		// cosmetic field.
+		if apierrors.IsConflict(err) {
+			return nil
+		}
+		return err
+	}
+
+	logger := r.logger.WithField("redisfailover", rf.Name).WithField("namespace", rf.Namespace)
+	if len(reasons) == 0 {
+		logger.Infof("every replica count can survive a failure")
+		return nil
+	}
+	for _, reason := range reasons {
+		logger.Warningf("%s", reason)
+	}
+	return nil
 }

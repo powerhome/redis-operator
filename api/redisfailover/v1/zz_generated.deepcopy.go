@@ -334,6 +334,11 @@ func (in *RedisFailoverStatus) DeepCopyInto(out *RedisFailoverStatus) {
 		*out = make([]ClusterCondition, len(*in))
 		copy(*out, *in)
 	}
+	if in.Warnings != nil {
+		in, out := &in.Warnings, &out.Warnings
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 

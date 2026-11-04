@@ -55,6 +55,10 @@ type ClusterCondition struct {
 type RedisFailoverStatus struct {
 	Conditions         []ClusterCondition `json:"conditions,omitempty"`
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
+	// Warnings is what this spec asks for that the operator cannot make safe.
+	// It holds the current answer: an entry leaves when the spec stops
+	// deserving it.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // RedisFailoverSpec represents a Redis failover spec
@@ -76,8 +80,10 @@ type NetworkPolicyNamespaceEntry struct {
 
 // HaproxySettings configures the haproxy workload
 type HaproxySettings struct {
-	RedisHost    string                      `json:"redisHost,omitempty"`
-	Image        string                      `json:"image,omitempty"`
+	RedisHost string `json:"redisHost,omitempty"`
+	Image     string `json:"image,omitempty"`
+	// Replicas is how many proxies run. One by default, since a block that
+	// asks for haproxy and names no count still wants a proxy.
 	Replicas     int32                       `json:"replicas,omitempty"`
 	Resources    corev1.ResourceRequirements `json:"resources,omitempty"`
 	CustomConfig string                      `json:"customConfig,omitempty"`
@@ -106,8 +112,12 @@ type Port int32
 
 // RedisSettings defines the specification of the redis cluster
 type RedisSettings struct {
-	Image                     string                            `json:"image,omitempty"`
-	ImagePullPolicy           corev1.PullPolicy                 `json:"imagePullPolicy,omitempty"`
+	Image           string            `json:"image,omitempty"`
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// Replicas is how many Redis run, the master among them. Three by
+	// default, and two at least: a failover promotes a replica when it loses
+	// the master, and one Redis has none to promote. A failover below two is
+	// reported in status.warnings and is not refused.
 	Replicas                  int32                             `json:"replicas,omitempty"`
 	Port                      Port                              `json:"port,omitempty"`
 	Resources                 corev1.ResourceRequirements       `json:"resources,omitempty"`
@@ -152,8 +162,15 @@ type RedisSettings struct {
 
 // SentinelSettings defines the specification of the sentinel cluster
 type SentinelSettings struct {
-	Image                     string                            `json:"image,omitempty"`
-	ImagePullPolicy           corev1.PullPolicy                 `json:"imagePullPolicy,omitempty"`
+	Image           string            `json:"image,omitempty"`
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// Replicas is how many Sentinels run. Three by default, and three at
+	// least, which is the minimum Redis documents: a failover is carried out
+	// by a Sentinel the others elect, and an election needs a majority of all
+	// of them. See
+	// https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/
+	// A failover below three is reported in status.warnings and is not
+	// refused.
 	Replicas                  int32                             `json:"replicas,omitempty"`
 	Port                      Port                              `json:"port,omitempty"`
 	Resources                 corev1.ResourceRequirements       `json:"resources,omitempty"`

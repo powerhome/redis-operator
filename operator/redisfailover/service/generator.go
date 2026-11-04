@@ -1163,6 +1163,28 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 	return sd
 }
 
+// See docs/cir/CIR-014-support-the-replica-counts-we-say-we-support.md for why
+// a budget gives way rather than keep a whole set.
+func sparingOne(want, replicas int32) int32 {
+	if want > replicas-1 {
+		return replicas - 1
+	}
+	return want
+}
+
+func sentinelBudgetFloor(rf *redisfailoverv1.RedisFailover) int32 {
+	return sparingOne(getQuorum(rf), rf.Spec.Sentinel.Replicas)
+}
+
+func redisBudgetFloor(replicas int32) int32 {
+	const masterAndAPromotableReplica = 2
+	want := int32(masterAndAPromotableReplica)
+	if replicas <= masterAndAPromotableReplica {
+		want = 1
+	}
+	return sparingOne(want, replicas)
+}
+
 func generatePodDisruptionBudget(name string, namespace string, labels map[string]string, ownerRefs []metav1.OwnerReference, minAvailable intstr.IntOrString) *policyv1.PodDisruptionBudget {
 	return &policyv1.PodDisruptionBudget{
 		ObjectMeta: metav1.ObjectMeta{
