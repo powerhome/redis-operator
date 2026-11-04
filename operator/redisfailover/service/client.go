@@ -287,7 +287,10 @@ func (r *RedisFailoverKubeClient) EnsureSentinelHeadlessService(rf *redisfailove
 // state.
 func (r *RedisFailoverKubeClient) EnsureSentinelStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	if !rf.Spec.Sentinel.DisablePodDisruptionBudget {
-		if err := r.ensurePodDisruptionBudget(rf, sentinelName, sentinelRoleName, labels, ownerRefs); err != nil {
+		// Keep as many Sentinels as it takes to elect the one that runs a
+		// failover, so a drain can never leave too few of them to fail over.
+		minAvailable := intstr.FromInt(int(getQuorum(rf)))
+		if err := r.ensurePodDisruptionBudget(rf, sentinelName, sentinelRoleName, minAvailable, labels, ownerRefs); err != nil {
 			return err
 		}
 	}
@@ -435,7 +438,11 @@ func (r *RedisFailoverKubeClient) DestroyOrphanedRedisSlaveHaProxy(rf *redisfail
 // EnsureRedisStatefulset makes sure the redis statefulset exists in the desired state
 func (r *RedisFailoverKubeClient) EnsureRedisStatefulset(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	if !rf.Spec.Redis.DisablePodDisruptionBudget {
-		if err := r.ensurePodDisruptionBudget(rf, redisName, redisRoleName, labels, ownerRefs); err != nil {
+		minAvailable := intstr.FromInt(2)
+		if rf.Spec.Redis.Replicas <= 2 {
+			minAvailable = intstr.FromInt(1)
+		}
+		if err := r.ensurePodDisruptionBudget(rf, redisName, redisRoleName, minAvailable, labels, ownerRefs); err != nil {
 			return err
 		}
 	}
@@ -545,15 +552,11 @@ func (r *RedisFailoverKubeClient) EnsureRedisSlaveService(rf *redisfailoverv1.Re
 	return err
 }
 
-// EnsureRedisStatefulset makes sure the pdb exists in the desired state
-func (r *RedisFailoverKubeClient) ensurePodDisruptionBudget(rf *redisfailoverv1.RedisFailover, name string, component string, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
+// ensurePodDisruptionBudget makes sure the pdb of a component exists in the
+// desired state, keeping at least minAvailable of its pods.
+func (r *RedisFailoverKubeClient) ensurePodDisruptionBudget(rf *redisfailoverv1.RedisFailover, name string, component string, minAvailable intstr.IntOrString, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	name = generateName(name, rf.Name)
 	namespace := rf.Namespace
-
-	minAvailable := intstr.FromInt(2)
-	if rf.Spec.Redis.Replicas <= 2 {
-		minAvailable = intstr.FromInt(1)
-	}
 
 	labels = util.MergeLabels(labels, generateSelectorLabels(component, rf.Name))
 

@@ -13,6 +13,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -4192,4 +4193,114 @@ func TestGeneratedConfigurationStartsWithNoMaster(t *testing.T) {
 		"a Redis starts following nothing, which is what the readiness check reads")
 	assert.Contains(sentinelConf, "sentinel monitor mymaster "+redis.NoMasterYet,
 		"a Sentinel starts monitoring nothing, which is what its readiness probe reads")
+}
+
+// A drain must leave enough Sentinels to elect the one that runs a failover,
+// which is a majority of all of them, so the Sentinel PDB follows the Sentinel
+// count rather than the Redis one.
+func TestSentinelPodDisruptionBudgetKeepsAQuorum(t *testing.T) {
+	tests := []struct {
+		name             string
+		redisReplicas    int32
+		sentinelReplicas int32
+		expMinAvailable  int
+	}{
+		{name: "one sentinel", redisReplicas: 2, sentinelReplicas: 1, expMinAvailable: 1},
+		{name: "default: three sentinels and two redis", redisReplicas: 2, sentinelReplicas: 3, expMinAvailable: 2},
+		{name: "four sentinels", redisReplicas: 3, sentinelReplicas: 4, expMinAvailable: 3},
+		{name: "five sentinels", redisReplicas: 3, sentinelReplicas: 5, expMinAvailable: 3},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+			rf := generateRF()
+			rf.Spec.Redis.Replicas = test.redisReplicas
+			rf.Spec.Sentinel.Replicas = test.sentinelReplicas
+
+			var pdb *policyv1.PodDisruptionBudget
+			ms := &mK8SService.Services{}
+			ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+				pdb = args.Get(1).(*policyv1.PodDisruptionBudget)
+			}).Return(nil)
+			ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+			ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			assert.NoError(client.EnsureSentinelStatefulSet(rf, nil, []metav1.OwnerReference{}))
+			ms.AssertExpectations(t)
+
+			assert.Equal(rfservice.GetSentinelName(rf), pdb.Name)
+			assert.Equal(intstr.FromInt(test.expMinAvailable), *pdb.Spec.MinAvailable)
+		})
+	}
+}
+
+func TestRedisPodDisruptionBudgetFollowsTheRedisCount(t *testing.T) {
+	tests := []struct {
+		name             string
+		redisReplicas    int32
+		sentinelReplicas int32
+		expMinAvailable  int
+	}{
+		{name: "two redis", redisReplicas: 2, sentinelReplicas: 5, expMinAvailable: 1},
+		{name: "three redis", redisReplicas: 3, sentinelReplicas: 1, expMinAvailable: 2},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+			rf := generateRF()
+			rf.Spec.Redis.Replicas = test.redisReplicas
+			rf.Spec.Sentinel.Replicas = test.sentinelReplicas
+
+			var pdb *policyv1.PodDisruptionBudget
+			ms := &mK8SService.Services{}
+			ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+				pdb = args.Get(1).(*policyv1.PodDisruptionBudget)
+			}).Return(nil)
+			ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound("statefulsets", name))
+			ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			assert.NoError(client.EnsureRedisStatefulset(rf, nil, []metav1.OwnerReference{}))
+			ms.AssertExpectations(t)
+
+			assert.Equal(rfservice.GetRedisName(rf), pdb.Name)
+			assert.Equal(intstr.FromInt(test.expMinAvailable), *pdb.Spec.MinAvailable)
+		})
+	}
+}
+
+// The quorum a Sentinel starts with is the one the operator later monitors
+// with, so it holds before the operator first tells the Sentinels a master.
+func TestSentinelConfigStartsWithTheQuorum(t *testing.T) {
+	tests := []struct {
+		sentinelReplicas int32
+		expQuorum        string
+	}{
+		{sentinelReplicas: 1, expQuorum: "1"},
+		{sentinelReplicas: 3, expQuorum: "2"},
+		{sentinelReplicas: 5, expQuorum: "3"},
+	}
+
+	for _, test := range tests {
+		t.Run(fmt.Sprintf("%d sentinels", test.sentinelReplicas), func(t *testing.T) {
+			assert := assert.New(t)
+			rf := generateRF()
+			rf.Spec.Sentinel.Replicas = test.sentinelReplicas
+
+			var sentinelConf string
+			ms := &mK8SService.Services{}
+			ms.On("CreateOrUpdateConfigMap", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+				sentinelConf = args.Get(1).(*corev1.ConfigMap).Data["sentinel.conf"]
+			}).Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			assert.NoError(client.EnsureSentinelConfigMap(rf, nil, []metav1.OwnerReference{}))
+
+			monitor := fmt.Sprintf("sentinel monitor mymaster %s %d %s\n", redis.NoMasterYet, rf.Spec.Redis.Port, test.expQuorum)
+			assert.Contains(sentinelConf, monitor)
+		})
+	}
 }
