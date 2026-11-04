@@ -4,8 +4,9 @@ import "fmt"
 
 const (
 	// https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/
-	sentinelsToElectAFailover = 3
-	redisToPromoteOne         = 2
+	sentinelsToElectAFailover  = 3
+	redisToPromoteOne          = 2
+	proxiesToSurviveAnEviction = 2
 )
 
 // UnsupportedReplicaCount is one component whose replica count is too small,
@@ -40,12 +41,25 @@ func (r *RedisFailover) UnsupportedReplicaCounts() []UnsupportedReplicaCount {
 		})
 	}
 
+	if r.Spec.Haproxy != nil && r.Spec.Haproxy.Replicas < proxiesToSurviveAnEviction {
+		unsupported = append(unsupported, UnsupportedReplicaCount{
+			Component: "haproxy",
+			Reason: fmt.Sprintf(
+				"haproxy.replicas is %d. A failover needs %d proxies, so that a drain or a lost node leaves one serving clients.",
+				r.Spec.Haproxy.Replicas, proxiesToSurviveAnEviction),
+		})
+	}
+
 	return unsupported
 }
 
-// ReplicaCountComponents names every component that has a minimum, whether or
-// not this failover meets it, so a reader of the metric sees a healthy count
-// rather than the absence of an unhealthy one.
-func ReplicaCountComponents() []string {
-	return []string{"redis", "sentinel"}
+// ReplicaCountComponents names every component of this failover that has a
+// minimum, so a reader of the metric sees a healthy count rather than the
+// absence of an unhealthy one.
+func (r *RedisFailover) ReplicaCountComponents() []string {
+	components := []string{"redis", "sentinel"}
+	if r.Spec.Haproxy != nil {
+		components = append(components, "haproxy")
+	}
+	return components
 }

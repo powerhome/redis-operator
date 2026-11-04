@@ -19,7 +19,7 @@ block asks for a proxy and runs none.
 
 - GIVEN a spec that carries `spec.haproxy` and names no replica count
 - WHEN the operator validates it
-- THEN the count is one, and one proxy runs
+- THEN the count is two, and a drain of one proxy leaves one serving
 
 - GIVEN a spec that names a HAProxy replica count
 - WHEN the operator validates it
@@ -74,10 +74,13 @@ block asks for a proxy and runs none.
   three Sentinels cannot elect a leader. Measured on a four-node kind cluster:
   at three Sentinels the budget permits one eviction and refuses the second, and
   the cap changes nothing at three or more.
-- **HAProxy gets a default count, not a warning.** Redis and Sentinel default
-  their counts, so `spec.haproxy: {}` reads as "on, with defaults". It produced
-  a Deployment of zero replicas, which is a service with a name and no
-  endpoints. A default of one makes the empty block mean what it reads as.
+- **HAProxy defaults to two, and two is its minimum.** Redis and Sentinel
+  default their counts, so `spec.haproxy: {}` reads as "on, with defaults". It
+  produced a Deployment of zero replicas, which is a service with a name and no
+  endpoints. One proxy would have survived only a rolling update, where
+  `maxSurge` adds a pod before removing one. A drain, an eviction or a lost node
+  does not surge, and no disruption budget covers HAProxy, so the client path
+  goes with the pod. Two is what every example in this repository configures.
 - **No count is refused.** The constraint above decides this: refusing would
   take failovers out of management for a configuration the operator accepted
   when it created them.
@@ -86,6 +89,11 @@ block asks for a proxy and runs none.
   They differ in who sees them and in whether they clear by themselves, and the
   status list cannot carry it for the reason in the constraints. The budget and
   the default above hold whatever that choice turns out to be.
+
+- **Deferred: a disruption budget for HAProxy.** Nothing bounds how many
+  proxies a drain takes, so it can take every one of them at once. Adding a
+  budget creates a resource for failovers that have none today, which is a
+  change of its own.
 
 ## Date
 

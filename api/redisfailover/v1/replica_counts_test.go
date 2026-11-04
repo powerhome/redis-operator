@@ -14,6 +14,7 @@ func TestUnsupportedReplicaCounts(t *testing.T) {
 		name             string
 		redisReplicas    int32
 		sentinelReplicas int32
+		haproxyReplicas  int32
 		expMentions      []string
 		expSilent        bool
 	}{
@@ -42,6 +43,26 @@ func TestUnsupportedReplicaCounts(t *testing.T) {
 			expMentions:      []string{"sentinel: ", "sentinel.replicas is 2", "needs 3 Sentinels"},
 		},
 		{
+			name:             "one proxy cannot be evicted without taking the client path",
+			redisReplicas:    3,
+			sentinelReplicas: 3,
+			haproxyReplicas:  1,
+			expMentions:      []string{"haproxy: ", "haproxy.replicas is 1", "needs 2 proxies"},
+		},
+		{
+			name:             "two proxies say nothing",
+			redisReplicas:    3,
+			sentinelReplicas: 3,
+			haproxyReplicas:  2,
+			expSilent:        true,
+		},
+		{
+			name:             "a failover with no haproxy block is not asked about proxies",
+			redisReplicas:    3,
+			sentinelReplicas: 3,
+			expSilent:        true,
+		},
+		{
 			name:             "both counts are named, each in its own entry",
 			redisReplicas:    1,
 			sentinelReplicas: 1,
@@ -56,6 +77,9 @@ func TestUnsupportedReplicaCounts(t *testing.T) {
 			rf := &redisfailoverv1.RedisFailover{}
 			rf.Spec.Redis.Replicas = test.redisReplicas
 			rf.Spec.Sentinel.Replicas = test.sentinelReplicas
+			if test.haproxyReplicas > 0 {
+				rf.Spec.Haproxy = &redisfailoverv1.HaproxySettings{Replicas: test.haproxyReplicas}
+			}
 
 			unsupported := rf.UnsupportedReplicaCounts()
 

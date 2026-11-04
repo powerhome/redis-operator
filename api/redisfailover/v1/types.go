@@ -82,8 +82,10 @@ type NetworkPolicyNamespaceEntry struct {
 type HaproxySettings struct {
 	RedisHost string `json:"redisHost,omitempty"`
 	Image     string `json:"image,omitempty"`
-	// Replicas is how many proxies run. One by default, since a block that
-	// asks for haproxy and names no count still wants a proxy.
+	// Replicas is how many proxies run. Two by default, and two at least: a
+	// proxy is the client path to the master, and one of them is lost to a
+	// drain, an eviction or a lost node with nothing left serving. A failover
+	// below two is reported in status.warnings and is not refused.
 	Replicas     int32                       `json:"replicas,omitempty"`
 	Resources    corev1.ResourceRequirements `json:"resources,omitempty"`
 	CustomConfig string                      `json:"customConfig,omitempty"`

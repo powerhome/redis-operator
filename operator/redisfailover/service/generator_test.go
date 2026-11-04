@@ -4307,7 +4307,7 @@ func TestSentinelConfigStartsWithTheQuorum(t *testing.T) {
 	}
 }
 
-func TestHaproxyWithoutAReplicaCountRunsOneProxy(t *testing.T) {
+func TestHaproxyWithoutAReplicaCountRunsTwoProxies(t *testing.T) {
 	assert := assert.New(t)
 
 	rf := generateRF()
@@ -4334,6 +4334,6 @@ func TestHaproxyWithoutAReplicaCountRunsOneProxy(t *testing.T) {
 	assert.NoError(client.EnsureHAProxyRedisMasterDeployment(rf, nil, []metav1.OwnerReference{}))
 
 	assert.NotNil(dep.Spec.Replicas)
-	assert.EqualValues(1, *dep.Spec.Replicas,
-		"a spec that asks for haproxy and names no count runs one proxy, not a deployment of none")
+	assert.EqualValues(2, *dep.Spec.Replicas,
+		"a spec that asks for haproxy and names no count runs enough proxies to lose one")
 }

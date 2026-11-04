@@ -211,7 +211,7 @@ func (r *RedisFailoverHandler) reportUnsupportedReplicaCounts(rf *redisfailoverv
 		reasons = append(reasons, count.Reason)
 	}
 
-	for _, component := range redisfailoverv1.ReplicaCountComponents() {
+	for _, component := range rf.ReplicaCountComponents() {
 		if belowMinimum[component] {
 			r.mClient.SetReplicaCountUnsupported(rf.Namespace, rf.Name, component)
 			continue

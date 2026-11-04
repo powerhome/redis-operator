@@ -155,7 +155,7 @@ replace it. The counts below are what that takes.
 |---|---|---|---|
 | `redis.replicas` | 3 | 2 | Losing the master is survived by promoting a replica. One Redis has none to promote. |
 | `sentinel.replicas` | 3 | 3 | A failover is carried out by a Sentinel the others elect, and an election needs a majority of all of them. Two Sentinels cannot reach one after losing either. This is [the minimum Redis documents](https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/). |
-| `haproxy.replicas` | 1 | 1 | A proxy that is asked for and never runs leaves a service with no endpoints. |
+| `haproxy.replicas` | 2 | 2 | A proxy is the client path to the master. One of them is lost to a drain, an eviction or a lost node with nothing left serving, and no disruption budget covers HAProxy. |
 
 Run an odd number of Sentinels. Four Sentinels need three to elect, the same as
 five, so the fourth adds cost and no tolerance.
