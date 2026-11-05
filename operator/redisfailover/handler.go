@@ -77,9 +77,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 		rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
 		rf.Status.AddCondition(clusterCondition)
 
-		rf, err := r.rfService.UpdateStatus(rf)
-
-		if err != nil {
+		if err := r.writeStatus(rf); err != nil {
 			r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
 			r.mClient.SetClusterError(rf.Namespace, rf.Name)
 			return err
@@ -95,9 +93,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 				Message: "RedisFailover reconciling...",
 			})
 			rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
-			_, err := r.rfService.UpdateStatus(rf)
-
-			if err != nil {
+			if err := r.writeStatus(rf); err != nil {
 				r.mClient.SetClusterError(rf.Namespace, rf.Name)
 				r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
 				return err
@@ -148,9 +144,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 			rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
 			rf.Status.AddCondition(clusterCondition)
 
-			_, err := r.rfService.UpdateStatus(rf)
-
-			if err != nil {
+			if err := r.writeStatus(rf); err != nil {
 				r.mClient.SetClusterError(rf.Namespace, rf.Name)
 				r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
 				return err
@@ -197,6 +191,19 @@ func (w *RedisFailoverHandler) createOwnerReferences(rf *redisfailoverv1.RedisFa
 	}
 }
 
+// writeStatus writes the status and keeps the version the API server assigns.
+// A reconcile writes the status several times, and a write that carries the
+// version from before an earlier one loses a conflict to a write this operator
+// made itself.
+func (r *RedisFailoverHandler) writeStatus(rf *redisfailoverv1.RedisFailover) error {
+	written, err := r.rfService.UpdateStatus(rf)
+	if err != nil {
+		return err
+	}
+	rf.ResourceVersion = written.ResourceVersion
+	return nil
+}
+
 func alreadyReported(rf *redisfailoverv1.RedisFailover, reasons []string) bool {
 	return slices.Equal(reasons, rf.Status.Warnings)
 }
@@ -224,7 +231,7 @@ func (r *RedisFailoverHandler) reportUnsupportedReplicaCounts(rf *redisfailoverv
 	}
 
 	rf.Status.Warnings = reasons
-	if _, err := r.rfService.UpdateStatus(rf); err != nil {
+	if err := r.writeStatus(rf); err != nil {
 		// The status this reconcile holds is one version behind whenever the
 		// spec has just been written, and these warnings are derived state
 		// that the next reconcile recomputes a few seconds from now. Failing

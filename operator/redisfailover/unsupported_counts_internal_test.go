@@ -2,6 +2,7 @@ package redisfailover
 
 import (
 	"errors"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -181,4 +182,36 @@ func TestAStaleStatusWriteIsLeftForTheNextReconcile(t *testing.T) {
 	assert.NoError(handler.reportUnsupportedReplicaCounts(rf),
 		"a spec written a moment ago leaves this status one version behind, which the next reconcile fixes")
 	assert.Empty(logger.warnings, "nothing is announced that was not written")
+}
+
+// answeringLikeTheAPIServer refuses a write that carries any version but the
+// current one, and assigns the next version to one that succeeds.
+func answeringLikeTheAPIServer(version *int) func(*redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error) {
+	return func(rf *redisfailoverv1.RedisFailover) (*redisfailoverv1.RedisFailover, error) {
+		if rf.ResourceVersion != strconv.Itoa(*version) {
+			return nil, apierrors.NewConflict(
+				schema.GroupResource{Group: "databases.spotahome.com", Resource: "redisfailovers"},
+				rf.Name, errors.New("the object has been modified"))
+		}
+		*version++
+		written := rf.DeepCopy()
+		written.ResourceVersion = strconv.Itoa(*version)
+		return written, nil
+	}
+}
+
+func TestAConditionWrittenAfterTheWarningsIsNotRefused(t *testing.T) {
+	assert := assert.New(t)
+
+	version := 1
+	service := &mRFService.RedisFailoverClient{}
+	service.On("UpdateStatus", mock.Anything).Return(answeringLikeTheAPIServer(&version))
+	handler := NewRedisFailoverHandler(Config{}, service, nil, nil, nil, metrics.Dummy, &countingLogger{})
+
+	rf := failoverWithCounts(1, 2)
+	rf.ResourceVersion = strconv.Itoa(version)
+
+	assert.NoError(handler.reportUnsupportedReplicaCounts(rf))
+	assert.NoError(handler.writeStatus(rf),
+		"a reconcile writes the status several times, and the later writes carry the conditions a reader acts on")
 }
