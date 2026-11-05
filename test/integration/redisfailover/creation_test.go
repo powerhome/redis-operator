@@ -693,6 +693,14 @@ func (c *clients) testSentinelTemplateRollsOut(t *testing.T) {
 
 	setName := fmt.Sprintf("rfs-%s", name)
 
+	// Until the operator writes the new pod template, the set reports the
+	// revision it already ran and every pod matches it, so a check against
+	// the set's revision alone holds before anything has rolled.
+	before, err := c.k8sClient.AppsV1().StatefulSets(namespace).Get(context.Background(), setName, metav1.GetOptions{})
+	require.NoError(t, err)
+	revisionBeforeTheChange := before.Status.UpdateRevision
+	require.NotEmpty(t, revisionBeforeTheChange, "the Sentinel set should report the revision its pods run")
+
 	rf, err := c.rfClient.DatabasesV1().RedisFailovers(namespace).Get(context.Background(), name, metav1.GetOptions{})
 	require.NoError(t, err)
 
@@ -709,8 +717,8 @@ func (c *clients) testSentinelTemplateRollsOut(t *testing.T) {
 			return false, err
 		}
 		want := set.Status.UpdateRevision
-		if want == "" {
-			return false, errors.New("the Sentinel set reports no update revision yet")
+		if want == revisionBeforeTheChange {
+			return false, errors.New("the Sentinel set still reports the revision it ran before the change")
 		}
 
 		pods, err := c.k8sClient.CoreV1().Pods(namespace).List(context.Background(), metav1.ListOptions{
