@@ -66,7 +66,7 @@ block asks for a proxy and runs none.
 ## Decisions
 
 - **A disruption budget gives way rather than keep a whole set.**
-  `sparingOne` caps what a budget holds at `replicas - 1`. A budget
+  Each budget asks for at most `replicas - 1`. A budget
   that permits no eviction does not protect a failover: it blocks a node drain
   for as long as the budget exists, and the drain waits rather than fails. The
   counts that reach that cap are the ones that cannot survive a loss whatever

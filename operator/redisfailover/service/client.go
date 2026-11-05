@@ -287,7 +287,7 @@ func (r *RedisFailoverKubeClient) EnsureSentinelHeadlessService(rf *redisfailove
 // state.
 func (r *RedisFailoverKubeClient) EnsureSentinelStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	if !rf.Spec.Sentinel.DisablePodDisruptionBudget {
-		minAvailable := intstr.FromInt(int(sentinelBudgetFloor(rf)))
+		minAvailable := intstr.FromInt(int(sentinelMinAvailable(rf)))
 		if err := r.ensurePodDisruptionBudget(rf, sentinelName, sentinelRoleName, minAvailable, labels, ownerRefs); err != nil {
 			return err
 		}
@@ -436,7 +436,7 @@ func (r *RedisFailoverKubeClient) DestroyOrphanedRedisSlaveHaProxy(rf *redisfail
 // EnsureRedisStatefulset makes sure the redis statefulset exists in the desired state
 func (r *RedisFailoverKubeClient) EnsureRedisStatefulset(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
 	if !rf.Spec.Redis.DisablePodDisruptionBudget {
-		minAvailable := intstr.FromInt(int(redisBudgetFloor(rf.Spec.Redis.Replicas)))
+		minAvailable := intstr.FromInt(int(redisMinAvailable(rf)))
 		if err := r.ensurePodDisruptionBudget(rf, redisName, redisRoleName, minAvailable, labels, ownerRefs); err != nil {
 			return err
 		}

@@ -1163,26 +1163,16 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 	return sd
 }
 
-// See docs/cir/CIR-014-support-the-replica-counts-we-say-we-support.md for why
-// a budget gives way rather than keep a whole set.
-func sparingOne(want, replicas int32) int32 {
-	if want > replicas-1 {
-		return replicas - 1
-	}
-	return want
+// A budget that keeps a whole set permits no eviction, so a drain of a node
+// holding one of those pods waits with no end rather than failing. See
+// docs/cir/CIR-014-support-the-replica-counts-we-say-we-support.md.
+func sentinelMinAvailable(rf *redisfailoverv1.RedisFailover) int32 {
+	return min(getQuorum(rf), rf.Spec.Sentinel.Replicas-1)
 }
 
-func sentinelBudgetFloor(rf *redisfailoverv1.RedisFailover) int32 {
-	return sparingOne(getQuorum(rf), rf.Spec.Sentinel.Replicas)
-}
-
-func redisBudgetFloor(replicas int32) int32 {
+func redisMinAvailable(rf *redisfailoverv1.RedisFailover) int32 {
 	const masterAndAPromotableReplica = 2
-	want := int32(masterAndAPromotableReplica)
-	if replicas <= masterAndAPromotableReplica {
-		want = 1
-	}
-	return sparingOne(want, replicas)
+	return min(masterAndAPromotableReplica, rf.Spec.Redis.Replicas-1)
 }
 
 func generatePodDisruptionBudget(name string, namespace string, labels map[string]string, ownerRefs []metav1.OwnerReference, minAvailable intstr.IntOrString) *policyv1.PodDisruptionBudget {
