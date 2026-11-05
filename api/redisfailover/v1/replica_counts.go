@@ -4,9 +4,9 @@ import "fmt"
 
 const (
 	// https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/
-	sentinelsToElectAFailover  = 3
-	redisToPromoteOne          = 2
-	proxiesToSurviveAnEviction = 2
+	minSentinelsToElectAFailover  = 3
+	minRedisToPromoteAReplica     = 2
+	minProxiesToSurviveAnEviction = 2
 )
 
 // UnsupportedReplicaCount is one component whose replica count is too small,
@@ -23,30 +23,30 @@ type UnsupportedReplicaCount struct {
 func (r *RedisFailover) UnsupportedReplicaCounts() []UnsupportedReplicaCount {
 	var unsupported []UnsupportedReplicaCount
 
-	if r.Spec.Redis.Replicas < redisToPromoteOne {
+	if r.Spec.Redis.Replicas < minRedisToPromoteAReplica {
 		unsupported = append(unsupported, UnsupportedReplicaCount{
 			Component: "redis",
 			Reason: fmt.Sprintf(
 				"redis.replicas is %d. A failover needs %d Redis, so that one can be promoted when the master is lost.",
-				r.Spec.Redis.Replicas, redisToPromoteOne),
+				r.Spec.Redis.Replicas, minRedisToPromoteAReplica),
 		})
 	}
 
-	if r.Spec.Sentinel.Replicas < sentinelsToElectAFailover {
+	if r.Spec.Sentinel.Replicas < minSentinelsToElectAFailover {
 		unsupported = append(unsupported, UnsupportedReplicaCount{
 			Component: "sentinel",
 			Reason: fmt.Sprintf(
 				"sentinel.replicas is %d. A failover needs %d Sentinels to elect the one that carries it out.",
-				r.Spec.Sentinel.Replicas, sentinelsToElectAFailover),
+				r.Spec.Sentinel.Replicas, minSentinelsToElectAFailover),
 		})
 	}
 
-	if r.Spec.Haproxy != nil && r.Spec.Haproxy.Replicas < proxiesToSurviveAnEviction {
+	if r.Spec.Haproxy != nil && r.Spec.Haproxy.Replicas < minProxiesToSurviveAnEviction {
 		unsupported = append(unsupported, UnsupportedReplicaCount{
 			Component: "haproxy",
 			Reason: fmt.Sprintf(
 				"haproxy.replicas is %d. A failover needs %d proxies, so that a drain or a lost node leaves one serving clients.",
-				r.Spec.Haproxy.Replicas, proxiesToSurviveAnEviction),
+				r.Spec.Haproxy.Replicas, minProxiesToSurviveAnEviction),
 		})
 	}
 
