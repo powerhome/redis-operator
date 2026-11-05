@@ -11,7 +11,9 @@ import (
 )
 
 // markResourceStale makes the sweep treat a failover as gone, the way deleting
-// one does: nothing updates its tracker entry again.
+// one does: nothing updates its tracker entry again. RecordRedisCheck and
+// RecordSentinelCheck write that entry under the failover's own name, on every
+// pass and on both the healthy and the unhealthy branch.
 func markResourceStale(namespace, kind, name string) {
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -45,7 +47,7 @@ func TestTheSweepTakesEveryCountOfAFailoverThatIsGone(t *testing.T) {
 	require.Equal(t, 3, seriesOf(t, reg, "swept_controller_replica_count_ok"),
 		"the three series the sweep is about")
 
-	markResourceStale("ns", "RedisFailover", "gone")
+	markResourceStale("ns", "redisfailover", "gone")
 	sweepStaleMetrics()
 
 	assert.Equal(1, seriesOf(t, reg, "swept_controller_replica_count_ok"),
