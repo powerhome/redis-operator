@@ -45,6 +45,16 @@ block asks for a proxy and runs none.
 - WHEN a node holding one of those pods is drained
 - THEN the eviction API permits at least one eviction
 
+- GIVEN a spec that names a count below its minimum
+- WHEN the operator reconciles it
+- THEN `status.warnings` names the count, `replica_count_ok` reads 0 for that
+  component, and the count itself stands
+
+- GIVEN a failover whose counts all meet their minimums
+- WHEN the operator reconciles it
+- THEN `status.warnings` holds nothing, and `replica_count_ok` reads 1 for
+  every component
+
 - GIVEN a failover already running on counts below a minimum
 - WHEN this operator replaces the one that created it
 - THEN it keeps reconciling, and no count is refused
@@ -84,11 +94,13 @@ block asks for a proxy and runs none.
 - **No count is refused.** The constraint above decides this: refusing would
   take failovers out of management for a configuration the operator accepted
   when it created them.
-- **Deferred: how a count below a minimum reaches the person who set it.** The
-  options are a status field rewritten each reconcile, a metric, or a log line.
-  They differ in who sees them and in whether they clear by themselves, and the
-  status list cannot carry it for the reason in the constraints. The budget and
-  the default above hold whatever that choice turns out to be.
+- **A count below a minimum is reported three ways, because each reaches a
+  different person.** `status.warnings` carries the sentence on the resource,
+  where whoever holds the failover reads it and where it clears by itself.
+  `replica_count_ok` carries one value per component, so an alert can name the
+  failover without reading a resource. A log line records each change once, for
+  whoever is reading the operator at the time. `Status.Conditions` can carry
+  none of it, for the reason in the constraints.
 
 - **Deferred: a disruption budget for HAProxy.** Nothing bounds how many
   proxies a drain takes, so it can take every one of them at once. Adding a
