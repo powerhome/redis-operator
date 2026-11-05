@@ -53,13 +53,10 @@ func (r *RedisFailover) UnsupportedReplicaCounts() []UnsupportedReplicaCount {
 	return unsupported
 }
 
-// ReplicaCountComponents names every component of this failover that has a
-// minimum, so a reader of the metric sees a healthy count rather than the
-// absence of an unhealthy one.
+// ReplicaCountComponents names every component that has a minimum, including
+// one this failover does not run. A reader of the metric sees a healthy count
+// rather than the absence of an unhealthy one, and a component left unreported
+// would keep whatever the gauge last held for it.
 func (r *RedisFailover) ReplicaCountComponents() []string {
-	components := []string{"redis", "sentinel"}
-	if r.Spec.Haproxy != nil {
-		components = append(components, "haproxy")
-	}
-	return components
+	return []string{"redis", "sentinel", "haproxy"}
 }

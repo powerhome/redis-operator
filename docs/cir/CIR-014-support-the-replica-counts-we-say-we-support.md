@@ -55,6 +55,11 @@ block asks for a proxy and runs none.
 - THEN `status.warnings` holds nothing, and `replica_count_ok` reads 1 for
   every component
 
+- GIVEN a failover with no `spec.haproxy` block
+- WHEN the operator reconciles it
+- THEN `replica_count_ok` still reads 1 for the proxy component, because a
+  component left unreported would keep the value the gauge last held
+
 - GIVEN a failover already running on counts below a minimum
 - WHEN this operator replaces the one that created it
 - THEN it keeps reconciling, and no count is refused

@@ -145,6 +145,24 @@ func TestTheGaugeIsSetOnEveryPass(t *testing.T) {
 	service.AssertNumberOfCalls(t, "UpdateStatus", 1)
 }
 
+func TestAComponentThisFailoverDoesNotRunStillReportsACount(t *testing.T) {
+	assert := assert.New(t)
+
+	recorder := newCountingMetrics()
+	service := &mRFService.RedisFailoverClient{}
+	service.On("UpdateStatus", mock.Anything).Return(&redisfailoverv1.RedisFailover{}, nil)
+	handler := NewRedisFailoverHandler(Config{}, service, nil, nil, nil, recorder, &countingLogger{})
+
+	rf := failoverWithCounts(3, 3)
+	assert.Nil(rf.Spec.Haproxy, "this failover runs no proxies")
+
+	assert.NoError(handler.reportUnsupportedReplicaCounts(rf))
+
+	assert.Equal(1, recorder.ok["haproxy"],
+		"a failover that stops running proxies would otherwise leave the gauge reading whatever it last held")
+	assert.Equal(0, recorder.unsupported["haproxy"])
+}
+
 func TestAStaleStatusWriteIsLeftForTheNextReconcile(t *testing.T) {
 	assert := assert.New(t)
 
