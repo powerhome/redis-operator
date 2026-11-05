@@ -266,28 +266,36 @@ func removeStaleMetrics() {
 	// Runs every `metricsGCIntervalMinutes`. It keeps track of recently updated metrics
 	// And every metric that was not updated after `metricsGCIntervalMinutes` gets deleted
 	for {
-		metricsDeletedCount := 0
-		kubernetesResourceBasedLabels, customResourceBasedLabels, ipBasedLabels := getLabelsOfStaleMetrics()
-		for _, recorder := range recorders {
-			for _, label := range kubernetesResourceBasedLabels {
-				metricsDeletedCount += recorder.ensureResource.DeletePartialMatch(label)
-				metricsDeletedCount += recorder.k8sServiceOperations.DeletePartialMatch(label)
-			}
-			for _, label := range customResourceBasedLabels {
-				metricsDeletedCount += recorder.redisCheck.DeletePartialMatch(label)
-				metricsDeletedCount += recorder.sentinelCheck.DeletePartialMatch(label)
-				labelWithName := label
-				labelWithName["name"] = labelWithName["resource"]
-				delete(labelWithName, "resource")
-				metricsDeletedCount += recorder.clusterOK.DeletePartialMatch(label)
-			}
-			for _, label := range ipBasedLabels {
-				metricsDeletedCount += recorder.redisOperations.DeletePartialMatch(label)
-			}
-		}
-		log.Debugf("delete %v stale metrics", metricsDeletedCount)
+		sweepStaleMetrics()
 		time.Sleep(metricsGCIntervalMinutes * time.Minute)
 	}
+}
+
+// sweepStaleMetrics deletes the series of every resource that has gone stale.
+// A series this sweep does not list outlives the failover it describes, since
+// nothing else removes one.
+func sweepStaleMetrics() {
+	metricsDeletedCount := 0
+	kubernetesResourceBasedLabels, customResourceBasedLabels, ipBasedLabels := getLabelsOfStaleMetrics()
+	for _, recorder := range recorders {
+		for _, label := range kubernetesResourceBasedLabels {
+			metricsDeletedCount += recorder.ensureResource.DeletePartialMatch(label)
+			metricsDeletedCount += recorder.k8sServiceOperations.DeletePartialMatch(label)
+		}
+		for _, label := range customResourceBasedLabels {
+			metricsDeletedCount += recorder.redisCheck.DeletePartialMatch(label)
+			metricsDeletedCount += recorder.sentinelCheck.DeletePartialMatch(label)
+			labelWithName := label
+			labelWithName["name"] = labelWithName["resource"]
+			delete(labelWithName, "resource")
+			metricsDeletedCount += recorder.clusterOK.DeletePartialMatch(label)
+			metricsDeletedCount += recorder.replicaCountOK.DeletePartialMatch(label)
+		}
+		for _, label := range ipBasedLabels {
+			metricsDeletedCount += recorder.redisOperations.DeletePartialMatch(label)
+		}
+	}
+	log.Debugf("delete %v stale metrics", metricsDeletedCount)
 }
 
 func getLabelsOfStaleMetrics() (kubernetesResourceBasedLabels []prometheus.Labels, customResourceBasedLabels []prometheus.Labels, ipBasedLabels []prometheus.Labels) {
