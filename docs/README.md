@@ -157,6 +157,21 @@ replace it. The counts below are what that takes.
 | `sentinel.replicas` | 3 | 3 | A failover is carried out by a Sentinel the others elect, and an election needs a majority of all of them. Two Sentinels cannot reach one after losing either. This is [the minimum Redis documents](https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/). |
 | `haproxy.replicas` | 2 | 2 | A proxy is the client path to the master. One of them is lost to a drain, an eviction or a lost node with nothing left serving, and no disruption budget covers HAProxy. |
 
+The default is not the minimum, and for Redis the two differ on purpose. A
+minimum is where the mechanism starts working at all. A default is the count
+worth running.
+
+Two Redis can fail over once. Promoting the only replica leaves a master and
+nothing to promote, so the next failure waits for the replacement to be created
+and to finish syncing, and a rolling update holds each pod until it has. Three
+Redis leaves a promotable replica standing after a promotion, so the failover
+survives a failure and is still able to survive the next one. That is why three
+is the default and two is the floor.
+
+Sentinel and HAProxy have no such gap. Three Sentinels is both the minimum and
+the smallest useful count, and two proxies is the minimum, above which more
+proxies are capacity rather than safety.
+
 Run an odd number of Sentinels. Four Sentinels need three to elect, the same as
 five, so the fourth adds cost and no tolerance.
 
