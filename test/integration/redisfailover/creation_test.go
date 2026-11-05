@@ -451,36 +451,24 @@ func (c *clients) testPodDisruptionBudgets(t *testing.T) {
 	assert := assert.New(t)
 
 	budgets := []struct {
-		workload string
-		pdbName  string
-		want     int
-		why      string
+		pdbName string
+		holds   int
+		why     string
 	}{
 		{
-			workload: "sentinel",
-			pdbName:  fmt.Sprintf("rfs-%s", name),
-			want:     2,
-			why:      "three Sentinels hold the two that can elect a failover, and leave the third to evict",
+			pdbName: fmt.Sprintf("rfs-%s", name),
+			holds:   2,
+			why:     "three Sentinels hold the two that can elect a failover, and leave the third to evict",
 		},
 		{
-			workload: "redis",
-			pdbName:  fmt.Sprintf("rfr-%s", name),
-			want:     2,
-			why:      "three Redis hold a master and a promotable replica, and leave the third to evict",
+			pdbName: fmt.Sprintf("rfr-%s", name),
+			holds:   2,
+			why:     "three Redis hold a master and a promotable replica, and leave the third to evict",
 		},
 	}
 
 	for _, budget := range budgets {
-		pdb, err := c.k8sClient.PolicyV1().PodDisruptionBudgets(namespace).Get(context.Background(), budget.pdbName, metav1.GetOptions{})
-		if !assert.NoError(err, "the operator should write a disruption budget for %s", budget.workload) {
-			continue
-		}
-		if !assert.NotNil(pdb.Spec.MinAvailable, "the %s budget should set minAvailable", budget.workload) {
-			continue
-		}
-		assert.Equal(budget.want, pdb.Spec.MinAvailable.IntValue(), budget.why)
-		assert.Equal(int32(1), pdb.Status.DisruptionsAllowed,
-			"a budget that allows no disruption blocks a node drain for as long as it exists")
+		assert.NoError(c.waitForBudget(budget.pdbName, budget.holds), budget.why)
 	}
 }
 
@@ -502,6 +490,9 @@ func (c *clients) testUnsupportedReplicaCountIsReported(t *testing.T) {
 		return false, fmt.Errorf("status.warnings holds %v", rf.Status.Warnings)
 	})
 	require.NoError(err, "two Sentinels cannot elect a failover, which the resource should say")
+
+	require.NoError(c.waitForBudget(fmt.Sprintf("rfs-%s", name), 1),
+		"two Sentinels hold one, and leave the other to evict")
 
 	require.NoError(c.setSentinelReplicas(sentinelSize), "the Sentinel count should be editable")
 
@@ -533,6 +524,25 @@ func (c *clients) updateFailover(change func(*redisfailoverv1.RedisFailover)) er
 func (c *clients) setSentinelReplicas(replicas int32) error {
 	return c.updateFailover(func(rf *redisfailoverv1.RedisFailover) {
 		rf.Spec.Sentinel.Replicas = replicas
+	})
+}
+
+func (c *clients) waitForBudget(pdbName string, holds int) error {
+	return waitFor(readyTimeout, func() (bool, error) {
+		pdb, err := c.k8sClient.PolicyV1().PodDisruptionBudgets(namespace).Get(context.Background(), pdbName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		if pdb.Spec.MinAvailable == nil {
+			return false, fmt.Errorf("%s sets no minAvailable", pdbName)
+		}
+		if pdb.Spec.MinAvailable.IntValue() != holds {
+			return false, fmt.Errorf("%s holds %s, not %d", pdbName, pdb.Spec.MinAvailable, holds)
+		}
+		if pdb.Status.DisruptionsAllowed < 1 {
+			return false, fmt.Errorf("%s allows no disruption, which blocks a drain of a node holding one of its pods", pdbName)
+		}
+		return true, nil
 	})
 }
 
