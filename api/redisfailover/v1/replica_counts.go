@@ -24,15 +24,19 @@ func (r *RedisFailover) UnsupportedReplicaCounts() []UnsupportedReplicaCount {
 	var unsupported []UnsupportedReplicaCount
 
 	if r.Spec.Redis.Replicas < minRedisToPromoteAReplica {
+		why := "so that one can be promoted when the master is lost"
+		if r.Bootstrapping() {
+			why = "so that losing one leaves another replicating the node it bootstraps from"
+		}
 		unsupported = append(unsupported, UnsupportedReplicaCount{
 			Component: "redis",
 			Reason: fmt.Sprintf(
-				"redis.replicas is %d. A failover needs %d Redis, so that one can be promoted when the master is lost.",
-				r.Spec.Redis.Replicas, minRedisToPromoteAReplica),
+				"redis.replicas is %d. A failover needs %d Redis, %s.",
+				r.Spec.Redis.Replicas, minRedisToPromoteAReplica, why),
 		})
 	}
 
-	if r.Spec.Sentinel.Replicas < minSentinelsToElectAFailover {
+	if r.SentinelsAllowed() && r.Spec.Sentinel.Replicas < minSentinelsToElectAFailover {
 		unsupported = append(unsupported, UnsupportedReplicaCount{
 			Component: "sentinel",
 			Reason: fmt.Sprintf(
@@ -41,7 +45,7 @@ func (r *RedisFailover) UnsupportedReplicaCounts() []UnsupportedReplicaCount {
 		})
 	}
 
-	if r.Spec.Haproxy != nil && r.Spec.Haproxy.Replicas < minProxiesToSurviveAnEviction {
+	if r.Spec.Haproxy != nil && r.HaproxyAllowed() && r.Spec.Haproxy.Replicas < minProxiesToSurviveAnEviction {
 		unsupported = append(unsupported, UnsupportedReplicaCount{
 			Component: "haproxy",
 			Reason: fmt.Sprintf(

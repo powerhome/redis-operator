@@ -15,7 +15,10 @@ func TestUnsupportedReplicaCounts(t *testing.T) {
 		redisReplicas    int32
 		sentinelReplicas int32
 		haproxyReplicas  int32
+		bootstrapping    bool
+		allowSentinels   bool
 		expMentions      []string
+		expAbsent        []string
 		expSilent        bool
 	}{
 		{
@@ -68,6 +71,39 @@ func TestUnsupportedReplicaCounts(t *testing.T) {
 			sentinelReplicas: 1,
 			expMentions:      []string{"redis.replicas is 1", "sentinel.replicas is 1"},
 		},
+		{
+			name:             "a bootstrapping failover runs no proxy and is not asked about one",
+			redisReplicas:    3,
+			sentinelReplicas: 3,
+			haproxyReplicas:  1,
+			bootstrapping:    true,
+			allowSentinels:   true,
+			expSilent:        true,
+		},
+		{
+			name:             "a bootstrapping failover that runs no Sentinels is not asked about them",
+			redisReplicas:    3,
+			sentinelReplicas: 1,
+			bootstrapping:    true,
+			expSilent:        true,
+		},
+		{
+			name:             "a bootstrapping failover that runs Sentinels is asked about them",
+			redisReplicas:    3,
+			sentinelReplicas: 2,
+			bootstrapping:    true,
+			allowSentinels:   true,
+			expMentions:      []string{"sentinel.replicas is 2", "needs 3 Sentinels"},
+		},
+		{
+			name:             "a bootstrapping failover follows a master rather than promoting one",
+			redisReplicas:    1,
+			sentinelReplicas: 3,
+			bootstrapping:    true,
+			allowSentinels:   true,
+			expMentions:      []string{"redis.replicas is 1", "needs 2 Redis", "replicating the node it bootstraps from"},
+			expAbsent:        []string{"promoted"},
+		},
 	}
 
 	for _, test := range tests {
@@ -79,6 +115,13 @@ func TestUnsupportedReplicaCounts(t *testing.T) {
 			rf.Spec.Sentinel.Replicas = test.sentinelReplicas
 			if test.haproxyReplicas > 0 {
 				rf.Spec.Haproxy = &redisfailoverv1.HaproxySettings{Replicas: test.haproxyReplicas}
+			}
+			if test.bootstrapping {
+				rf.Spec.BootstrapNode = &redisfailoverv1.BootstrapSettings{
+					Host:           "10.0.0.1",
+					Enabled:        true,
+					AllowSentinels: test.allowSentinels,
+				}
 			}
 
 			unsupported := rf.UnsupportedReplicaCounts()
@@ -96,6 +139,10 @@ func TestUnsupportedReplicaCounts(t *testing.T) {
 			for _, mention := range test.expMentions {
 				assert.Contains(joined, mention,
 					"the reader is told which count is wrong and what it takes: %s", mention)
+			}
+			for _, absent := range test.expAbsent {
+				assert.NotContains(joined, absent,
+					"a reason that describes the wrong mechanism sends the reader after the wrong fix: %s", absent)
 			}
 		})
 	}

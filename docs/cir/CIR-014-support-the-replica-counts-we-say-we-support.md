@@ -60,6 +60,16 @@ block asks for a proxy and runs none.
 - THEN `replica_count_ok` still reads 1 for the proxy component, because a
   component left unreported would keep the value the gauge last held
 
+- GIVEN a bootstrapping failover
+- WHEN the operator reports its counts
+- THEN it says nothing about a component it will not run, which is the proxy
+  always and the Sentinels unless `bootstrapNode.allowSentinels` is set
+
+- GIVEN a bootstrapping failover below the Redis minimum
+- WHEN the operator reports that count
+- THEN the reason names losing the only replica of the node it bootstraps
+  from, not a promotion that cannot happen there
+
 - GIVEN a failover already running on counts below a minimum
 - WHEN this operator replaces the one that created it
 - THEN it keeps reconciling, and no count is refused
@@ -99,6 +109,14 @@ block asks for a proxy and runs none.
 - **No count is refused.** The constraint above decides this: refusing would
   take failovers out of management for a configuration the operator accepted
   when it created them.
+- **A count is judged against what the operator will run, not against the
+  spec.** `operator/redisfailover/ensurer.go` decides whether a component runs
+  by `HaproxyAllowed()` and `SentinelsAllowed()`, so the report asks the same
+  questions. Telling someone to raise a count for a workload the operator is
+  refusing to create sends them after a fix that changes nothing. Redis always
+  runs, so its count always stands. A bootstrapping failover follows a master
+  it was given and promotes none of its own, which its reason says instead.
+
 - **A count below a minimum is reported three ways, because each reaches a
   different person.** `status.warnings` carries the sentence on the resource,
   where whoever holds the failover reads it and where it clears by itself.
