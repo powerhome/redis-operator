@@ -12,6 +12,27 @@ chart version installs. Changes to the operator are recorded in the
 
 ## Unreleased
 
+## [4.8.0] - 2026-11-05
+
+Installs operator `v5.0.0`, up from `v4.8.0`. That release changes behaviour
+anyone upgrading has to know about, and the
+[repository changelog](https://github.com/powerhome/redis-operator/blob/master/CHANGELOG.md)
+carries its upgrade note.
+
+The `RedisFailover` custom resource definition the chart installs now records a
+minimum and its reason on `redis.replicas`, `sentinel.replicas` and
+`haproxy.replicas`, which `kubectl explain` shows, and declares the
+`status.warnings` field the operator writes them to. Nothing else in the chart
+changed.
+
+Apply that definition yourself. It lives in `crds/`, which Helm installs once
+and never upgrades, so `helm upgrade` leaves whichever definition installed the
+chart. A stale one declares no `status.warnings`, and the API server drops that
+field and reports nothing, so a replica count below its minimum reaches the log
+and the gauge and not the resource. `kubectl apply -f` on this definition fails
+with `metadata.annotations: Too long`, so apply it with
+`kubectl apply --server-side`.
+
 ## [4.7.0] - 2026-10-02
 
 Installs operator `v4.8.0`, up from `v4.7.1`. The `RedisFailover` custom resource
