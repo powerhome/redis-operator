@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"sync"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -75,9 +77,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 		rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
 		rf.Status.AddCondition(clusterCondition)
 
-		rf, err := r.rfService.UpdateStatus(rf)
-
-		if err != nil {
+		if err := r.writeStatus(rf); err != nil {
 			r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
 			r.mClient.SetClusterError(rf.Namespace, rf.Name)
 			return err
@@ -93,9 +93,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 				Message: "RedisFailover reconciling...",
 			})
 			rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
-			_, err := r.rfService.UpdateStatus(rf)
-
-			if err != nil {
+			if err := r.writeStatus(rf); err != nil {
 				r.mClient.SetClusterError(rf.Namespace, rf.Name)
 				r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
 				return err
@@ -105,6 +103,12 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 
 	if err := rf.Validate(); err != nil {
 		r.mClient.SetClusterError(rf.Namespace, rf.Name)
+		return err
+	}
+
+	if err := r.reportUnsupportedReplicaCounts(rf); err != nil {
+		r.mClient.SetClusterError(rf.Namespace, rf.Name)
+		r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
 		return err
 	}
 
@@ -140,9 +144,7 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 			rf.Status.ObservedGeneration = rf.GetObjectMeta().GetGeneration()
 			rf.Status.AddCondition(clusterCondition)
 
-			_, err := r.rfService.UpdateStatus(rf)
-
-			if err != nil {
+			if err := r.writeStatus(rf); err != nil {
 				r.mClient.SetClusterError(rf.Namespace, rf.Name)
 				r.logger.Errorf("Error attempting to update RedisFailover Status: %s", err)
 				return err
@@ -187,4 +189,67 @@ func (w *RedisFailoverHandler) createOwnerReferences(rf *redisfailoverv1.RedisFa
 	return []metav1.OwnerReference{
 		*metav1.NewControllerRef(rf, rfvk),
 	}
+}
+
+// writeStatus writes the status and keeps the version the API server assigns.
+// A reconcile writes the status several times, and a write that carries the
+// version from before an earlier one loses a conflict to a write this operator
+// made itself.
+func (r *RedisFailoverHandler) writeStatus(rf *redisfailoverv1.RedisFailover) error {
+	written, err := r.rfService.UpdateStatus(rf)
+	if err != nil {
+		return err
+	}
+	rf.ResourceVersion = written.ResourceVersion
+	return nil
+}
+
+func alreadyReported(rf *redisfailoverv1.RedisFailover, reasons []string) bool {
+	return slices.Equal(reasons, rf.Status.Warnings)
+}
+
+func (r *RedisFailoverHandler) reportUnsupportedReplicaCounts(rf *redisfailoverv1.RedisFailover) error {
+	unsupported := rf.UnsupportedReplicaCounts()
+
+	belowMinimum := make(map[string]bool, len(unsupported))
+	reasons := make([]string, 0, len(unsupported))
+	for _, count := range unsupported {
+		belowMinimum[count.Component] = true
+		reasons = append(reasons, count.Reason)
+	}
+
+	for _, component := range rf.ReplicaCountComponents() {
+		if belowMinimum[component] {
+			r.mClient.SetReplicaCountUnsupported(rf.Namespace, rf.Name, component)
+			continue
+		}
+		r.mClient.SetReplicaCountOK(rf.Namespace, rf.Name, component)
+	}
+
+	if alreadyReported(rf, reasons) {
+		return nil
+	}
+
+	rf.Status.Warnings = reasons
+	if err := r.writeStatus(rf); err != nil {
+		// The status this reconcile holds is one version behind whenever the
+		// spec has just been written, and these warnings are derived state
+		// that the next reconcile recomputes a few seconds from now. Failing
+		// the reconcile over them would mark the cluster in error for a
+		// cosmetic field.
+		if apierrors.IsConflict(err) {
+			return nil
+		}
+		return err
+	}
+
+	logger := r.logger.WithField("redisfailover", rf.Name).WithField("namespace", rf.Namespace)
+	if len(reasons) == 0 {
+		logger.Infof("every replica count can survive a failure")
+		return nil
+	}
+	for _, reason := range reasons {
+		logger.Warningf("%s", reason)
+	}
+	return nil
 }

@@ -146,6 +146,54 @@ This redis-failover will be managed by the operator, resulting in the following 
 **NOTE**: `NAME` is the named provided when creating the RedisFailover.
 **IMPORTANT**: the name of the redis-failover to be created cannot be longer that 48 characters, due to prepend of redis/sentinel identification and statefulset limitation.
 
+### How many of each to run
+
+A failover survives losing a pod only if enough of each component is left to
+replace it. The counts below are what that takes.
+
+| Component | Default | Minimum | Why |
+|---|---|---|---|
+| `redis.replicas` | 3 | 2 | Losing the master is survived by promoting a replica. One Redis has none to promote. |
+| `sentinel.replicas` | 3 | 3 | A failover is carried out by a Sentinel the others elect, and an election needs a majority of all of them. Two Sentinels cannot reach one after losing either. This is [the minimum Redis documents](https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/). |
+| `haproxy.replicas` | 2 | 2 | A proxy is the client path to the master. One of them is lost to a drain, an eviction or a lost node with nothing left serving, and no disruption budget covers HAProxy. |
+
+The default is not the minimum, and for Redis the two differ on purpose. A
+minimum is where the mechanism starts working at all. A default is the count
+worth running.
+
+Two Redis can fail over once. Promoting the only replica leaves a master and
+nothing to promote, so the next failure waits for the replacement to be created
+and to finish syncing, and a rolling update holds each pod until it has. Three
+Redis leaves a promotable replica standing after a promotion, so the failover
+survives a failure and is still able to survive the next one. That is why three
+is the default and two is the floor.
+
+Sentinel and HAProxy have no such gap. Three Sentinels is both the minimum and
+the smallest useful count, and two proxies is the minimum, above which more
+proxies are capacity rather than safety.
+
+Run an odd number of Sentinels. Four Sentinels need three to elect, the same as
+five, so the fourth adds cost and no tolerance.
+
+A count below its minimum is reported, not refused. The operator reconciles the
+failover as it always did and names what it cannot make safe in
+`status.warnings`:
+
+```
+kubectl get redisfailover my-failover -o jsonpath='{.status.warnings}'
+["sentinel.replicas is 2. A failover needs 3 Sentinels to elect the one that carries it out."]
+```
+
+The entry leaves when the count does, with no restart and no other edit. The
+operator logs each sentence once, as a warning, when it starts being true. When
+the last of them clears it logs `every replica count can survive a failure` at
+info level.
+
+Below a minimum, a disruption budget keeps all but one pod rather than the
+whole set, so a node drain still completes. Such a failover cannot survive the
+loss whatever the budget holds, and a budget that permits no eviction would
+block the drain for as long as it exists.
+
 ### Persistence
 
 The operator has the ability of add persistence to Redis data. By default an `emptyDir` will be used, so the data is not saved.

@@ -10,6 +10,7 @@ import (
 	"net"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/client-go/util/homedir"
+	"k8s.io/client-go/util/retry"
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	redisfailoverclientset "github.com/spotahome/redis-operator/client/k8s/clientset/versioned"
@@ -44,7 +46,7 @@ const (
 	namespace      = "rf-integration-tests"
 	redisSize      = int32(3)
 	sentinelSize   = int32(3)
-	haproxySize    = int32(1)
+	haproxySize    = int32(2)
 	authSecretPath = "redis-auth"
 	testPass       = "test-pass"
 	rotatedPass    = "rotated-pass"
@@ -249,6 +251,8 @@ func TestRedisFailover(t *testing.T) {
 
 	t.Run("Check Sentinel Statefulset existing and size", clients.testSentinelStatefulSet)
 
+	t.Run("Check Each Disruption Budget Leaves A Pod To Evict", clients.testPodDisruptionBudgets)
+
 	// Connect to all the Redis pods and, asking to the Redis running inside them, check
 	// that only one of them is the master of the failover.
 	t.Run("Check Only One Redis Master", clients.testRedisMaster)
@@ -284,6 +288,10 @@ func TestRedisFailover(t *testing.T) {
 	// Last, because it changes the Sentinel pod template and then waits for
 	// every Sentinel to be replaced, which disturbs each of them in turn.
 	t.Run("Check A Sentinel Template Change Reaches Every Pod", clients.testSentinelTemplateRollsOut)
+
+	// Last, because it takes the failover below a count it can survive and then
+	// puts it back, which no assertion after it should have to account for.
+	t.Run("Check An Unsupported Replica Count Is Reported", clients.testUnsupportedReplicaCountIsReported)
 }
 
 const sentinelPort = 26379
@@ -437,6 +445,105 @@ func (c *clients) testSentinelMonitoring(t *testing.T) {
 
 	assert.NoError(err, "every Sentinel should monitor the same Redis, and that Redis should be the master")
 	assert.NotEmpty(monitored, "Sentinel should monitor the Redis master")
+}
+
+func (c *clients) testPodDisruptionBudgets(t *testing.T) {
+	assert := assert.New(t)
+
+	budgets := []struct {
+		pdbName string
+		holds   int
+		why     string
+	}{
+		{
+			pdbName: fmt.Sprintf("rfs-%s", name),
+			holds:   2,
+			why:     "three Sentinels hold the two that can elect a failover, and leave the third to evict",
+		},
+		{
+			pdbName: fmt.Sprintf("rfr-%s", name),
+			holds:   2,
+			why:     "three Redis hold a master and a promotable replica, and leave the third to evict",
+		},
+	}
+
+	for _, budget := range budgets {
+		assert.NoError(c.waitForBudget(budget.pdbName, budget.holds), budget.why)
+	}
+}
+
+func (c *clients) testUnsupportedReplicaCountIsReported(t *testing.T) {
+	require := require.New(t)
+
+	require.NoError(c.setSentinelReplicas(2), "the Sentinel count should be editable")
+
+	err := waitFor(readyTimeout, func() (bool, error) {
+		rf, err := c.rfClient.DatabasesV1().RedisFailovers(namespace).Get(context.Background(), name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		for _, warning := range rf.Status.Warnings {
+			if strings.Contains(warning, "sentinel.replicas is 2") {
+				return true, nil
+			}
+		}
+		return false, fmt.Errorf("status.warnings holds %v", rf.Status.Warnings)
+	})
+	require.NoError(err, "two Sentinels cannot elect a failover, which the resource should say")
+
+	require.NoError(c.waitForBudget(fmt.Sprintf("rfs-%s", name), 1),
+		"two Sentinels hold one, and leave the other to evict")
+
+	require.NoError(c.setSentinelReplicas(sentinelSize), "the Sentinel count should be editable")
+
+	err = waitFor(readyTimeout, func() (bool, error) {
+		rf, err := c.rfClient.DatabasesV1().RedisFailovers(namespace).Get(context.Background(), name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		if len(rf.Status.Warnings) != 0 {
+			return false, fmt.Errorf("status.warnings still holds %v", rf.Status.Warnings)
+		}
+		return true, nil
+	})
+	require.NoError(err, "a replica count the operator can make safe should leave no warning behind")
+}
+
+func (c *clients) updateFailover(change func(*redisfailoverv1.RedisFailover)) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		rf, err := c.rfClient.DatabasesV1().RedisFailovers(namespace).Get(context.Background(), name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		change(rf)
+		_, err = c.rfClient.DatabasesV1().RedisFailovers(namespace).Update(context.Background(), rf, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+func (c *clients) setSentinelReplicas(replicas int32) error {
+	return c.updateFailover(func(rf *redisfailoverv1.RedisFailover) {
+		rf.Spec.Sentinel.Replicas = replicas
+	})
+}
+
+func (c *clients) waitForBudget(pdbName string, holds int) error {
+	return waitFor(readyTimeout, func() (bool, error) {
+		pdb, err := c.k8sClient.PolicyV1().PodDisruptionBudgets(namespace).Get(context.Background(), pdbName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		if pdb.Spec.MinAvailable == nil {
+			return false, fmt.Errorf("%s sets no minAvailable", pdbName)
+		}
+		if pdb.Spec.MinAvailable.IntValue() != holds {
+			return false, fmt.Errorf("%s holds %s, not %d", pdbName, pdb.Spec.MinAvailable, holds)
+		}
+		if pdb.Status.DisruptionsAllowed < 1 {
+			return false, fmt.Errorf("%s allows no disruption, which blocks a drain of a node holding one of its pods", pdbName)
+		}
+		return true, nil
+	})
 }
 
 func (c *clients) testHaproxyDeployment(t *testing.T) {
@@ -684,6 +791,10 @@ func (c *clients) testCustomConfig(t *testing.T) {
 	assert.Empty(values[1])
 }
 
+var aChangeOnlyThePodTemplateCarries = corev1.ResourceList{
+	corev1.ResourceCPU: resource.MustParse("11m"),
+}
+
 // A Sentinel set is created with OnDelete, so the controller will not replace a
 // pod to apply a new template and the operator has to. Nothing in this suite
 // asked whether it does, which is how a Sentinel template change came to reach
@@ -701,14 +812,9 @@ func (c *clients) testSentinelTemplateRollsOut(t *testing.T) {
 	revisionBeforeTheChange := before.Status.UpdateRevision
 	require.NotEmpty(t, revisionBeforeTheChange, "the Sentinel set should report the revision its pods run")
 
-	rf, err := c.rfClient.DatabasesV1().RedisFailovers(namespace).Get(context.Background(), name, metav1.GetOptions{})
-	require.NoError(t, err)
-
-	// Something the Sentinel pod template carries and nothing else reads.
-	rf.Spec.Sentinel.Resources.Requests = corev1.ResourceList{
-		corev1.ResourceCPU: resource.MustParse("11m"),
-	}
-	_, err = c.rfClient.DatabasesV1().RedisFailovers(namespace).Update(context.Background(), rf, metav1.UpdateOptions{})
+	err = c.updateFailover(func(rf *redisfailoverv1.RedisFailover) {
+		rf.Spec.Sentinel.Resources.Requests = aChangeOnlyThePodTemplateCarries
+	})
 	require.NoError(t, err)
 
 	err = waitFor(readyTimeout, func() (bool, error) {

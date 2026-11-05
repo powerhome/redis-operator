@@ -1163,6 +1163,18 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 	return sd
 }
 
+// A budget that keeps a whole set permits no eviction, so a drain of a node
+// holding one of those pods waits with no end rather than failing. See
+// docs/cir/CIR-014-support-the-replica-counts-we-say-we-support.md.
+func sentinelMinAvailable(rf *redisfailoverv1.RedisFailover) int32 {
+	return min(getQuorum(rf), rf.Spec.Sentinel.Replicas-1)
+}
+
+func redisMinAvailable(rf *redisfailoverv1.RedisFailover) int32 {
+	const masterAndAPromotableReplica = 2
+	return min(masterAndAPromotableReplica, rf.Spec.Redis.Replicas-1)
+}
+
 func generatePodDisruptionBudget(name string, namespace string, labels map[string]string, ownerRefs []metav1.OwnerReference, minAvailable intstr.IntOrString) *policyv1.PodDisruptionBudget {
 	return &policyv1.PodDisruptionBudget{
 		ObjectMeta: metav1.ObjectMeta{

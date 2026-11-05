@@ -219,7 +219,7 @@ func (r *RedisFailoverHandler) reportMasterUnknown(rf *redisfailoverv1.RedisFail
 		Message: fmt.Sprintf("Not choosing a master: a Redis node could not be inspected, so one of them may still be the master: %s", cause),
 	})
 
-	if _, err := r.rfService.UpdateStatus(rf); err != nil {
+	if err := r.writeStatus(rf); err != nil {
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).
 			Errorf("Error attempting to update RedisFailover Status: %s", err)
 	}
