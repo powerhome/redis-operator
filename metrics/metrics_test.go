@@ -109,6 +109,51 @@ func TestPrometheusMetrics(t *testing.T) {
 			},
 			expCode: http.StatusOK,
 		},
+		{
+			name: "A replica count that can survive a failure should read 1",
+			addMetrics: func(rec metrics.Recorder) {
+				rec.SetReplicaCountOK("testns", "test", "sentinel")
+			},
+			expMetrics: []string{
+				`my_metrics_controller_replica_count_ok{component="sentinel",name="test",namespace="testns"} 1`,
+			},
+			expCode: http.StatusOK,
+		},
+		{
+			name: "A replica count that cannot survive a failure should read 0",
+			addMetrics: func(rec metrics.Recorder) {
+				rec.SetReplicaCountUnsupported("testns", "test", "sentinel")
+			},
+			expMetrics: []string{
+				`my_metrics_controller_replica_count_ok{component="sentinel",name="test",namespace="testns"} 0`,
+			},
+			expCode: http.StatusOK,
+		},
+		{
+			name: "A count that stops surviving a failure should read 0",
+			addMetrics: func(rec metrics.Recorder) {
+				rec.SetReplicaCountOK("testns", "test", "sentinel")
+				rec.SetReplicaCountUnsupported("testns", "test", "sentinel")
+			},
+			expMetrics: []string{
+				`my_metrics_controller_replica_count_ok{component="sentinel",name="test",namespace="testns"} 0`,
+			},
+			expCode: http.StatusOK,
+		},
+		{
+			name: "Each component should carry its own count",
+			addMetrics: func(rec metrics.Recorder) {
+				rec.SetReplicaCountUnsupported("testns", "test", "sentinel")
+				rec.SetReplicaCountOK("testns", "test", "redis")
+				rec.SetReplicaCountOK("testns", "test", "haproxy")
+			},
+			expMetrics: []string{
+				`my_metrics_controller_replica_count_ok{component="sentinel",name="test",namespace="testns"} 0`,
+				`my_metrics_controller_replica_count_ok{component="redis",name="test",namespace="testns"} 1`,
+				`my_metrics_controller_replica_count_ok{component="haproxy",name="test",namespace="testns"} 1`,
+			},
+			expCode: http.StatusOK,
+		},
 	}
 
 	for _, test := range tests {
