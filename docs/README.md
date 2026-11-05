@@ -185,8 +185,9 @@ kubectl get redisfailover my-failover -o jsonpath='{.status.warnings}'
 ```
 
 The entry leaves when the count does, with no restart and no other edit. The
-operator logs the same sentence once when it starts being true, and once more
-when it stops.
+operator logs each sentence once, as a warning, when it starts being true. When
+the last of them clears it logs `every replica count can survive a failure` at
+info level.
 
 Below a minimum, a disruption budget keeps all but one pod rather than the
 whole set, so a node drain still completes. Such a failover cannot survive the
