@@ -9,23 +9,46 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v5.0.0] - 2026-11-05
+
 ### Upgrade note
+
+Before you upgrade:
+
+- Apply the custom resource definition from this release. Nothing else applies it, and the paragraph below says what a stale one costs.
+- Make room for two more pods for each failover whose `haproxy` block names no count. Each one gains two proxies.
+- Start from a healthy failover. No Sentinel can carry out a failover while the Sentinels move, so a master lost in that window stays lost until they return.
+- Leave node drains until the upgrade finishes, for the same reason.
 
 The Sentinels move from a Deployment to a StatefulSet, which is what gives each one a name in DNS. The Deployment is removed before the set is created, because both produce pods under the same labels and running them together is six Sentinels agreeing a quorum among themselves. Expect a window with no Sentinel able to carry out a failover: measured between 15 and 46 seconds across two upgrades of a two node failover, bounded above by how long the operator takes to come back and point the new Sentinels at a master.
 
-Clients are not affected by that window. HAProxy picks the master by asking each Redis for `role:master` rather than by asking Sentinel, so it keeps serving throughout; of 3548 writes through it during a measured upgrade, the only refusals were the two seconds of the master's own replacement. A Sentinel-aware client asking `SENTINEL get-master-addr-by-name` gets nothing while the window lasts.
+Clients are not affected by that window. HAProxy picks the master by asking each Redis for `role:master` rather than by asking Sentinel, so it keeps serving throughout. Of 3548 writes through it during a measured upgrade, none were refused while no Sentinel could act. A Sentinel-aware client asking `SENTINEL get-master-addr-by-name` gets nothing while the window lasts.
+
+Apply the custom resource definition from this release yourself. The chart carries it in `crds/`, which Helm installs once and never upgrades, so `helm upgrade` leaves whichever definition installed the chart. A stale definition does not fail. It declares no `status.warnings`, and the API server drops that field and reports nothing. Measured against the `v4.8.0` definition: a failover below a minimum held an empty `status.warnings` for a minute, while the log and the gauge both reported it. The operator also logged the sentence on every reconcile rather than once. It reads back what it wrote to decide whether a warning is new. Note that `kubectl apply -f` on this definition fails with `metadata.annotations: Too long`, so apply it with `kubectl apply --server-side`.
 
 Run one replica of the operator across this upgrade. An operator that runs the Sentinels as a set removes a Deployment it finds, but an older one that finds a set leaves it running, so two of them reconciling the same failover can leave both.
 
-Replicas are replaced before the master during a rolling update, and each pod only once every Sentinel reports a replica it could promote with that pod gone, so an upgrade can pause with one pod still on the previous template while the Sentinels catch up. The operator names the Sentinel it is waiting on. A replica no Sentinel would promote does not hold the master back: the master is replaced ahead of that pod, and the pod follows once a Sentinel holds something to promote in its place, which costs a second election.
+Rolling back to an older operator needs one step by hand. That operator leaves the Sentinel StatefulSet running and creates its own Deployment beside it, so six Sentinels answer under one set of labels. Delete the set with `kubectl delete statefulset rfs-<name>` and the Deployment takes the Sentinels over. Measured by installing `v4.8.0` over this release.
 
-Expect a short window with no master while the pod holding that role is replaced and Sentinel elects one of the others. On a two node failover that window is around twenty seconds. Clients reconnect as they would for any failover.
+This upgrade does not replace the Redis pods. Their pod template is unchanged, so each keeps its identity and the master keeps its role. Measured across two failovers upgraded from `v4.8.0` on a four node cluster. Every Redis pod kept its UID and its revision, and one Redis reported the master role at every five second poll for eight minutes.
+
+A later change to a `RedisFailover` that does change the Redis pod template rolls the pods under a new rule. Replicas go before the master. Each pod goes only once every Sentinel reports a replica it could promote with that pod gone. A roll can therefore pause with one pod still on the previous template. The operator names the Sentinel it is waiting on. A replica no Sentinel would promote does not hold the master back. The master goes ahead of that pod. The pod follows once a Sentinel holds something to promote in its place, which costs a second election. Expect a short window with no master while that role moves, around twenty seconds on a two node failover.
+
+A failover whose `haproxy` block names no count gains two proxy pods. `haproxy.replicas` had no default, which produced a Deployment of zero replicas: a proxy configured, no pod running, and a service with no endpoints. An `int32` with `omitempty` cannot tell an absent field from a literal `0`. So a failover using `replicas: 0` as an off switch gains two pods as well. A failover with no `haproxy` block still runs no proxy.
+
+Every PodDisruptionBudget now keeps at most all but one of its pods. The Sentinel budget takes its `minAvailable` from the Sentinel quorum rather than from the Redis replica count. At the default of two Redis and three Sentinels, both budgets hold what they held before. A failover of one Redis, one Sentinel or two Sentinels had a budget that permitted no eviction. A drain of a node holding one of those pods waited with no end.
+
+A failover whose replica counts cannot survive the loss of a pod now says so in `status.warnings`. The operator logs each sentence once as a warning. It refuses no count: a failover running on one of them keeps running, and the entry leaves when the count does.
 
 ### Added
 
 - [Run the Sentinels as a StatefulSet](https://github.com/powerhome/redis-operator/pull/143). Only a StatefulSet gives a Sentinel pod a name in DNS, which is what the operator needs before it can address an instance by name rather than by whatever address it currently holds. The set replaces the Deployment for every failover, whose Sentinel pods are removed before the set is created. See [CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md)
 - [Replace a Sentinel running an old pod template](https://github.com/powerhome/redis-operator/pull/143). The set is created with `OnDelete`, so the StatefulSet controller will not replace a pod to apply a new template, and a StatefulSet cannot bring up a spare ahead of the one it replaces the way the Deployment it succeeded did. The operator replaces one Sentinel per reconcile, and only once the Sentinels that would remain could still agree a failover, naming the ones it is waiting on. A failover with no more Sentinels than its own quorum is asked only that every Sentinel other than the one being replaced reports the master, because asking for a quorum could never be answered yes. A Sentinel that is not reporting at all is replaced whatever the others say, since it casts no vote, and no Sentinel is replaced while none of them reports. See [CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md)
 - Report a replica count that cannot survive a failure. A failover needs two Redis so that one can be promoted when the master is lost, three Sentinels so the others can elect the one that carries a failover out, which is the minimum Redis documents, and two proxies so losing one leaves the client path served. Nothing said so: the counts were accepted in silence, two rolling update gates carved the small ones out so an update would not wedge, and the Sentinel PodDisruptionBudget assumed they did not exist. The operator now names what it cannot make safe in `status.warnings` and logs the same sentence once, and the entry leaves when the count does. No count is refused, because refusing one would stop reconciling a failover that is running on it today. `kubectl explain redisfailover.spec.redis.replicas` and its Sentinel and HAProxy siblings carry the minimum and the reason. The gauge `redis_operator_controller_replica_count_ok{namespace,name,component}` reads 0 for a component below its minimum and 1 for one that meets it, so a fleet can be swept for them at once. See [CIR-014](docs/cir/CIR-014-support-the-replica-counts-we-say-we-support.md)
+
+### Deprecated
+
+- Publishing the operator image to Docker Hub. `ghcr.io/powerhome/redis-operator` is the registry this project installs from. The Helm chart, the kustomize manifests and the plain deployment examples all name it, and the chart itself is published there. A cluster then needs credentials for one registry rather than two. A later release stops the push to Docker Hub, and `powerhome/redis-operator` gains no tags after it. Both registries carry identical tags, digests and platforms today, so a cluster that pulls from Docker Hub switches by changing the registry host alone. Note that ghcr is not backfilled. `v4.5.0` and every earlier tag exist only on Docker Hub.
 
 ### Fixed
 

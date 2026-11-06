@@ -50,7 +50,7 @@ helm upgrade redis-operator oci://ghcr.io/powerhome/charts/redis-operator --vers
 To create the operator, you can directly create it with kubectl:
 
 ```
-REDIS_OPERATOR_VERSION=v4.8.0
+REDIS_OPERATOR_VERSION=v5.0.0
 kubectl create -f https://raw.githubusercontent.com/powerhome/redis-operator/${REDIS_OPERATOR_VERSION}/manifests/databases.spotahome.com_redisfailovers.yaml
 kubectl apply -f https://raw.githubusercontent.com/powerhome/redis-operator/${REDIS_OPERATOR_VERSION}/example/operator/all-redis-operator-resources.yaml
 ```
@@ -129,7 +129,7 @@ Once the operator is deployed inside a Kubernetes cluster, a new API will be acc
 In order to deploy a new redis-failover a [specification](/example/redisfailover/basic.yaml) has to be created:
 
 ```
-REDIS_OPERATOR_VERSION=v4.8.0
+REDIS_OPERATOR_VERSION=v5.0.0
 kubectl create -f https://raw.githubusercontent.com/powerhome/redis-operator/${REDIS_OPERATOR_VERSION}/example/redisfailover/basic.yaml
 ```
 
@@ -499,12 +499,15 @@ The `powerhome` fork publishes the operator image to two registries with identic
 tags, digests, and platforms:
 
 - GitHub Container Registry (default): `ghcr.io/powerhome/redis-operator`
-- Docker Hub: `powerhome/redis-operator`
+- Docker Hub (deprecated): `powerhome/redis-operator`
 
 ghcr is the default. The Helm chart, the kustomize manifests, and the plain deployment
 examples all install from it, and it is where the chart itself is published, so a
 cluster needs credentials for one registry rather than two. Both packages are public
 and pull anonymously.
+
+Docker Hub is deprecated. A later release stops the push there, and
+`powerhome/redis-operator` gains no tags after it. Pull from ghcr.
 
 ghcr is **not backfilled**: it carries only releases published *after* `v4.5.0`.
 `v4.5.0` and every earlier tag (for example `v4.4.1`) exist **only on Docker Hub**, so
