@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Renovate covers the default container images and the base image of each Dockerfile. Dependabot keeps the Go modules and the actions.",
+    "The schedule is weekly, so one batch of updates arrives on one day. The shared presets set no schedule."
+  ],
+  "extends": ["github>powerhome/renovate-config", "schedule:weekly"],
+  "dependencyDashboardLabels": ["dependencies"],
+  "enabledManagers": ["custom.regex", "dockerfile"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The container images a RedisFailover runs when it names none of its own. Each constant holds a tag and the digest it resolves to, and both move together.",
+      "managerFilePatterns": ["/^api/redisfailover/v1/defaults\\.go$/"],
+      "matchStrings": [
+        "default\\w*Image\\s+=\\s+\"(?<depName>[^\"]+?):(?<currentValue>[^\"@:]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "One pull request for a round of default image updates. A digest that moves under an unchanged tag is a rebuilt image, and it rides along rather than opening a pull request of its own.",
+      "matchFileNames": ["api/redisfailover/v1/defaults.go"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "default container images"
+    }
+  ]
+}
