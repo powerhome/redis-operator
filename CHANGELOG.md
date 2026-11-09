@@ -31,6 +31,16 @@ child manifests and blobs each one names. A mirror that holds one platform
 manifest alone does not answer for the pinned multi-architecture index, and the
 pull fails.
 
+A failover that names an image keeps it, so naming every image you run is how
+you choose your own restart windows. There are five fields: `spec.redis.image`,
+`spec.sentinel.image`, `spec.redis.exporter.image`,
+`spec.sentinel.exporter.image` and `spec.haproxy.image`. Redis and Sentinel read
+the same default, so a named `spec.redis.image` alone leaves the Sentinels on
+the default. An exporter runs as a sidecar in its parent pod, so a named main
+image alone does not hold that pod still. A failover that names its own images
+also stops receiving a newer Redis from an operator upgrade, with the fixes in
+it. That choice carries the upgrade with it.
+
 ### Changed
 
 - [Pin each default container image to its digest](https://github.com/powerhome/redis-operator/pull/154). A `RedisFailover` that names no image of its own runs a default, and each default now names a tag and the digest that tag resolves to. A tag is mutable. One operator version could otherwise run different bytes in two failovers created months apart. A registry that repointed a tag would also change what a released operator runs. A failover that names its own image sees no change, and every default keeps the version it already served. The upgrade note above says which pods the new references replace
