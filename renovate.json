@@ -1,12 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "Renovate covers the default container images and the base image of each Dockerfile. Dependabot keeps the Go modules and the actions.",
+    "Renovate covers the default container images, the base image of each Dockerfile, and the Go toolchain. Dependabot keeps the Go modules and the actions.",
     "The schedule is weekly, so one batch of updates arrives on one day. The shared presets set no schedule."
   ],
   "extends": ["github>powerhome/renovate-config", "schedule:weekly"],
   "dependencyDashboardLabels": ["dependencies"],
-  "enabledManagers": ["custom.regex", "dockerfile"],
+  "enabledManagers": ["custom.regex", "dockerfile", "gomod"],
   "customManagers": [
     {
       "customType": "regex",
@@ -21,10 +21,29 @@
   ],
   "packageRules": [
     {
+      "description": "Dependabot keeps the Go modules, so renovate proposes nothing else out of go.mod.",
+      "matchManagers": ["gomod"],
+      "enabled": false
+    },
+    {
+      "description": "The Go toolchain moves as one piece: the directive in go.mod and the builder image in both Dockerfiles. Every test job reads its Go version from go.mod. A builder image that moved alone would compile the operator with one toolchain and test it with another. The directive declares a minimum, so bump raises it rather than leaving it satisfied by a newer Go.",
+      "matchDepNames": ["go", "golang"],
+      "enabled": true,
+      "rangeStrategy": "bump",
+      "groupName": "go toolchain"
+    },
+    {
       "description": "One pull request for a round of default image updates. A digest that moves under an unchanged tag is a rebuilt image, and it rides along rather than opening a pull request of its own.",
       "matchFileNames": ["api/redisfailover/v1/defaults.go"],
       "matchUpdateTypes": ["minor", "patch", "digest"],
       "groupName": "default container images"
+    },
+    {
+      "description": "Redis holds the minor it serves. Redis 7.4 carries a different license, RSALv2 or SSPLv1 rather than BSD-3-Clause, and it writes a snapshot format that 7.2 cannot read back. Moving off this minor is a decision of its own, not one line of an image round.",
+      "matchFileNames": ["api/redisfailover/v1/defaults.go"],
+      "matchDepNames": ["redis"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
     }
   ]
 }
