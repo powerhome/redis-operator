@@ -9,6 +9,10 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Changed
+
+- [Pin each default container image to its digest](https://github.com/powerhome/redis-operator/pull/154). A `RedisFailover` that names no image of its own runs a default, and each default now names a tag and the digest that tag resolves to. A tag is mutable. One operator version could otherwise run different bytes in two failovers created months apart. A registry that repointed a tag would also change what a released operator runs. A failover that names its own image sees no change. A failover that names none keeps the Redis version it has, because each digest resolves the tag that was already there. A later release that carries a new digest rewrites the Redis pod template, and the pods then roll under the rule [CIR-008](docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md) describes
+
 ## [v5.0.0] - 2026-11-05
 
 ### Upgrade note
