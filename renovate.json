@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "forkProcessing": "enabled",
   "description": [
-    "Renovate covers the default container images, the base image of each Dockerfile, and the Go toolchain. Dependabot keeps the Go modules and the actions.",
+    "Renovate covers the default container images, the base image of each Dockerfile, the Go toolchain, and golangci-lint. Dependabot keeps the Go modules and the actions.",
     "The schedule is weekly, so one batch of updates arrives on one day. The shared presets set no schedule."
   ],
   "extends": ["github>powerhome/renovate-config", "schedule:weekly"],
@@ -18,6 +18,17 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "golangci-lint, which the lint job and the Makefile both pin. They name the same release, so CI and a local run lint the same way.",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yaml$/", "/^Makefile$/"],
+      "matchStrings": [
+        "uses: golangci/golangci-lint-action@\\S+\\s+with:\\s+version: (?<currentValue>v\\S+)",
+        "GOLANGCI_LINT_VERSION := (?<currentValue>v\\S+)"
+      ],
+      "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases"
     }
   ],
   "packageRules": [
@@ -31,6 +42,11 @@
       "matchDepNames": ["go", "golang"],
       "enabled": true,
       "rangeStrategy": "bump",
+      "groupName": "go toolchain"
+    },
+    {
+      "description": "golangci-lint reads what the Go toolchain compiles, and a release older than the toolchain fails the lint job. It joins the toolchain group so that an update to both arrives in one pull request.",
+      "matchDepNames": ["golangci/golangci-lint"],
       "groupName": "go toolchain"
     },
     {
