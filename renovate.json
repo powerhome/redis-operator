@@ -1,5 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "forkProcessing": "enabled",
   "description": [
     "Renovate covers the default container images, the base image of each Dockerfile, and the Go toolchain. Dependabot keeps the Go modules and the actions.",
     "The schedule is weekly, so one batch of updates arrives on one day. The shared presets set no schedule."
