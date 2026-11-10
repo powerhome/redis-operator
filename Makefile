@@ -36,6 +36,10 @@ CODEGEN_IMAGE := ghcr.io/slok/kube-code-generator:v0.6.0
 CODEGEN_PLATFORM := linux/amd64
 PORT := 9710
 
+# The only pin of golangci-lint. The lint job in CI reads it from here, so CI
+# and `make lint` always run the same release. Renovate finds it through the
+# comment below, which has to stay on the line directly above it.
+# renovate: datasource=github-releases depName=golangci/golangci-lint
 GOLANGCI_LINT_VERSION := v2.15.0
 GOLANGCI_LINT_IMAGE := golangci/golangci-lint:$(GOLANGCI_LINT_VERSION)
 

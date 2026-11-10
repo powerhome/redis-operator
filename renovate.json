@@ -5,7 +5,7 @@
     "Renovate covers the default container images, the base image of each Dockerfile, the Go toolchain, and golangci-lint. Dependabot keeps the Go modules and the actions.",
     "The schedule is weekly, so one batch of updates arrives on one day. The shared presets set no schedule."
   ],
-  "extends": ["github>powerhome/renovate-config", "schedule:weekly"],
+  "extends": ["github>powerhome/renovate-config", "schedule:weekly", "customManagers:makefileVersions"],
   "dependencyDashboardLabels": ["dependencies"],
   "enabledManagers": ["custom.regex", "dockerfile", "gomod"],
   "customManagers": [
@@ -18,17 +18,6 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "golangci-lint, which the lint job and the Makefile both pin. They name the same release, so CI and a local run lint the same way.",
-      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yaml$/", "/^Makefile$/"],
-      "matchStrings": [
-        "uses: golangci/golangci-lint-action@\\S+\\s+with:\\s+version: (?<currentValue>v\\S+)",
-        "GOLANGCI_LINT_VERSION := (?<currentValue>v\\S+)"
-      ],
-      "depNameTemplate": "golangci/golangci-lint",
-      "datasourceTemplate": "github-releases"
     }
   ],
   "packageRules": [

@@ -26,10 +26,20 @@ jobs:
           # the Go module and build cache from this action, so the lint job needs
           # it on: without it, every run downloads and recompiles every dependency.
           cache: true
+      # The Makefile holds the only pin of golangci-lint, so this job and
+      # `make lint` cannot run different releases. The step fails when it finds
+      # no version, so a renamed variable stops the job instead of letting the
+      # action fall back to its own default.
+      - name: Read the golangci-lint version from the Makefile
+        id: golangci-lint-version
+        run: |
+          version=$(sed -n 's/^GOLANGCI_LINT_VERSION := //p' Makefile)
+          test -n "${version}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.15.0
+          version: ${{ steps.golangci-lint-version.outputs.version }}
           args: --timeout=15m
 
   unit-test:
