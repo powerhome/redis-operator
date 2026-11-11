@@ -19,9 +19,10 @@ string, and adding a digest rewrites that string. This reaches the Redis and
 Sentinel StatefulSets, and the HAProxy Deployment when a failover configures
 one. It also reaches an enabled exporter sidecar that names no image of its
 own. An exporter default replaces its whole parent pod, even when the main
-container names its image explicitly.
+container names its image explicitly. A failover that names every image it
+runs carries no default, so this upgrade replaces none of its pods.
 
-Redis pods, the master among them, roll under the gate
+The Redis pods this upgrade replaces, the master among them, roll under the gate
 [CIR-008](docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md)
 describes. Expect a short write interruption while Sentinel promotes a replica.
 A failover with `spec.redis.replicas: 1` has no replica to promote, so its only
