@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "forkProcessing": "enabled",
   "description": [
-    "Renovate covers the default container images, the base image of each Dockerfile, the Go toolchain, and golangci-lint. Dependabot keeps the Go modules and the actions.",
+    "Renovate covers the Go modules, the default container images, the base image of each Dockerfile, the Go toolchain, and golangci-lint. Dependabot keeps the actions.",
     "The schedule is weekly, so one batch of updates arrives on one day. The shared presets set no schedule."
   ],
   "extends": ["github>powerhome/renovate-config", "schedule:weekly", "customManagers:makefileVersions"],
@@ -22,14 +22,14 @@
   ],
   "packageRules": [
     {
-      "description": "Dependabot keeps the Go modules, so renovate proposes nothing else out of go.mod.",
+      "description": "One pull request for a round of Go module updates. The module graph is nine direct requirements, few enough that reading them together costs less than reading them apart. A major arrives on its own, because a major is an API change to work through rather than a line to read.",
       "matchManagers": ["gomod"],
-      "enabled": false
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "go modules"
     },
     {
       "description": "The Go toolchain moves as one piece: the directive in go.mod and the builder image in both Dockerfiles. Every test job reads its Go version from go.mod. A builder image that moved alone would compile the operator with one toolchain and test it with another. The directive declares a minimum, so bump raises it rather than leaving it satisfied by a newer Go.",
       "matchDepNames": ["go", "golang"],
-      "enabled": true,
       "rangeStrategy": "bump",
       "groupName": "go toolchain"
     },
@@ -37,6 +37,13 @@
       "description": "golangci-lint reads what the Go toolchain compiles, and a release older than the toolchain fails the lint job. It joins the toolchain group so that an update to both arrives in one pull request.",
       "matchDepNames": ["golangci/golangci-lint"],
       "groupName": "go toolchain"
+    },
+    {
+      "description": "The Kubernetes libraries hold the minor they serve. That minor is the API surface the operator compiles against, and the integration tests name the node images it has to run on, so moving it is a decision about which Kubernetes releases this operator supports. A patch within the minor carries fixes and changes no API.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["k8s.io/**"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
     },
     {
       "description": "One pull request for a round of default image updates. A digest that moves under an unchanged tag is a rebuilt image, and it rides along rather than opening a pull request of its own.",
