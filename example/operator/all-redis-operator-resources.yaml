@@ -18,7 +18,7 @@ spec:
     spec:
       serviceAccountName: redisoperator
       containers:
-        - image: ghcr.io/powerhome/redis-operator:v5.0.0
+        - image: ghcr.io/powerhome/redis-operator:v5.1.0
           imagePullPolicy: IfNotPresent
           name: app
           securityContext:

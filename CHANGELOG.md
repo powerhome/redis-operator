@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v5.1.0] - 2026-11-11
+
 ### Upgrade note
 
 Upgrading to this release replaces every pod whose template carries a default
@@ -44,6 +46,11 @@ it. That choice carries the upgrade with it.
 ### Changed
 
 - [Pin each default container image to its digest](https://github.com/powerhome/redis-operator/pull/154). A `RedisFailover` that names no image of its own runs a default, and each default now names a tag and the digest that tag resolves to. A tag is mutable. One operator version could otherwise run different bytes in two failovers created months apart. A registry that repointed a tag would also change what a released operator runs. A failover that names its own image sees no change, and every default keeps the version it already served. The upgrade note above says which pods the new references replace
+- Build with Go 1.27.3 and run on Alpine 3.24.4. The release image moves from Alpine 3.24.1 and the builder image from Go 1.26.10, and both stay pinned by digest. This carries the toolchain and distribution fixes published since v5.0.0. The operator itself behaves the same.
+
+### Security
+
+- [Update `github.com/klauspost/compress` to v1.18.7](https://github.com/powerhome/redis-operator/pull/161), which answers GHSA-259r-337f-4rfw (high). The defect is an integer overflow and an out-of-bounds write in `s2.NewDict`. The operator does not link that code. `compress` enters the build through `prometheus/client_golang/prometheus/promhttp`, which uses `zstd`, and the compiled binary carries 184 symbols from `zstd` and none from `s2`. So this release removes a finding a scanner reports against the image, rather than a defect an attacker could reach.
 
 ## [v5.0.0] - 2026-11-05
 
