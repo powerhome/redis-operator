@@ -46,6 +46,13 @@
       "enabled": false
     },
     {
+      "description": "kooper carries the Kubernetes libraries with it. v2.8.0 requires k8s.io/* v0.32.3 and v2.10.0 requires v0.35.0, so a kooper minor moves the API surface the operator compiles against. The rule that holds those libraries stops renovate proposing that move. It cannot stop a requirement forcing it. So kooper arrives on its own, where the move is the subject of the pull request rather than one line of a round.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/spotahome/kooper/**"],
+      "matchUpdateTypes": ["major", "minor"],
+      "groupName": "kooper"
+    },
+    {
       "description": "go-redis publishes v9 under github.com/redis/go-redis/v9. The proxy serves those same tags under github.com/go-redis/redis/v9, the path this module requires. The go.mod inside each one declares the new path, so a major on the old path does not resolve. The move to v9 renames every import and changes the client API, so it is a migration to work through by hand.",
       "matchManagers": ["gomod"],
       "matchPackageNames": ["github.com/go-redis/redis/**"],
