@@ -46,6 +46,13 @@
       "enabled": false
     },
     {
+      "description": "go-redis publishes v9 under github.com/redis/go-redis/v9. The proxy serves those same tags under github.com/go-redis/redis/v9, the path this module requires. The go.mod inside each one declares the new path, so a major on the old path does not resolve. The move to v9 renames every import and changes the client API, so it is a migration to work through by hand.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/go-redis/redis/**"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "description": "One pull request for a round of default image updates. A digest that moves under an unchanged tag is a rebuilt image, and it rides along rather than opening a pull request of its own.",
       "matchFileNames": ["api/redisfailover/v1/defaults.go"],
       "matchUpdateTypes": ["minor", "patch", "digest"],
