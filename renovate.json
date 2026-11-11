@@ -2,12 +2,12 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "forkProcessing": "enabled",
   "description": [
-    "Renovate covers the Go modules, the default container images, the base image of each Dockerfile, the Go toolchain, and golangci-lint. Dependabot keeps the actions.",
+    "Renovate covers the Go modules, the GitHub Actions, the default container images, the base image of each Dockerfile, the Go toolchain, and golangci-lint.",
     "The schedule is weekly, so one batch of updates arrives on one day. The shared presets set no schedule."
   ],
-  "extends": ["github>powerhome/renovate-config", "schedule:weekly", "customManagers:makefileVersions"],
+  "extends": ["github>powerhome/renovate-config", "github>powerhome/renovate-config:group-github-actions", "schedule:weekly", "customManagers:makefileVersions"],
   "dependencyDashboardLabels": ["dependencies"],
-  "enabledManagers": ["custom.regex", "dockerfile", "gomod"],
+  "enabledManagers": ["custom.regex", "dockerfile", "github-actions", "gomod"],
   "customManagers": [
     {
       "customType": "regex",
