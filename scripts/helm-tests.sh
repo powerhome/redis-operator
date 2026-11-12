@@ -41,7 +41,7 @@ if [ ! -x "${helm}" ]; then
   archive=helm-v${version}-${os}-${arch}.tar.gz
 
   workdir="$(mktemp -d)"
-  trap 'rm -rf "${workdir}"' EXIT
+  trap 'rm -rf "${workdir}" "${helm}.$$"' EXIT
 
   echo ">> Fetching helm ${version} (${os}/${arch})"
   curl -fsSL -o "${workdir}/${archive}" "https://get.helm.sh/${archive}"
@@ -53,9 +53,14 @@ if [ ! -x "${helm}" ]; then
 
   # The archive holds the binary under a directory named for the platform.
   tar -xzf "${workdir}/${archive}" -C "${workdir}" "${os}-${arch}/helm"
+  # The binary comes out executable, and a move across filesystems copies
+  # rather than renames, so a partial copy is executable too. Staging it beside
+  # its destination and renaming within bin/ is atomic, which keeps the name
+  # the test runs from ever naming an incomplete file.
   mkdir -p bin
-  mv "${workdir}/${os}-${arch}/helm" "${helm}"
-  chmod +x "${helm}"
+  mv "${workdir}/${os}-${arch}/helm" "${helm}.$$"
+  chmod +x "${helm}.$$"
+  mv "${helm}.$$" "${helm}"
 fi
 
 echo ">> Testing chart ${chart} with helm ${version}"

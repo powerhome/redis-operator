@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "forkProcessing": "enabled",
   "description": [
-    "Renovate covers the Go modules, the GitHub Actions, the default container images, the base image of each Dockerfile, the Go toolchain, golangci-lint, and the kind release.",
+    "Renovate covers the Go modules, the GitHub Actions, the default container images, the base image of each Dockerfile, the Go toolchain, golangci-lint, helm, and the kind release.",
     "The schedule is weekly, so one batch of updates arrives on one day. The shared presets set no schedule."
   ],
   "extends": ["github>powerhome/renovate-config", "github>powerhome/renovate-config:group-github-actions", "schedule:weekly", "customManagers:makefileVersions"],

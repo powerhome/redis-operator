@@ -53,8 +53,7 @@ container rather than a test result.
 
 - GIVEN the code generators and `make lint`
 - WHEN they run
-- THEN they still run in their pinned containers, now without asking for a
-  terminal
+- THEN they run in their pinned containers and allocate no terminal
 
 - GIVEN the operator itself
 - WHEN this change is applied
@@ -64,21 +63,23 @@ container rather than a test result.
 
 - A fetched tool goes to `bin/<tool>-<version>-<os>-<arch>` and is verified
   against the checksum its release publishes, as `scripts/lint-workflows.sh`
-  fetches actionlint and `scripts/integration-tests.sh` fetches kind. That
-  script also carries the reason to prefer a release binary over a container
-  image: an image comes from Docker Hub, which rate limits anonymous pulls by
-  address, and CI runners share addresses with everyone else on the platform.
+  fetches actionlint and `scripts/integration-tests.sh` fetches kind.
+  `scripts/lint-workflows.sh` carries the reason to prefer a release binary over
+  a container image: an image comes from Docker Hub, which rate limits anonymous
+  pulls by address, and CI runners share addresses with everyone else on the
+  platform.
 - `go.mod` names the Go toolchain and `GOTOOLCHAIN` defaults to `auto`, so a
   host resolves the same toolchain a container would pin.
-- The development image stays. `make shell` is built on it, and `make
-  generate-go` and `make generate-mocks` need the mockery it carries.
+- The development image stays, without its helm. `make shell` is built on it,
+  and `make generate-go` and `make generate-mocks` need the mockery it carries.
+  Nothing runs helm inside it once the chart tests leave.
 
 ## Decisions
 
 - **The unit tests run on the host, not in the development image.** The image
-  pins `golang:1.25.14-alpine` by digest with `GOTOOLCHAIN=local`, which is how
-  it guaranteed the Go version before `go.mod` carried a patch-level `go`
-  directive. It does now, so the host guarantees the same thing by itself. Run
+  pins `golang:1.27.3-alpine` by digest, and the golang images set
+  `GOTOOLCHAIN=local`, which is how the image guaranteed the Go version before
+  `go.mod` carried a patch-level `go` directive. It does now, so the host guarantees the same thing by itself. Run
   both ways on this machine, the two agree exactly: the same 28 packages, the
   same status for each, 385 passing tests each.
 - **The chart tests fetch a pinned helm rather than use whatever is installed.**
@@ -100,8 +101,13 @@ container rather than a test result.
   the point of. It names `-it` itself.
 - **`make lint` is left alone.** CI runs `golangci-lint-action` for the analysis
   cache it keeps, and reads the only pin of it from the Makefile, so the action
-  and `make lint` cannot name different releases. The helm pin takes the same
-  shape: one line in the Makefile, read by whoever needs it.
+  and `make lint` cannot name different releases.
+- **The chart tests are the only helm this pin reaches.** Three steps install
+  their own helm through `azure/setup-helm`, in `chart-version-check`, in this
+  repository's chart publish job and in `helm.yml`, because each runs helm in a
+  shell step rather than through a make target. Renovate reads those as `helm`
+  and the Makefile pin as `helm/helm`, so a release arrives as two updates until
+  they converge. Converging them is a change of its own.
 
 Measured on this change: `make test-helm` takes 1.23 seconds on the first run,
 which includes fetching and verifying the helm release, and 0.12 seconds once

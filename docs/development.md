@@ -48,7 +48,7 @@ You can do the following commands with make:
   `make shell`
 - Run the unit tests, as CI does. Needs Go on the host, of any patch version: Go fetches the toolchain `go.mod` names.
   `make test-unit`
-- Run the chart tests, as CI does. Needs nothing on the host; helm is fetched into `bin/` at the version the Makefile names.
+- Run the chart tests, as CI does. Needs curl and tar on the host; helm is fetched into `bin/` at the version the Makefile names.
   `make test-helm`
 - Run integration tests against a throwaway kind cluster, as CI does. Needs Go and Docker on the host; kind is fetched into `bin/`.
   `make test-integration`

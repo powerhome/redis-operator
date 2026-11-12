@@ -152,8 +152,8 @@ tag: tag-operator tag-chart
 test-unit:
 	$(UNIT_TEST_CMD)
 
-# Run the chart tests. Needs nothing on the host: helm is fetched into bin/ at
-# the version named above. CI runs this same target.
+# Run the chart tests. Needs curl and tar on the host: helm is fetched into
+# bin/ at the version named above. CI runs this same target.
 .PHONY: test-helm
 test-helm:
 	HELM_VERSION=$(HELM_VERSION) $(HELM_TEST_CMD)
