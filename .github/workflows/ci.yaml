@@ -73,6 +73,49 @@ jobs:
           go-version-file: go.mod
       - run: make test-integration KIND_NODE_IMAGE=${{ matrix.kind-node-image }}
 
+  kind-image-sync:
+    name: Kind image sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Node images must come from the kind release the Makefile names
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          kind_version="$(sed -n 's/^KIND_VERSION := //p' Makefile | head -1)"
+          # kind builds each node image for one of its releases and pins it by
+          # digest in that release's notes. A pairing from two releases starts and
+          # runs, so comparing against the notes is what catches it.
+          if ! notes="$(gh api "repos/kubernetes-sigs/kind/releases/tags/v${kind_version}" --jq .body 2>/dev/null)"; then
+            echo "::error::Cannot read the notes for kind v${kind_version}. Check that the release exists: https://github.com/kubernetes-sigs/kind/releases"
+            exit 1
+          fi
+          published="$(printf '%s' "${notes}" | grep -oE 'kindest/node:v[0-9.]+@sha256:[a-f0-9]{64}' | sort -u || true)"
+          if [ -z "${published}" ]; then
+            echo "::error::The kind v${kind_version} notes list no node image, so their format has probably changed: https://github.com/kubernetes-sigs/kind/releases/tag/v${kind_version}"
+            exit 1
+          fi
+          echo "kind v${kind_version} publishes:"
+          printf '%s\n' "${published}" | sed 's/^/  /'
+          rc=0
+          while read -r ref; do
+            if printf '%s\n' "${published}" | grep -qxF "${ref}"; then
+              echo "  ok ${ref}"
+            else
+              echo "::error::${ref} is not published by kind v${kind_version}. Move KIND_VERSION with the images, or name an image that release publishes."
+              rc=1
+            fi
+          done < <(grep -hoE 'kindest/node:[^"[:space:]]+@sha256:[a-f0-9]{64}' Makefile .github/workflows/ci.yaml | sort -u)
+          # CIR-012 wants a local run to predict a CI run, so the image the
+          # Makefile falls back to has to be one the matrix runs.
+          default="$(sed -n 's/^KIND_NODE_IMAGE ?= //p' Makefile | head -1)"
+          if ! grep -qF "${default}" .github/workflows/ci.yaml; then
+            echo "::error::KIND_NODE_IMAGE (${default}) is not in the integration matrix, so a local run would not predict a CI run."
+            rc=1
+          fi
+          exit "${rc}"
+
   workflow-lint:
     name: Workflow lint
     runs-on: ubuntu-latest

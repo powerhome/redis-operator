@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "forkProcessing": "enabled",
   "description": [
-    "Renovate covers the Go modules, the GitHub Actions, the default container images, the base image of each Dockerfile, the Go toolchain, and golangci-lint.",
+    "Renovate covers the Go modules, the GitHub Actions, the default container images, the base image of each Dockerfile, the Go toolchain, golangci-lint, and the kind release.",
     "The schedule is weekly, so one batch of updates arrives on one day. The shared presets set no schedule."
   ],
   "extends": ["github>powerhome/renovate-config", "github>powerhome/renovate-config:group-github-actions", "schedule:weekly", "customManagers:makefileVersions"],
@@ -51,6 +51,11 @@
       "matchPackageNames": ["github.com/spotahome/kooper/**"],
       "matchUpdateTypes": ["major", "minor"],
       "groupName": "kooper"
+    },
+    {
+      "description": "The kind release waits on the dependency dashboard. Each kind release publishes its own set of node images, and the release notes pin them by digest, so moving kind moves the integration matrix and the Makefile default with it. Which Kubernetes releases this operator is tested against is a decision to make by hand, and docs/README.md names the matrix as the authority on it. Renovate does not watch the node images. kind never republishes a tag, so a new node image tag exists only because a new kind release exists, and an update that moved the images by themselves would pair them with the kind release the Makefile still names. The Kind image sync job in .github/workflows/ci.yaml holds that pairing.",
+      "matchDepNames": ["kubernetes-sigs/kind"],
+      "dependencyDashboardApproval": true
     },
     {
       "description": "go-redis publishes v9 under github.com/redis/go-redis/v9. The proxy serves those same tags under github.com/go-redis/redis/v9, the path this module requires. The go.mod inside each one declares the new path, so a major on the old path does not resolve. The move to v9 renames every import and changes the client API, so it is a migration to work through by hand.",

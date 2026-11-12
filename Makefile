@@ -45,10 +45,19 @@ GOLANGCI_LINT_IMAGE := golangci/golangci-lint:$(GOLANGCI_LINT_VERSION)
 
 ACTIONLINT_VERSION := 1.7.12
 
-# The integration tests run against a kind cluster. The default node image is the
-# newest Kubernetes release this kind version publishes; CI overrides it to cover
-# each release in its matrix. Node images are pinned by digest, as the kind
-# release notes publish them.
+# The integration tests run against a kind cluster. KIND_NODE_IMAGE names the node
+# image `make test-integration` uses when CI names none, and every CI job names one
+# from its matrix. kind publishes a set of node images with each release, and its
+# release notes require the digest to identify an image built for that release, so
+# this one carries a tag and a digest. The images move when KIND_VERSION moves, and
+# the Kind image sync job checks that each one came from the release it names. Keep
+# this one to a release the matrix covers, so a local run predicts a CI run.
+#
+# Renovate finds the kind release through the comment below. Only whitespace may
+# separate the two, and the variable name has to end in _VERSION. kind tags its
+# releases with a leading v while scripts/integration-tests.sh builds its download
+# URL as v${kind_version}, so extractVersion takes the v off.
+# renovate: datasource=github-releases depName=kubernetes-sigs/kind extractVersion=^v(?<version>.+)$
 KIND_VERSION := 0.33.0
 KIND_NODE_IMAGE ?= kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
 
