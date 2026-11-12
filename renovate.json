@@ -39,14 +39,21 @@
       "groupName": "go toolchain"
     },
     {
-      "description": "The Kubernetes libraries hold the minor they serve. That minor is the API surface the operator compiles against, and the integration tests name the node images it has to run on, so moving it is a decision about which Kubernetes releases this operator supports. A patch within the minor carries fixes and changes no API.",
+      "description": "The Kubernetes libraries take the patches of the minor they serve. A patch within that minor carries fixes and changes no API, which is why it arrives unattended. Renovate buckets a minor and a patch together and resolves the bucket to its highest release, so without this a reachable minor hides every patch behind it. This rule names no update type, which is what lets it apply before the lookup that does the bucketing.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["k8s.io/**"],
+      "separateMinorPatch": true
+    },
+    {
+      "description": "The Kubernetes libraries hold the minor they serve. That minor is the API surface the operator compiles against, and the integration tests name the node images it has to run on, so moving it is a decision about which Kubernetes releases this operator supports. The move waits on the dependency dashboard rather than being dropped, so the decision arrives with the release. It groups apart from the module round, because a branch waits for approval when any update in it does.",
       "matchManagers": ["gomod"],
       "matchPackageNames": ["k8s.io/**"],
       "matchUpdateTypes": ["major", "minor"],
-      "enabled": false
+      "dependencyDashboardApproval": true,
+      "groupName": "kubernetes libraries"
     },
     {
-      "description": "kooper carries the Kubernetes libraries with it. v2.8.0 requires k8s.io/* v0.32.3 and v2.10.0 requires v0.35.0, so a kooper minor moves the API surface the operator compiles against. The rule that holds those libraries stops renovate proposing that move. It cannot stop a requirement forcing it. So kooper arrives on its own, where the move is the subject of the pull request rather than one line of a round.",
+      "description": "kooper carries the Kubernetes libraries with it. v2.8.0 requires k8s.io/* v0.32.3 and v2.10.0 requires v0.35.0, so a kooper minor moves the API surface the operator compiles against. The rule that holds those libraries keeps Renovate from opening that move. It cannot stop a requirement forcing it. So kooper arrives on its own, where the move is the subject of the pull request rather than one line of a round.",
       "matchManagers": ["gomod"],
       "matchPackageNames": ["github.com/spotahome/kooper/**"],
       "matchUpdateTypes": ["major", "minor"],
@@ -78,11 +85,18 @@
       "groupName": "default container images"
     },
     {
-      "description": "Redis holds the minor it serves. Redis 7.4 carries a different license, RSALv2 or SSPLv1 rather than BSD-3-Clause, and it writes a snapshot format that 7.2 cannot read back. Moving off this minor is a decision of its own, not one line of an image round.",
+      "description": "Redis takes the patches of the minor it serves. A patch within 7.2 carries fixes and keeps the license and the snapshot format this operator supports. Renovate buckets a minor and a patch together and resolves the bucket to its highest release, so without this a reachable minor hides every patch behind it. This rule names no update type, which is what lets it apply before the lookup that does the bucketing.",
+      "matchFileNames": ["api/redisfailover/v1/defaults.go"],
+      "matchDepNames": ["redis"],
+      "separateMinorPatch": true
+    },
+    {
+      "description": "Redis holds the minor it serves. Redis 7.4 carries a different license, RSALv2 or SSPLv1 rather than BSD-3-Clause, and it writes a snapshot format that 7.2 cannot read back. Moving off this minor is a decision of its own, not one line of an image round. The move waits on the dependency dashboard rather than being dropped, so the decision arrives with the release. It groups apart from the image round, because a branch waits for approval when any update in it does.",
       "matchFileNames": ["api/redisfailover/v1/defaults.go"],
       "matchDepNames": ["redis"],
       "matchUpdateTypes": ["major", "minor"],
-      "enabled": false
+      "dependencyDashboardApproval": true,
+      "groupName": "redis"
     }
   ]
 }
