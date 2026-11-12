@@ -58,6 +58,13 @@
       "dependencyDashboardApproval": true
     },
     {
+      "description": "Helm holds its major. Helm 4 changes the flags and the output of the command line. scripts/publish-oci-chart.sh reads the output of helm show with awk, and then packages and pushes a chart. That script runs on a release tag only, so no pull request reaches it, and a break there lands on a release. The move to Helm 4 is a change of its own, where the script runs against it first. It waits on the dependency dashboard, and it carries its own group. The GitHub Actions majors share a branch with it otherwise, and a branch waits for approval when any update in it does. Both names are here because the version input of azure/setup-helm reads helm, and a pin in the Makefile would read helm/helm.",
+      "matchDepNames": ["helm", "helm/helm"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "groupName": "helm"
+    },
+    {
       "description": "go-redis publishes v9 under github.com/redis/go-redis/v9. The proxy serves those same tags under github.com/go-redis/redis/v9, the path this module requires. The go.mod inside each one declares the new path, so a major on the old path does not resolve. The move to v9 renames every import and changes the client API, so it is a migration to work through by hand.",
       "matchManagers": ["gomod"],
       "matchPackageNames": ["github.com/go-redis/redis/**"],
