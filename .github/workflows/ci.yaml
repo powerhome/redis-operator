@@ -50,7 +50,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - run: make test-unit-ci
+      - run: make test-unit
 
   integration-test:
     name: Integration test
@@ -132,13 +132,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: v3.22.1
-
+      # The target fetches the helm the Makefile names, so this job installs
+      # nothing and cannot run a different one than a contributor does.
       - name: Helm test
-        run: make test-helm-ci
+        run: make test-helm
 
   # `make generate-crd` writes the same CRD into manifests/, its kustomize base,
   # and the chart from a single source, so those three committed copies must be

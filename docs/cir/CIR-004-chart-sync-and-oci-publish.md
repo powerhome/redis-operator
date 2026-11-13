@@ -136,8 +136,8 @@ change must be applied to all four by hand until a generator collapses them.
   done yet. Until then the gate requires the three committed copies —
   `manifests/`, the kustomize base, and the chart — to be byte-identical, which
   is the drift that can merge here. Regeneration-in-CI is a follow-up.
-  (`make generate-crd` keeps `DOCKER_INTERACTIVE=` support so it can run without
-  a TTY once that lands.)
+  (`make generate-crd` allocates no terminal, so it can run on a runner once
+  that lands. See [CIR-013](CIR-013-run-the-same-tests-locally-and-in-ci.md).)
 
 - **Accepted: the first publish surfaces a task instead of failing.** A new ghcr
   package is private until someone flips its visibility, so the publish script's

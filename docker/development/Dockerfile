@@ -12,11 +12,6 @@ RUN apk --no-cache add \
     g++ \
     openssl
 
-# Helm for running helm template tests locally
-ENV HELM_VERSION="v3.12.0"
-RUN wget -c https://get.helm.sh/helm-${HELM_VERSION}-${TARGETOS}-${TARGETARCH}.tar.gz -O - | tar zxv -C /tmp && \
-    mv /tmp/${TARGETOS}-${TARGETARCH}/helm /go/bin/helm
-
 # Mock creator
 ARG MOCKERY_VERSION="2.52.4"
 RUN GOBIN=/go/bin go install github.com/vektra/mockery/v2@v${MOCKERY_VERSION}
