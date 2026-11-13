@@ -9,6 +9,45 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v5.2.0] - 2026-11-13
+
+### Upgrade note
+
+This release moves two default images, the Redis exporter and HAProxy. A
+failover that names both keeps every pod it has, and the rest of this note does
+not apply to it.
+
+Upgrading replaces the pods of the HAProxy Deployment, where a failover
+configures HAProxy. It replaces a Redis pod where the failover enables the
+exporter and that exporter names no image of its own. An exporter default
+replaces its whole parent pod, even when the main container names its image
+explicitly.
+
+Sentinel pods stay where they are. The Sentinel exporter runs a different
+program, and its default does not move. Neither do the default Redis and
+Sentinel images.
+
+The Redis pods this upgrade replaces, the master among them, roll under the gate
+[CIR-008](docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md)
+describes. Expect a short write interruption while Sentinel promotes a replica.
+A failover with `spec.redis.replicas: 1` has no replica to promote, so its only
+Redis restarts. Data that pod holds in an `emptyDir` leaves with it.
+
+Two fields keep a pod where it is: `spec.haproxy.image` and
+`spec.redis.exporter.image`. A failover that names the image it runs chooses its
+own restart window.
+
+Every metric a default failover exports keeps its name. A failover that passes
+`--export-client-list` through `spec.redis.exporter.args` loses
+`redis_connected_clients_details`. Exporter v1.64.0 renamed that metric to
+`redis_connected_client_info`, dropped its `idle_since`, `omem` and `cmd`
+labels, and added `id`.
+
+### Changed
+
+- [Update the default container images](https://github.com/powerhome/redis-operator/pull/166). The Redis exporter moves from v1.57.0 to v1.97.0, and HAProxy from 3.1.0 to 3.4.7. Each names the digest its tag resolves to. The default Redis stays at 7.2.4-alpine and the default Sentinel exporter at 1.7.1. The upgrade note above says which pods the new references replace
+- [Update the Go modules the operator links](https://github.com/powerhome/redis-operator/pull/167). `prometheus/client_golang` moves to v1.25.0, `sirupsen/logrus` to v1.10.2 and `klauspost/compress` to v1.20.1, with the transitive dependencies each one carries. The operator behaves the same
+
 ## [v5.1.0] - 2026-11-11
 
 ### Upgrade note
