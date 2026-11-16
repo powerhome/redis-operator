@@ -11,10 +11,10 @@ require (
 	github.com/sirupsen/logrus v1.10.2
 	github.com/spotahome/kooper/v2 v2.8.0
 	github.com/stretchr/testify v1.12.1
-	k8s.io/api v0.32.3
-	k8s.io/apiextensions-apiserver v0.32.0
-	k8s.io/apimachinery v0.32.3
-	k8s.io/client-go v0.32.3
+	k8s.io/api v0.32.13
+	k8s.io/apiextensions-apiserver v0.32.13
+	k8s.io/apimachinery v0.32.13
+	k8s.io/client-go v0.32.13
 )
 
 require (
