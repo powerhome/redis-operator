@@ -7,7 +7,9 @@
   ],
   "extends": ["github>powerhome/renovate-config", "github>powerhome/renovate-config:group-github-actions", "customManagers:makefileVersions"],
   "schedule": ["* * * * 1"],
-  "dependencyDashboardLabels": ["dependencies"],
+  "dependencyDashboard": {
+    "labels": ["dependencies"]
+  },
   "enabledManagers": ["custom.regex", "dockerfile", "github-actions", "gomod"],
   "customManagers": [
     {
