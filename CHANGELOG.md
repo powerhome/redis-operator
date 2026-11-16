@@ -9,6 +9,48 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v5.2.0] - 2026-11-13
+
+### Upgrade note
+
+This release moves two default images, the Redis exporter and HAProxy. It
+replaces pods only where a `RedisFailover` takes one of those defaults. Two
+fields opt out: `spec.haproxy.image` and `spec.redis.exporter.image`. A
+`RedisFailover` that sets both keeps every pod it has, and the rest of this note
+does not apply to it. One that names the image it runs chooses its own restart
+window.
+
+Where a `RedisFailover` takes the HAProxy default, upgrading replaces the pods
+of its HAProxy Deployment. Where it takes the exporter default, upgrading
+replaces its Redis pods. The exporter runs beside Redis, so a new exporter image
+replaces the whole pod, even when the main container names its Redis image
+explicitly.
+
+Sentinel pods stay where they are. The Sentinel exporter runs a different
+program, and its default does not move. Neither do the default Redis and
+Sentinel images.
+
+The Redis pods this upgrade replaces, the master among them, roll under the gate
+[CIR-008](docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md)
+describes. Expect a short write interruption while Sentinel promotes a replica.
+A `RedisFailover` with `spec.redis.replicas: 1` has no replica to promote, so
+its only Redis restarts. Data that pod holds in an `emptyDir` leaves with it.
+
+Every metric a default `RedisFailover` exports keeps its name. One that passes
+`--export-client-list` through `spec.redis.exporter.args` loses
+`redis_connected_clients_details`. Exporter v1.64.0 renamed that metric to
+`redis_connected_client_info` and added an `id` label. It dropped the
+`created_at`, `idle_since`, `omem` and `cmd` labels. Three of those four values
+have metrics of their own: `redis_connected_client_created_at_timestamp`,
+`redis_connected_client_idle_since_timestamp` and
+`redis_connected_client_output_buffer_memory_usage_bytes`. The command a client
+last ran is not exported.
+
+### Changed
+
+- [Update the default container images](https://github.com/powerhome/redis-operator/pull/166). The Redis exporter moves from v1.57.0 to v1.97.0, and HAProxy from 3.1.0 to 3.4.7. Each names the digest its tag resolves to. The default Redis stays at 7.2.4-alpine and the default Sentinel exporter at 1.7.1. The upgrade note above says which pods the new references replace
+- [Update the Go modules the operator links](https://github.com/powerhome/redis-operator/pull/167). `prometheus/client_golang` moves to v1.25.0, `sirupsen/logrus` to v1.10.2 and `klauspost/compress` to v1.20.1, with the transitive dependencies each one carries. The operator behaves the same
+
 ## [v5.1.0] - 2026-11-11
 
 ### Upgrade note

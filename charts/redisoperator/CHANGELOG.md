@@ -12,6 +12,16 @@ chart version installs. Changes to the operator are recorded in the
 
 ## Unreleased
 
+## [4.8.2] - 2026-11-13
+
+Installs operator `v5.2.0`, up from `v5.1.0`. That release moves the default
+HAProxy and Redis exporter images, which replaces the pods that carry them.
+Read the upgrade note in the
+[repository changelog](https://github.com/powerhome/redis-operator/blob/master/CHANGELOG.md)
+before you upgrade.
+
+Nothing else in the chart changed.
+
 ## [4.8.1] - 2026-11-11
 
 Installs operator `v5.1.0`, up from `v5.0.0`. That release pins each default
