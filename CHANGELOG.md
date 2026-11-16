@@ -13,14 +13,17 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Upgrade note
 
-This release moves two default images, the Redis exporter and HAProxy. A
-failover that names both keeps every pod it has, and the rest of this note does
-not apply to it.
+This release moves two default images, the Redis exporter and HAProxy. It
+replaces pods only where a `RedisFailover` takes one of those defaults. Two
+fields opt out: `spec.haproxy.image` and `spec.redis.exporter.image`. A
+`RedisFailover` that sets both keeps every pod it has, and the rest of this note
+does not apply to it. One that names the image it runs chooses its own restart
+window.
 
-Upgrading replaces the pods of the HAProxy Deployment, where a failover
-configures HAProxy. It replaces a Redis pod where the failover enables the
-exporter and that exporter names no image of its own. An exporter default
-replaces its whole parent pod, even when the main container names its image
+Where a `RedisFailover` takes the HAProxy default, upgrading replaces the pods
+of its HAProxy Deployment. Where it takes the exporter default, upgrading
+replaces its Redis pods. The exporter runs beside Redis, so a new exporter image
+replaces the whole pod, even when the main container names its Redis image
 explicitly.
 
 Sentinel pods stay where they are. The Sentinel exporter runs a different
@@ -30,18 +33,18 @@ Sentinel images.
 The Redis pods this upgrade replaces, the master among them, roll under the gate
 [CIR-008](docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md)
 describes. Expect a short write interruption while Sentinel promotes a replica.
-A failover with `spec.redis.replicas: 1` has no replica to promote, so its only
-Redis restarts. Data that pod holds in an `emptyDir` leaves with it.
+A `RedisFailover` with `spec.redis.replicas: 1` has no replica to promote, so
+its only Redis restarts. Data that pod holds in an `emptyDir` leaves with it.
 
-Two fields keep a pod where it is: `spec.haproxy.image` and
-`spec.redis.exporter.image`. A failover that names the image it runs chooses its
-own restart window.
-
-Every metric a default failover exports keeps its name. A failover that passes
+Every metric a default `RedisFailover` exports keeps its name. One that passes
 `--export-client-list` through `spec.redis.exporter.args` loses
 `redis_connected_clients_details`. Exporter v1.64.0 renamed that metric to
-`redis_connected_client_info`, dropped its `idle_since`, `omem` and `cmd`
-labels, and added `id`.
+`redis_connected_client_info` and added an `id` label. It dropped the
+`created_at`, `idle_since`, `omem` and `cmd` labels. Three of those four values
+have metrics of their own: `redis_connected_client_created_at_timestamp`,
+`redis_connected_client_idle_since_timestamp` and
+`redis_connected_client_output_buffer_memory_usage_bytes`. The command a client
+last ran is not exported.
 
 ### Changed
 
