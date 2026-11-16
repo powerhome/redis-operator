@@ -29,14 +29,16 @@
       "groupName": "go modules"
     },
     {
-      "description": "The Go toolchain moves as one piece: the directive in go.mod and the builder image in both Dockerfiles. Every test job reads its Go version from go.mod. A builder image that moved alone would compile the operator with one toolchain and test it with another. The directive declares a minimum, so bump raises it rather than leaving it satisfied by a newer Go.",
+      "description": "The Go toolchain moves as one piece: the directive in go.mod and the builder image in both Dockerfiles. Every test job reads its Go version from go.mod. A builder image that moved alone would compile the operator with one toolchain and test it with another. The directive declares a minimum, so bump raises it rather than leaving it satisfied by a newer Go. The group takes no release-age delay, because a delay splits it. The shared preset exempts a bump, which is the update that raises the directive, and applies to the builder image, which is a patch. Docker Hub publishes the golang image after the Go release it carries. A delay therefore moves the directive on one run and the image on a later one. GOTOOLCHAIN=local in docker/app/Dockerfile then fails the build.",
       "matchDepNames": ["go", "golang"],
       "rangeStrategy": "bump",
+      "minimumReleaseAge": null,
       "groupName": "go toolchain"
     },
     {
-      "description": "golangci-lint reads what the Go toolchain compiles, and a release older than the toolchain fails the lint job. It joins the toolchain group so that an update to both arrives in one pull request.",
+      "description": "golangci-lint reads what the Go toolchain compiles, and a release older than the toolchain fails the lint job. It joins the toolchain group so that an update to both arrives in one pull request. It takes no release-age delay, for the reason the toolchain rule gives.",
       "matchDepNames": ["golangci/golangci-lint"],
+      "minimumReleaseAge": null,
       "groupName": "go toolchain"
     },
     {
