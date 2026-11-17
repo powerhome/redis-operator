@@ -9,9 +9,73 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+### Upgrade note
+
+This release moves the default Redis image to 7.2.17-alpine. Redis and Sentinel
+read that one default, so upgrading replaces the Redis pods and the Sentinel
+pods of every `RedisFailover` that takes it. Two fields opt out, one for each
+set: `spec.redis.image` and `spec.sentinel.image`. A `RedisFailover` that names
+both keeps every pod it has, and the rest of this note does not apply to it. A
+`RedisFailover` that names one of the two still rolls the other.
+
+The Sentinels roll under the gate
+[CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md) describes. The
+operator replaces one per reconcile, and only once the Sentinels that would
+remain could still report the master. Measured across 1036 polls of all three
+Sentinels during a roll, at least one answered every time. Fewer than three
+answered in 36 of those polls, for at most 7 seconds together.
+
+A Sentinel reports `127.0.0.1:6379` as the master address until the operator
+points it at the real one. A pod in that state fails its readiness probe, so the
+`rfs-<name>` Service does not route a client to it. A client that addresses
+Sentinel pods by name through the headless Service bypasses that check. That
+Service publishes addresses that are not ready on purpose. Such a client
+should ask a second Sentinel, or check that the address it gets answers
+`role:master`, which is what HAProxy does.
+
+The Redis pods roll under the gate
+[CIR-008](docs/cir/CIR-008-hold-the-master-until-a-failover-could-succeed.md)
+describes. Replicas go first. The master goes once every Sentinel reports a
+replica it could promote.
+
+What a client sees while the master moves depends on how it reaches Redis.
+
+A client that connects through HAProxy, the `rfrm-haproxy-<name>` Service, sees
+no interruption. HAProxy picks the master by asking each Redis for
+`role:master`, so it finds the new one without asking Sentinel. HAProxy carried
+4534 writes across two measured rolls, and refused or stalled none of them.
+
+A client that connects to the master Service, `rfrm-<name>`, sees writes refused
+and then one long stall. That Service selects the pod carrying the
+`redisfailovers-role: master` label. The operator writes that label on a
+reconcile, so the label trails the promotion Sentinel carried out. While it
+trails, the Service points at a pod that is already a replica, which answers
+`-READONLY`, or at no pod at all. Each of two measured rolls refused about 90
+writes across 19 seconds, and then refused connections for 27 and 58 seconds.
+Give such a client a connect timeout and a retry.
+
+A client that cannot tolerate a refused write, or a stall of that length,
+should stop writing until the roll finishes.
+
+A `RedisFailover` with `spec.redis.replicas: 1` has no replica to promote, so
+its only Redis restarts. Data that pod holds in an `emptyDir` leaves with it.
+
 ### Changed
 
 - [Test against Kubernetes 1.35, 1.36 and 1.37](https://github.com/powerhome/redis-operator/pull/184). The integration matrix is what this project supports, so 1.34 leaves it and 1.37 arrives. The operator compiles against `k8s.io/client-go` v0.37.2, which supports one minor either side of its own, and 1.34 sits outside that. The operator refuses no cluster on 1.34, and nothing in it changes for one. CI no longer tests that release. kind v0.33.0 publishes a node image for each of the three, so `make test-integration` still runs what CI runs.
+
+### Security
+
+- [Update the default Redis image to v7.2.17](https://github.com/powerhome/redis-operator/pull/178).
+  Redis 7.2.17 closes 16 advisories open against 7.2.4. Six of them allow remote
+  code execution: CVE-2024-31449, CVE-2024-46981, CVE-2025-27151,
+  CVE-2025-49844, CVE-2026-23479 and CVE-2026-25243. The rest are
+  CVE-2026-23631, CVE-2025-32023, CVE-2025-48367, CVE-2025-21605,
+  CVE-2024-51741, CVE-2024-31227, CVE-2024-31228, CVE-2025-46817,
+  CVE-2025-46818 and CVE-2025-46819. Most need an authenticated connection, and
+  a `RedisFailover` that sets `auth.secretPath` requires one. Redis and Sentinel
+  read the same default image, so this reference moves both. The upgrade note
+  above says which pods it replaces.
 
 ## [v5.2.0] - 2026-11-13
 
