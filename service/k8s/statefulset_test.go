@@ -375,7 +375,7 @@ func TestPodsWaitingOnFilesystemResize(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			assert := assert.New(t)
 
-			mcli := kubernetes.NewSimpleClientset()
+			mcli := kubernetes.NewClientset()
 			_, err := mcli.AppsV1().StatefulSets(ns).Create(t.Context(), statefulSet, metav1.CreateOptions{})
 			assert.NoError(err)
 			for i := range test.claims {
