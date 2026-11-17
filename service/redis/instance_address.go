@@ -16,16 +16,11 @@ type InstanceAddress struct {
 }
 
 // Names reports whether the address Sentinel reported belongs to this instance.
-// An empty reported address belongs to nothing, as does any address when this
-// names no instance.
+// Sentinel describes a replica it cannot place without one, and nothing is not
+// an instance, so an empty reported address belongs to nobody.
 func (a InstanceAddress) Names(reported string) bool {
-	if reported == "" || a.IsZero() {
+	if reported == "" {
 		return false
 	}
 	return reported == a.IP || reported == a.Hostname
-}
-
-// IsZero reports whether this names no instance at all.
-func (a InstanceAddress) IsZero() bool {
-	return a.IP == "" && a.Hostname == ""
 }

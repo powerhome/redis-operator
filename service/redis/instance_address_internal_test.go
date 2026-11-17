@@ -52,13 +52,7 @@ func TestAnInstanceKnownByOneFormNamesThatForm(t *testing.T) {
 func TestNoInstanceNamesNothing(t *testing.T) {
 	var none InstanceAddress
 
-	assert.True(t, none.IsZero())
 	assert.False(t, none.Names(""))
 	assert.False(t, none.Names("10.0.0.2"))
 	assert.False(t, none.Names("rfr-test-1.rfr-test.testns.svc"))
-}
-
-func TestAnInstanceWithEitherFormIsNotZero(t *testing.T) {
-	assert.False(t, InstanceAddress{IP: "10.0.0.2"}.IsZero())
-	assert.False(t, InstanceAddress{Hostname: "rfr-test-1.rfr-test.testns.svc"}.IsZero())
 }
