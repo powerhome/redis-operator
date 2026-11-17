@@ -12,8 +12,11 @@ RUN apk --no-cache add \
     g++ \
     openssl
 
-# Mock creator
-ARG MOCKERY_VERSION="2.52.4"
+# Mock creator. The Makefile holds the only pin and passes it in, so the two
+# cannot disagree about which release this image carries. There is no default:
+# a build that names no release fails here rather than installing one nobody
+# chose. The Makefile says what constrains the choice. See CIR-015.
+ARG MOCKERY_VERSION
 RUN GOBIN=/go/bin go install github.com/vektra/mockery/v2@v${MOCKERY_VERSION}
 
 # Create user

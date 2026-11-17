@@ -44,6 +44,12 @@
       "groupName": "go toolchain"
     },
     {
+      "description": "mockery carries its own copy of golang.org/x/tools to read the packages it generates from, so a release whose copy predates the toolchain cannot read what that toolchain compiles. It joins the toolchain group for the same reason golangci-lint does, and takes no release-age delay for the same reason. Unlike golangci-lint, nothing in CI runs mockery, so this pairing is what keeps the two together rather than a job that fails once they have come apart.",
+      "matchDepNames": ["vektra/mockery"],
+      "minimumReleaseAge": null,
+      "groupName": "go toolchain"
+    },
+    {
       "description": "The Kubernetes libraries take the patches of the minor they serve. A patch within that minor carries fixes and changes no API, which is why it arrives unattended. Renovate buckets a minor and a patch together and resolves the bucket to its highest release, so without this a reachable minor hides every patch behind it. This rule names no update type, which is what lets it apply before the lookup that does the bucketing.",
       "matchManagers": ["gomod"],
       "matchPackageNames": ["k8s.io/**"],
