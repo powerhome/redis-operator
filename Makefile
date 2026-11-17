@@ -45,6 +45,17 @@ GOLANGCI_LINT_IMAGE := golangci/golangci-lint:$(GOLANGCI_LINT_VERSION)
 
 ACTIONLINT_VERSION := 1.7.12
 
+# The only pin of mockery, passed to the development image below. mockery reads
+# the packages it generates from, so it carries its own copy of
+# golang.org/x/tools, and a release whose copy predates the toolchain in go.mod
+# cannot read what that toolchain compiles. It fails on the first package with
+# "without types was imported" and writes nothing. Renovate finds this through
+# the comment below, which has to stay on the line directly above it, and
+# moves it with the toolchain. mockery tags its releases v${version}, so
+# extractVersion takes the v off. See CIR-015.
+# renovate: datasource=github-releases depName=vektra/mockery extractVersion=^v(?<version>.+)$
+MOCKERY_VERSION := 2.53.8
+
 # The chart tests name the helm they run rather than taking whichever one a
 # machine happens to have. `helm lint` and `helm template` change what they
 # accept and what they render between releases, so a chart that passes against
@@ -120,6 +131,7 @@ image-local: ensure-docker
 image-dev-tools: ensure-docker
 	docker buildx bake \
 	  --set dev.args.uid=$(UID) \
+	  --set dev.args.MOCKERY_VERSION=$(MOCKERY_VERSION) \
 	  --set dev.tags="$(IMAGE_NAME)-dev:latest" \
 	  dev
 
