@@ -19,6 +19,7 @@ import (
 	mK8SService "github.com/spotahome/redis-operator/mocks/service/k8s"
 	mRedisService "github.com/spotahome/redis-operator/mocks/service/redis"
 	rfservice "github.com/spotahome/redis-operator/operator/redisfailover/service"
+	"github.com/spotahome/redis-operator/service/redis"
 )
 
 func generateRF() *redisfailoverv1.RedisFailover {
@@ -1504,10 +1505,10 @@ func TestCheckSentinelsCanFailover(t *testing.T) {
 
 			mr := &mRedisService.Client{}
 			if test.askingFails {
-				mr.On("ReplicasUp", mock.Anything, "26379", "").Return(int32(0), errors.New("connection refused"))
+				mr.On("ReplicasUp", mock.Anything, "26379", redis.InstanceAddress{}).Return(int32(0), errors.New("connection refused"))
 			} else {
 				for ip, up := range test.replicasUp {
-					mr.On("ReplicasUp", ip, "26379", "").Return(up, nil)
+					mr.On("ReplicasUp", ip, "26379", redis.InstanceAddress{}).Return(up, nil)
 				}
 			}
 
@@ -1558,21 +1559,23 @@ func TestCheckSentinelsCanFailoverExcludesThePodBeingReplaced(t *testing.T) {
 	tests := []struct {
 		name        string
 		replacing   string
-		wantLeaving string
+		wantLeaving redis.InstanceAddress
 		up          int32
 		skipAsking  bool
 		errContains string
 	}{
 		{
-			name:        "resolves the pod to the address a sentinel holds",
+			// Sentinel reports the address until the pod announces a name for
+			// itself, so the departing pod is named both ways.
+			name:        "names the pod by address and by hostname",
 			replacing:   "rfr-test-1",
-			wantLeaving: "10.0.0.2",
+			wantLeaving: redis.InstanceAddress{IP: "10.0.0.2", Hostname: "rfr-test-1.rfr-test.testns.svc"},
 			up:          1,
 		},
 		{
 			name:        "names the pod when its departure leaves nothing",
 			replacing:   "rfr-test-1",
-			wantLeaving: "10.0.0.2",
+			wantLeaving: redis.InstanceAddress{IP: "10.0.0.2", Hostname: "rfr-test-1.rfr-test.testns.svc"},
 			up:          0,
 			errContains: "once rfr-test-1 is gone",
 		},

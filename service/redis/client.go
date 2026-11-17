@@ -33,7 +33,7 @@ type Client interface {
 	SetCustomRedisConfig(ip string, port string, configs []string, password string) error
 	SlaveIsReady(ip, port, password string) (bool, error)
 	SentinelCheckQuorum(ip string, port string) error
-	ReplicasUp(ip string, port string, leavingAddress string) (int32, error)
+	ReplicasUp(ip string, port string, leaving InstanceAddress) (int32, error)
 }
 
 type client struct {
@@ -53,10 +53,12 @@ func New(metricsRecorder metrics.Recorder) Client {
 const NoMasterYet = "127.0.0.1"
 
 const (
-	sentinelsNumberREString      = "sentinels=([0-9]+)"
-	slaveNumberREString          = "slaves=([0-9]+)"
-	sentinelStatusREString       = "status=([a-z]+)"
-	redisMasterHostREString      = "master_host:([0-9.]+)"
+	sentinelsNumberREString = "sentinels=([0-9]+)"
+	slaveNumberREString     = "slaves=([0-9]+)"
+	sentinelStatusREString  = "status=([a-z]+)"
+	// Reads a name as well as an address, because what a replica answers with
+	// depends on who told it to replicate. See TestMasterHostIsReadInEitherForm.
+	redisMasterHostREString      = `master_host:(\S+)`
 	redisConnectedSlavesREString = "connected_slaves:([0-9]+)"
 	redisRoleMaster              = "role:master"
 	redisSyncing                 = "master_sync_in_progress:1"
@@ -148,8 +150,9 @@ func (c *client) GetNumberSentinelSlavesInMemory(ip string, sentinelPort string)
 //
 // The replica the caller is about to take away does not count: asking whether a
 // failover could happen after a pod goes means asking about the replicas that
-// will still be there.
-func (c *client) ReplicasUp(ip string, sentinelPort string, leavingAddress string) (int32, error) {
+// will still be there. The caller names that replica by address and by name,
+// because Sentinel reports whichever of the two the instance announced.
+func (c *client) ReplicasUp(ip string, sentinelPort string, leaving InstanceAddress) (int32, error) {
 	options := &rediscli.Options{
 		Addr:     net.JoinHostPort(ip, sentinelPort),
 		Password: "",
@@ -177,7 +180,7 @@ func (c *client) ReplicasUp(ip string, sentinelPort string, leavingAddress strin
 			return 0, fmt.Errorf("sentinel described a replica as %T, expected a list of fields", replica)
 		}
 		fields := fieldsOf(described)
-		if leavingAddress != "" && fields["ip"] == leavingAddress {
+		if leaving.Names(fields["ip"]) {
 			continue
 		}
 		if isReachable(fields["flags"]) && isPromotable(fields["slave-priority"]) {
