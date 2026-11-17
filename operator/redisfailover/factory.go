@@ -106,8 +106,8 @@ func NewRedisFailoverRetriever(cfg Config, cli k8s.Services, watchNamespace stri
 	// check in the startup whether the regex compiles
 
 	return controller.MustRetrieverFromListerWatcher(&cache.ListWatch{
-		ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
-			rfList, err := cli.ListRedisFailovers(context.Background(), watchNamespace, options)
+		ListWithContextFunc: func(ctx context.Context, options metav1.ListOptions) (runtime.Object, error) {
+			rfList, err := cli.ListRedisFailovers(ctx, watchNamespace, options)
 			if err != nil {
 				return rfList, err
 			}
@@ -122,8 +122,8 @@ func NewRedisFailoverRetriever(cfg Config, cli k8s.Services, watchNamespace stri
 
 			return rfList, err
 		},
-		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-			watcher, err := cli.WatchRedisFailovers(context.Background(), watchNamespace, options)
+		WatchFuncWithContext: func(ctx context.Context, options metav1.ListOptions) (watch.Interface, error) {
+			watcher, err := cli.WatchRedisFailovers(ctx, watchNamespace, options)
 			watcher = watch.Filter(watcher, func(event watch.Event) (watch.Event, bool) {
 				rf, ok := event.Object.(*redisfailoverv1.RedisFailover)
 				if !ok {
