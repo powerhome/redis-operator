@@ -77,6 +77,17 @@ func GetSentinelHeadlessName(rf *redisfailoverv1.RedisFailover) string {
 	return generateName(sentinelHeadlessName, rf.Name)
 }
 
+// GetRedisPodHostname returns the name a Redis pod answers to in DNS.
+//
+// The service in it is the one the StatefulSet carries as its serviceName,
+// which Kubernetes holds immutable after creation, so this record cannot come
+// to name a pod of some other workload. Nothing outside this namespace and set
+// answers to it, and a pod that is gone resolves to nothing rather than to
+// whatever took its address.
+func GetRedisPodHostname(rf *redisfailoverv1.RedisFailover, podName string) string {
+	return fmt.Sprintf("%s.%s.%s.svc", podName, GetRedisName(rf), rf.Namespace)
+}
+
 func GetHaproxyMasterName(rf *redisfailoverv1.RedisFailover) string {
 	return generateName(redisHAProxyMasterRedisName, rf.Name)
 }

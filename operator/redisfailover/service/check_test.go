@@ -19,6 +19,7 @@ import (
 	mK8SService "github.com/spotahome/redis-operator/mocks/service/k8s"
 	mRedisService "github.com/spotahome/redis-operator/mocks/service/redis"
 	rfservice "github.com/spotahome/redis-operator/operator/redisfailover/service"
+	"github.com/spotahome/redis-operator/service/redis"
 )
 
 func generateRF() *redisfailoverv1.RedisFailover {
@@ -392,6 +393,80 @@ func TestCheckAllSlavesFromMaster(t *testing.T) {
 
 	err := checker.CheckAllSlavesFromMaster("1.1.1.1", rf)
 	assert.NoError(err)
+}
+
+func TestCheckAllSlavesFromMasterAcceptsTheMasterReportedByName(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+
+	pods := &corev1.PodList{
+		Items: []corev1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0"},
+				Status: corev1.PodStatus{
+					PodIP: "1.1.1.1",
+					Phase: corev1.PodRunning,
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-1"},
+				Status: corev1.PodStatus{
+					PodIP: "0.0.0.0",
+					Phase: corev1.PodRunning,
+				},
+			},
+		},
+	}
+
+	ms := &mK8SService.Services{}
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
+	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Return(nil)
+	mr := &mRedisService.Client{}
+	mr.On("GetSlaveOf", "1.1.1.1", "0", "").Once().Return("", nil)
+	mr.On("GetSlaveOf", "0.0.0.0", "0", "").Once().Return(rfservice.GetRedisPodHostname(rf, "rfr-test-0"), nil)
+
+	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+
+	err := checker.CheckAllSlavesFromMaster("1.1.1.1", rf)
+	assert.NoError(err)
+}
+
+func TestCheckAllSlavesFromMasterRejectsAnotherInstanceByName(t *testing.T) {
+	assert := assert.New(t)
+
+	rf := generateRF()
+
+	pods := &corev1.PodList{
+		Items: []corev1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-0"},
+				Status: corev1.PodStatus{
+					PodIP: "1.1.1.1",
+					Phase: corev1.PodRunning,
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "rfr-test-1"},
+				Status: corev1.PodStatus{
+					PodIP: "0.0.0.0",
+					Phase: corev1.PodRunning,
+				},
+			},
+		},
+	}
+
+	ms := &mK8SService.Services{}
+	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
+	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Return(nil)
+	mr := &mRedisService.Client{}
+	mr.On("GetSlaveOf", "1.1.1.1", "0", "").Once().Return("", nil)
+	mr.On("GetSlaveOf", "0.0.0.0", "0", "").Once().Return(rfservice.GetRedisPodHostname(rf, "rfr-other-0"), nil)
+
+	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
+
+	err := checker.CheckAllSlavesFromMaster("1.1.1.1", rf)
+	assert.Error(err)
 }
 
 func TestCheckSentinelNumberInMemoryGetSentinelPodsError(t *testing.T) {
@@ -1504,10 +1579,10 @@ func TestCheckSentinelsCanFailover(t *testing.T) {
 
 			mr := &mRedisService.Client{}
 			if test.askingFails {
-				mr.On("ReplicasUp", mock.Anything, "26379", "").Return(int32(0), errors.New("connection refused"))
+				mr.On("ReplicasUp", mock.Anything, "26379", redis.InstanceAddress{}).Return(int32(0), errors.New("connection refused"))
 			} else {
 				for ip, up := range test.replicasUp {
-					mr.On("ReplicasUp", ip, "26379", "").Return(up, nil)
+					mr.On("ReplicasUp", ip, "26379", redis.InstanceAddress{}).Return(up, nil)
 				}
 			}
 
@@ -1558,21 +1633,23 @@ func TestCheckSentinelsCanFailoverExcludesThePodBeingReplaced(t *testing.T) {
 	tests := []struct {
 		name        string
 		replacing   string
-		wantLeaving string
+		wantLeaving redis.InstanceAddress
 		up          int32
 		skipAsking  bool
 		errContains string
 	}{
 		{
-			name:        "resolves the pod to the address a sentinel holds",
+			// Sentinel reports the address until the pod announces a name for
+			// itself, so the departing pod is named both ways.
+			name:        "names the pod by address and by hostname",
 			replacing:   "rfr-test-1",
-			wantLeaving: "10.0.0.2",
+			wantLeaving: redis.InstanceAddress{IP: "10.0.0.2", Hostname: "rfr-test-1.rfr-test.testns.svc"},
 			up:          1,
 		},
 		{
 			name:        "names the pod when its departure leaves nothing",
 			replacing:   "rfr-test-1",
-			wantLeaving: "10.0.0.2",
+			wantLeaving: redis.InstanceAddress{IP: "10.0.0.2", Hostname: "rfr-test-1.rfr-test.testns.svc"},
 			up:          0,
 			errContains: "once rfr-test-1 is gone",
 		},

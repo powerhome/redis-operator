@@ -110,6 +110,20 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 		return err
 	}
 
+	// A replica answers with the address it was told to replicate from, which is
+	// the master's name once the master announces one. Holding both forms
+	// recognizes that answer either way. A master address the set does not list
+	// leaves the name empty, and the comparison reads the address alone.
+	masterAddress := redis.InstanceAddress{IP: master}
+	for _, rp := range rps.Items {
+		// A pod with no address of its own is nobody's master, whatever the
+		// caller passed as one.
+		if rp.Status.PodIP != "" && rp.Status.PodIP == master {
+			masterAddress.Hostname = GetRedisPodHostname(rf, rp.Name)
+			break
+		}
+	}
+
 	rport := rf.Spec.Redis.Port.ToString()
 	for _, rp := range rps.Items {
 		if rp.Status.PodIP == master {
@@ -129,7 +143,7 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 			r.logger.Errorf("Get slave of master failed, maybe this node is not ready, pod ip: %s", rp.Status.PodIP)
 			return err
 		}
-		if slave != "" && slave != master {
+		if slave != "" && !masterAddress.Names(slave) {
 			return fmt.Errorf("slave %s don't have the master %s, has %s", rp.Status.PodIP, master, slave)
 		}
 	}
@@ -239,7 +253,7 @@ func (r *RedisFailoverChecker) CheckSentinelQuorum(rFailover *redisfailoverv1.Re
 // The pod the caller is about to delete does not count, because a replica cannot
 // take over for a master once it is itself gone.
 func (r *RedisFailoverChecker) CheckSentinelsCanFailover(rf *redisfailoverv1.RedisFailover, podBeingReplaced string) error {
-	leavingAddress, err := r.redisAddressOf(rf, podBeingReplaced)
+	leaving, err := r.redisInstanceAddressOf(rf, podBeingReplaced)
 	if err != nil {
 		return err
 	}
@@ -254,7 +268,7 @@ func (r *RedisFailoverChecker) CheckSentinelsCanFailover(rf *redisfailoverv1.Red
 
 	port := rf.Spec.Sentinel.Port.ToString()
 	for _, sip := range sentinels {
-		up, err := r.redisClient.ReplicasUp(sip, port, leavingAddress)
+		up, err := r.redisClient.ReplicasUp(sip, port, leaving)
 		if err != nil {
 			return fmt.Errorf("asking sentinel %s what it could promote: %w", sip, err)
 		}
@@ -268,18 +282,25 @@ func (r *RedisFailoverChecker) CheckSentinelsCanFailover(rf *redisfailoverv1.Red
 	return nil
 }
 
-func (r *RedisFailoverChecker) redisAddressOf(rf *redisfailoverv1.RedisFailover, podName string) (string, error) {
+// redisInstanceAddressOf names the given Redis pod in both of the forms
+// Sentinel can report it under, so that a Sentinel holding either one
+// recognizes the pod. Sentinel reports the address until the pod announces a
+// name for itself, and the name from then on.
+func (r *RedisFailoverChecker) redisInstanceAddressOf(rf *redisfailoverv1.RedisFailover, podName string) (redis.InstanceAddress, error) {
 	if podName == "" {
-		return "", nil
+		return redis.InstanceAddress{}, nil
 	}
 
 	pods, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
 	if err != nil {
-		return "", err
+		return redis.InstanceAddress{}, err
 	}
 	for _, pod := range pods.Items {
 		if pod.Name == podName && pod.Status.PodIP != "" {
-			return pod.Status.PodIP, nil
+			return redis.InstanceAddress{
+				IP:       pod.Status.PodIP,
+				Hostname: GetRedisPodHostname(rf, podName),
+			}, nil
 		}
 	}
 	// Refusing, rather than excluding nothing. An address this cannot produce is
@@ -287,7 +308,7 @@ func (r *RedisFailoverChecker) redisAddressOf(rf *redisfailoverv1.RedisFailover,
 	// replica is the fault this check exists to prevent. Both callers name a pod
 	// the set reported as running, so there is no ordinary route here, and a
 	// silent return would leave the check reading as though it worked.
-	return "", fmt.Errorf("no address for redis pod %s", podName)
+	return redis.InstanceAddress{}, fmt.Errorf("no address for redis pod %s", podName)
 }
 
 // CheckSentinelSlavesNumberInMemory controls that the provided sentinel has only the expected slaves number.

@@ -49,3 +49,14 @@ func TestEveryGeneratedNameFitsADNSLabel(t *testing.T) {
 		assert.LessOrEqual(t, len(built), dns1035LabelMax, "%s name %q", name, built)
 	}
 }
+
+// The record a Redis pod answers to is built from the StatefulSet's own name,
+// which is what it carries as its serviceName, so the name resolves to this
+// pod of this set in this namespace and to nothing else.
+func TestARedisPodIsNamedWithinItsSetAndNamespace(t *testing.T) {
+	rf := &redisfailoverv1.RedisFailover{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "testns"},
+	}
+
+	assert.Equal(t, "rfr-test-0.rfr-test.testns.svc", GetRedisPodHostname(rf, "rfr-test-0"))
+}

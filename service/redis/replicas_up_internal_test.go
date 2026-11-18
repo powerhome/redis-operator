@@ -51,7 +51,7 @@ func TestReplicasUpCountsOnlyReachableReplicas(t *testing.T) {
 				return describeReplicas(test.flags)
 			})
 
-			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, "")
+			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, InstanceAddress{})
 
 			require.NoError(t, err)
 			assert.Equal(t, test.expected, up)
@@ -64,7 +64,7 @@ func TestReplicasUpAsksSentinelForTheMastersReplicas(t *testing.T) {
 		return describeReplicas([]string{"slave"})
 	})
 
-	_, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, "")
+	_, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, InstanceAddress{})
 
 	require.NoError(t, err)
 	asked := sentinel.asked()
@@ -78,7 +78,7 @@ func TestReplicasUpRejectsAReplicaItCannotRead(t *testing.T) {
 		return "*1\r\n$8\r\nmymaster\r\n"
 	})
 
-	_, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, "")
+	_, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, InstanceAddress{})
 
 	assert.ErrorContains(t, err, "expected a list of fields")
 }
@@ -146,7 +146,7 @@ func TestReplicasUpSkipsAReplicaSentinelWouldNotPromote(t *testing.T) {
 				return describeReplicasWithPriority(test.flags, test.priorities)
 			})
 
-			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, "")
+			up, err := New(metrics.Dummy).ReplicasUp(sentinel.host, sentinel.port, InstanceAddress{})
 
 			require.NoError(t, err)
 			assert.Equal(t, test.expected, up)
@@ -166,17 +166,33 @@ func describeReplicasAt(ips []string) string {
 // Asking whether a failover could happen once a pod is gone means asking about
 // the replicas that will still be there. A replica on its way out cannot take
 // over for a master, so it does not count towards what a Sentinel could promote.
+//
+// Sentinel repeats whatever an instance announced for itself, so the pod on its
+// way out is the one Sentinel reports at its address or at its name. Recognizing
+// only one of the two counts the departing replica, which is the fault this
+// exclusion exists to prevent, and it counts it without saying so.
 func TestReplicasUpSkipsTheReplicaThatIsLeaving(t *testing.T) {
+	const (
+		leavingIP       = "10.0.0.2"
+		leavingHostname = "rfr-test-1.rfr-test.testns.svc"
+		stayingHostname = "rfr-test-0.rfr-test.testns.svc"
+	)
+	leavingPod := InstanceAddress{IP: leavingIP, Hostname: leavingHostname}
+
 	tests := []struct {
 		name     string
 		ips      []string
-		leaving  string
+		leaving  InstanceAddress
 		expected int32
 	}{
-		{name: "nothing is leaving", ips: []string{"10.0.0.1", "10.0.0.2"}, leaving: "", expected: 2},
-		{name: "one of two is leaving", ips: []string{"10.0.0.1", "10.0.0.2"}, leaving: "10.0.0.1", expected: 1},
-		{name: "the only replica is leaving", ips: []string{"10.0.0.1"}, leaving: "10.0.0.1", expected: 0},
-		{name: "an address no replica holds", ips: []string{"10.0.0.1"}, leaving: "10.0.0.9", expected: 1},
+		{name: "nothing is leaving", ips: []string{"10.0.0.1", leavingIP}, leaving: InstanceAddress{}, expected: 2},
+		{name: "one of two is leaving", ips: []string{"10.0.0.1", leavingIP}, leaving: leavingPod, expected: 1},
+		{name: "the only replica is leaving", ips: []string{leavingIP}, leaving: leavingPod, expected: 0},
+		{name: "an address no replica holds", ips: []string{"10.0.0.1"}, leaving: InstanceAddress{IP: "10.0.0.9"}, expected: 1},
+		{name: "reported by name", ips: []string{stayingHostname, leavingHostname}, leaving: leavingPod, expected: 1},
+		{name: "the only replica, reported by name", ips: []string{leavingHostname}, leaving: leavingPod, expected: 0},
+		{name: "one announced a name and the other has not", ips: []string{stayingHostname, leavingIP}, leaving: leavingPod, expected: 1},
+		{name: "a name no replica holds", ips: []string{stayingHostname}, leaving: leavingPod, expected: 1},
 	}
 
 	for _, test := range tests {
