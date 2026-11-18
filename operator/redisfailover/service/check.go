@@ -110,6 +110,20 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 		return err
 	}
 
+	// A replica answers with the address it was told to replicate from, which is
+	// the master's name once the master announces one. Holding both forms
+	// recognizes that answer either way. A master address the set does not list
+	// leaves the name empty, and the comparison reads the address alone.
+	masterAddress := redis.InstanceAddress{IP: master}
+	for _, rp := range rps.Items {
+		// A pod with no address of its own is nobody's master, whatever the
+		// caller passed as one.
+		if rp.Status.PodIP != "" && rp.Status.PodIP == master {
+			masterAddress.Hostname = GetRedisPodHostname(rf, rp.Name)
+			break
+		}
+	}
+
 	rport := rf.Spec.Redis.Port.ToString()
 	for _, rp := range rps.Items {
 		if rp.Status.PodIP == master {
@@ -129,7 +143,7 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 			r.logger.Errorf("Get slave of master failed, maybe this node is not ready, pod ip: %s", rp.Status.PodIP)
 			return err
 		}
-		if slave != "" && slave != master {
+		if slave != "" && !masterAddress.Names(slave) {
 			return fmt.Errorf("slave %s don't have the master %s, has %s", rp.Status.PodIP, master, slave)
 		}
 	}
