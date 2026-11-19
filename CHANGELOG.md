@@ -116,6 +116,7 @@ definition replaces no pod.
 
 ### Changed
 
+- [Build with Go 1.27.4](https://github.com/powerhome/redis-operator/pull/176). The builder image moves from Go 1.27.3 and stays pinned by digest. This carries the toolchain fixes Go published since v5.2.0. The operator itself behaves the same.
 - [Test against Kubernetes 1.35, 1.36 and 1.37](https://github.com/powerhome/redis-operator/pull/184). The integration matrix is what this project supports, so 1.34 leaves it and 1.37 arrives. The operator compiles against `k8s.io/client-go` v0.37.2, which supports one minor either side of its own, and 1.34 sits outside that. The operator refuses no cluster on 1.34, and nothing in it changes for one. CI no longer tests that release. kind v0.33.0 publishes a node image for each of the three, so `make test-integration` still runs what CI runs.
 
 ### Security
