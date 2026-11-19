@@ -42,21 +42,26 @@ replica it could promote.
 What a client sees while the master moves depends on how it reaches Redis.
 
 A client that connects through HAProxy, the `rfrm-haproxy-<name>` Service, sees
-no interruption. HAProxy picks the master by asking each Redis for
-`role:master`, so it finds the new one without asking Sentinel. HAProxy carried
-4534 writes across two measured rolls, and refused or stalled none of them.
+no error, and still loses writes. HAProxy picks the master by asking each Redis
+for `role:master`, so it finds the new one within a second or two without
+asking Sentinel. Across 4534 writes in two measured rolls it refused none and
+delayed none, and discarded 10 and 43 acknowledged writes. Replication is
+asynchronous, and the gate that holds the master asks whether a Sentinel has a
+promotable replica. It does not ask whether that replica holds every write the
+master took.
 
-A client that connects to the master Service, `rfrm-<name>`, sees writes refused
-and then one long stall. That Service selects the pod carrying the
-`redisfailovers-role: master` label. The operator writes that label on a
-reconcile, so the label trails the promotion Sentinel carried out. While it
-trails, the Service points at a pod that is already a replica, which answers
-`-READONLY`, or at no pod at all. Each of two measured rolls refused about 90
-writes across 19 seconds, and then refused connections for 27 and 58 seconds.
-Give such a client a connect timeout and a retry.
+A client that connects to the master Service, `rfrm-<name>`, loses writes too,
+and sees refusals and a long stall on top. That Service selects the pod
+carrying the `redisfailovers-role: master` label. The operator writes that
+label on a reconcile, so the label trails the promotion Sentinel carried out.
+While it trails, the Service points at a pod that is already a replica, which
+answers `-READONLY`, or at no pod at all. Each of two measured rolls refused
+about 90 writes across 19 seconds, then refused connections for 27 and 58
+seconds, and lost 54 acknowledged writes. Give such a client a connect timeout
+and a retry.
 
-A client that cannot tolerate a refused write, or a stall of that length,
-should stop writing until the roll finishes.
+A client that cannot lose an acknowledged write should stop writing until the
+roll finishes, whichever path it uses.
 
 A `RedisFailover` with `spec.redis.replicas: 1` has no replica to promote, so
 its only Redis restarts. Data that pod holds in an `emptyDir` leaves with it.
@@ -73,15 +78,15 @@ annotations. Its endpoints report a Redis that is loading its dataset, or one
 that is terminating, as ready. A scrape configuration selecting on that
 condition will scrape those pods.
 
-The CustomResourceDefinition this release ships accepts 155 fields it did not
-accept before. They come from the Kubernetes API types the operator compiles
+The CustomResourceDefinition this release ships accepts 155 properties it did
+not accept before. They come from the Kubernetes API types the operator compiles
 against. The committed schema predated them: `fileKeyRef` on an environment
 variable, `restartPolicyRules` on a container, `podCertificate` on a projected
 volume, and `protocol` and `mode` on a probe, among others. Every one of them
 is optional, and each appears inside `spec.redis` and `spec.sentinel` wherever
 that schema already embedded a pod, a container or a volume.
 
-The regeneration removes no field and changes no field's type, so a
+The regeneration removes no property and changes no property's type, so a
 `RedisFailover` the earlier schema accepted is still accepted. Applying the new
 definition replaces no pod.
 
@@ -303,7 +308,7 @@ Raising the storage on a `RedisFailover` no longer stops every Redis in it at th
 
 That restart is a Sentinel failover, and clients lose writes while it happens, whichever path they take. Through the `rfrm-` master service we measured about a minute at the default three replicas. That service follows a new master only once the operator relabels the pod, which it does on a 30 second loop.
 
-An earlier version of this note said clients reaching Redis through HAProxy lost none. That is wrong. Four measured rolls lost between 10 and 44 acknowledged writes each, and HAProxy returns no error for any of them. It reports the write as accepted, and the promotion discards it. A client that cannot lose an acknowledged write should stop writing until the roll finishes.
+An earlier version of this note said clients reaching Redis through HAProxy lost none. That is wrong. Across four measured rolls the HAProxy path lost between 10 and 44 acknowledged writes each time, and returned no error for any of them. It reports the write as accepted, and the promotion discards it. A client that cannot lose an acknowledged write should stop writing until the roll finishes.
 
 The kustomize manifests and the plain deployment examples install `ghcr.io/powerhome/redis-operator:v4.7.0`. At `v4.6.0` they named the upstream project's image, so anyone who installed from them has been running a different operator.
 
