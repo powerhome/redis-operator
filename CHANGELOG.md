@@ -72,7 +72,25 @@ annotations. Its endpoints report a Redis that is loading its dataset, or one
 that is terminating, as ready. A scrape configuration selecting on that
 condition will scrape those pods.
 
+The CustomResourceDefinition this release ships accepts 155 fields it did not
+accept before. They come from the Kubernetes API types the operator compiles
+against. The committed schema predated them: `fileKeyRef` on an environment
+variable, `restartPolicyRules` on a container, `podCertificate` on a projected
+volume, and `protocol` and `mode` on a probe, among others. Every one of them
+is optional, and each appears inside `spec.redis` and `spec.sentinel` wherever
+that schema already embedded a pod, a container or a volume.
+
+The regeneration removes no field and changes no field's type, so a
+`RedisFailover` the earlier schema accepted is still accepted. Applying the new
+definition replaces no pod.
+
 ### Added
+
+- Accept every field the Kubernetes API types carry. The
+  `CustomResourceDefinition` is generated from those types, and the committed
+  copy had fallen 155 properties behind them. Regenerating it adds those
+  fields and removes none. See
+  [CIR-016](docs/cir/CIR-016-generate-kubernetes-code-against-the-pinned-toolchain.md).
 
 - Give every Redis pod a name in DNS. The Service the Redis StatefulSet names,
   `rfr-<name>`, exists for every `RedisFailover` rather than only for one that
