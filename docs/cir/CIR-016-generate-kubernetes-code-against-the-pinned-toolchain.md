@@ -67,9 +67,10 @@ recorded for mockery, reaching a second generator.
   1.27.4, so an older toolchain refuses the module before any generator starts:
   `go.mod requires go >= 1.27.4 (running go 1.26.0)`. The only toolchain the
   module accepts is the one the old generators cannot read.
-- **Nothing in CI runs either generator.** `Chart CRD drift` compares the three
+- **Nothing in CI ran either generator.** `Chart CRD drift` compared the three
   committed copies of the CRD to each other, not to a regeneration. A CRD stale
-  against the Go types therefore passes every check.
+  against the Go types therefore passed every check. That is how the drift below
+  reached 155 properties without anyone noticing.
 
 ## Decisions
 
@@ -109,11 +110,14 @@ recorded for mockery, reaching a second generator.
   decides, the way they decide the kind release and the Kubernetes libraries.
   The three group apart from those decisions, because a branch waits for
   approval when any update in it does.
-- **No CI job regenerates either one.** That job is the guard this fault argues
-  for, as it did for the mocks. It is the obvious follow-up: a
-  regenerate-and-diff job in the shape of `Chart CRD drift`. It needs a runner
-  to build the development image, which nothing does today. Until it exists,
-  the Renovate grouping and this record are what carry the constraint.
+- **A CI job regenerates all of it, and fails on a diff.** `Generated code
+  drift` runs `make generate` and compares the result with the commit. It is
+  the guard this fault argues for, and the one CIR-015 left pending for the
+  mocks. It replaces `Chart CRD drift`, which compared the committed copies of
+  the CRD to each other and therefore passed while all three were stale
+  together. Measured at under two minutes, of which 43 seconds builds the
+  development image from cold. That image is what nothing in CI built before,
+  which is the objection this answers.
 
 ## Date
 

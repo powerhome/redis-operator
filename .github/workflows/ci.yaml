@@ -137,38 +137,33 @@ jobs:
       - name: Helm test
         run: make test-helm
 
-  # `make generate-crd` writes the same CRD into manifests/, its kustomize base,
-  # and the chart from a single source, so those three committed copies must be
-  # byte-for-byte identical. This gate fails when the chart's bundled CRD (or
-  # the kustomize base) has drifted from manifests/, which is the drift that can
-  # actually merge here. When it fails, run `make generate-crd` and commit all
-  # three.
+  # Every generated artifact in the tree is regenerated here and compared with
+  # what the commit carries. That covers the mocks, the Kubernetes client, and
+  # the CRD in manifests/, its kustomize base and the chart, which `make
+  # generate-crd` writes from one source.
   #
-  # It compares the committed files rather than regenerating in CI on purpose.
-  # `make generate-crd` does run now -- the Makefile passes GOTOOLCHAIN=auto so
-  # the pinned codegen image (which ships an older Go than go.mod requires)
-  # fetches the toolchain go.mod names -- but that regeneration is only run
-  # locally today and downloads a toolchain at container start, which is not yet
-  # wired up or validated on a runner. Until it is, this cheap committed-copy
-  # diff is the gate; switching it to regenerate-and-diff is a follow-up.
-  chart-crd-drift:
-    name: Chart CRD drift
+  # Two faults reach master without it. A contributor changes an interface or
+  # an API type and does not regenerate, and a generator version moves and
+  # quietly writes something different. Neither one fails any other job: the
+  # operator compiles against a stale client, and the chart ships a CRD that
+  # no longer matches the types it was generated from.
+  #
+  # The generators run inside the development image, which is built from the
+  # toolchain go.mod names and carries each generator pinned by the Makefile.
+  # See docs/cir/CIR-016-generate-kubernetes-code-against-the-pinned-toolchain.md.
+  generated-code-drift:
+    name: Generated code drift
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Chart and kustomize CRDs must match manifests/
+      - name: Regenerate everything the repository generates
+        run: make generate
+      - name: The tree must match what the generators write
         run: |
-          gen=manifests/databases.spotahome.com_redisfailovers.yaml
-          rc=0
-          for copy in \
-            manifests/kustomize/base/databases.spotahome.com_redisfailovers.yaml \
-            charts/redisoperator/crds/databases.spotahome.com_redisfailovers.yaml; do
-            if ! diff -u "${gen}" "${copy}"; then
-              echo "::error::${copy} has drifted from ${gen}. Run 'make generate-crd' and commit the result."
-              rc=1
-            fi
-          done
-          exit "${rc}"
+          if ! git diff --exit-code; then
+            echo "::error::Generated files differ from what the generators write. Run 'make generate' and commit the result."
+            exit 1
+          fi
 
   # The chart ships the operator, so its appVersion and default image tag must
   # name the operator VERSION. These fields live in source (set in the
@@ -348,13 +343,14 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     # Every chart gate must pass before we publish: the image must exist
     # (dockerhub-image), the chart must lint (chart-test), its CRD must be in
-    # sync (chart-crd-drift), and its versions must match VERSION
+    # sync and regenerate identically (generated-code-drift), and its versions
+    # must match VERSION
     # (chart-version-check). Omitting any of these lets a failed gate publish an
     # invalid or drifted chart, since a job only blocks when it is in `needs`.
     needs:
       - dockerhub-image
       - chart-test
-      - chart-crd-drift
+      - generated-code-drift
       - chart-version-check
     # Serialize with helm.yml's publish-oci job (same group, repo-wide) so an
     # operator-tag publish and a chart-tag / manual publish cannot race: the
