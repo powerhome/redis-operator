@@ -49,6 +49,12 @@
       "minimumReleaseAge": null,
       "groupName": "go toolchain"
     },
+{
+  "description": "The Kubernetes code generators read what the Go toolchain compiles, so a generator compiled by an older Go cannot type check what this toolchain compiles. Go 1.27 added methods with type parameters and its standard library uses one, which a generator built by Go 1.26 rejects outright. The three join the toolchain group for the reason golangci-lint and mockery do, and take no release-age delay for the same reason. The development image compiles all three, so they travel with the builder image in that group rather than against it. Nothing in CI runs them, so this pairing is what keeps them together. See CIR-016.",
+  "matchDepNames": ["slok/kube-code-generator", "kubernetes/code-generator", "kubernetes-sigs/controller-tools"],
+  "minimumReleaseAge": null,
+  "groupName": "go toolchain"
+},
     {
       "description": "The Kubernetes libraries take the patches of the minor they serve. A patch within that minor carries fixes and changes no API, which is why it arrives unattended. Renovate buckets a minor and a patch together and resolves the bucket to its highest release, so without this a reachable minor hides every patch behind it. This rule names no update type, which is what lets it apply before the lookup that does the bucketing.",
       "matchManagers": ["gomod"],
