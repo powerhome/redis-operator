@@ -478,12 +478,25 @@ func generateRedisService(rf *redisfailoverv1.RedisFailover, labels map[string]s
 
 	selectorLabels := generateSelectorLabels(redisRoleName, rf.Name)
 	labels = util.MergeLabels(labels, selectorLabels)
-	defaultAnnotations := map[string]string{
-		"prometheus.io/scrape": "true",
-		"prometheus.io/port":   "http",
-		"prometheus.io/path":   "/metrics",
+
+	// The exporter contributes a port and the annotations that get it scraped.
+	// Everything else here serves the names, which the service publishes
+	// whether or not anything is listening on a port of its own.
+	annotations := rf.Spec.Redis.ServiceAnnotations
+	var ports []corev1.ServicePort
+	if rf.Spec.Redis.Exporter.Enabled {
+		defaultAnnotations := map[string]string{
+			"prometheus.io/scrape": "true",
+			"prometheus.io/port":   "http",
+			"prometheus.io/path":   "/metrics",
+		}
+		annotations = util.MergeLabels(defaultAnnotations, rf.Spec.Redis.ServiceAnnotations)
+		ports = append(ports, corev1.ServicePort{
+			Port:     exporterPort,
+			Protocol: corev1.ProtocolTCP,
+			Name:     exporterPortName,
+		})
 	}
-	annotations := util.MergeLabels(defaultAnnotations, rf.Spec.Redis.ServiceAnnotations)
 
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -496,14 +509,12 @@ func generateRedisService(rf *redisfailoverv1.RedisFailover, labels map[string]s
 		Spec: corev1.ServiceSpec{
 			Type:      corev1.ServiceTypeClusterIP,
 			ClusterIP: corev1.ClusterIPNone,
-			Ports: []corev1.ServicePort{
-				{
-					Port:     exporterPort,
-					Protocol: corev1.ProtocolTCP,
-					Name:     exporterPortName,
-				},
-			},
-			Selector: selectorLabels,
+			// Without this a pod has no record until it is ready, and a Redis
+			// reading its dataset from disk is not ready for as long as that
+			// takes. Reaching it by name matters most while it is in that state.
+			PublishNotReadyAddresses: true,
+			Ports:                    ports,
+			Selector:                 selectorLabels,
 		},
 	}
 }
