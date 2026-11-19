@@ -80,8 +80,9 @@ recorded for mockery, reaching a second generator.
   published image is amd64 only, which is why both targets named a platform.
 - **The three keep the versions the published image carried.** The wrapper at
   0.6.0, `code-generator` at 1.32.3 and controller-gen at 0.17.2 are what the
-  image held. The only thing this change varies is the Go that compiles them. `make generate-client` then reproduces the committed `client/k8s` byte
-  for byte, which is the evidence that nothing but the toolchain moved. A newer
+  image held. The only thing this change varies is the Go that compiles them.
+  `make generate-client` then reproduces the committed `client/k8s` byte for
+  byte, which is the evidence that nothing but the toolchain moved. A newer
   generator is a separate question, with its own diff to read.
 - **The image installs controller-gen at a version rather than building it from
   a source tarball.** The published image built it with `go build`, which leaves no
@@ -101,14 +102,13 @@ recorded for mockery, reaching a second generator.
   carrying its own `golang.org/x/tools`. A newer Go therefore needs a newer
   release of them. The development image compiles these three with the
   toolchain `go.mod` names, so a newer Go needs no newer release of them at
-  all. What a move does
-  change is what they write. `code-generator` tracks a Kubernetes minor and
-  writes `client/k8s`, and controller-tools writes the CRD the chart ships.
-  Nothing regenerates either one in CI, so a bad bump merges quietly and
-  surfaces when somebody next runs `make generate`. A person decides, the way
-  they decide the kind release and the Kubernetes libraries. The three group
-  apart from those decisions, because a branch waits for approval when any
-  update in it does.
+  all. What a move does change is what they write. `code-generator` tracks a
+  Kubernetes minor and writes `client/k8s`, and controller-tools writes the CRD
+  the chart ships. Nothing regenerates either one in CI, so a bad bump merges
+  quietly and surfaces when somebody next runs `make generate`. A person
+  decides, the way they decide the kind release and the Kubernetes libraries.
+  The three group apart from those decisions, because a branch waits for
+  approval when any update in it does.
 - **No CI job regenerates either one.** That job is the guard this fault argues
   for, as it did for the mocks. It is the obvious follow-up: a
   regenerate-and-diff job in the shape of `Chart CRD drift`. It needs a runner
