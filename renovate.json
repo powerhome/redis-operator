@@ -50,10 +50,10 @@
       "groupName": "go toolchain"
     },
 {
-  "description": "The Kubernetes code generators read what the Go toolchain compiles, so a generator compiled by an older Go cannot type check what this toolchain compiles. Go 1.27 added methods with type parameters and its standard library uses one, which a generator built by Go 1.26 rejects outright. The three join the toolchain group for the reason golangci-lint and mockery do, and take no release-age delay for the same reason. The development image compiles all three, so they travel with the builder image in that group rather than against it. Nothing in CI runs them, so this pairing is what keeps them together. See CIR-016.",
+  "description": "The Kubernetes code generators move on a person's say-so. The development image compiles all three with the toolchain go.mod names, so a newer Go needs no newer release of them, and none of the three has to travel with the toolchain group. What a move does change is what they write: code-generator tracks a Kubernetes minor and writes client/k8s, and controller-tools writes the CRD the chart ships. No job regenerates either one, so a bad bump merges quietly and surfaces when somebody next runs make generate. The move waits on the dependency dashboard rather than being dropped, so the decision arrives with the release, and it takes the shared release-age delay. The three group apart from every other decision, because a branch waits for approval when any update in it does. See CIR-016.",
   "matchDepNames": ["slok/kube-code-generator", "kubernetes/code-generator", "kubernetes-sigs/controller-tools"],
-  "minimumReleaseAge": null,
-  "groupName": "go toolchain"
+  "dependencyDashboardApproval": true,
+  "groupName": "kubernetes code generators"
 },
     {
       "description": "The Kubernetes libraries take the patches of the minor they serve. A patch within that minor carries fixes and changes no API, which is why it arrives unattended. Renovate buckets a minor and a patch together and resolves the bucket to its highest release, so without this a reachable minor hides every patch behind it. This rule names no update type, which is what lets it apply before the lookup that does the bucketing.",

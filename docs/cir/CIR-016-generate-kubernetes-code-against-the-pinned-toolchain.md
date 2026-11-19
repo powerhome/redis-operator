@@ -55,7 +55,7 @@ recorded for mockery, reaching a second generator.
   mockery each live there with a `# renovate:` comment above them, read by
   `customManagers:makefileVersions`.
   [CIR-013](CIR-013-run-the-same-tests-locally-and-in-ci.md) is why.
-- **The wrapper needs the generators as source, not as binaries.** Its
+- **The wrapper needs the generators as source, not as binaries.**
   It requires a `--codegen-path`, and runs what it finds there, compiling as it
   goes. So the image carries a `code-generator` tree and the Go that compiles
   it.
@@ -96,10 +96,19 @@ recorded for mockery, reaching a second generator.
   up to date changes what a cluster accepts and deserves a review of its own.
   Carrying it here would give one pull request two jobs: unbreak generation,
   and change the published API surface.
-- **The three join the `go toolchain` Renovate group.** mockery and
-  golangci-lint are in that group because they read what the toolchain
-  compiles, and these read it the same way. The grouping is also what keeps the
-  generators moving with the builder image rather than against it.
+- **The three wait on the dependency dashboard, and group apart.** mockery and
+  golangci-lint travel with the toolchain because each ships as a binary
+  carrying its own `golang.org/x/tools`. A newer Go therefore needs a newer
+  release of them. The development image compiles these three with the
+  toolchain `go.mod` names, so a newer Go needs no newer release of them at
+  all. What a move does
+  change is what they write. `code-generator` tracks a Kubernetes minor and
+  writes `client/k8s`, and controller-tools writes the CRD the chart ships.
+  Nothing regenerates either one in CI, so a bad bump merges quietly and
+  surfaces when somebody next runs `make generate`. A person decides, the way
+  they decide the kind release and the Kubernetes libraries. The three group
+  apart from those decisions, because a branch waits for approval when any
+  update in it does.
 - **No CI job regenerates either one.** That job is the guard this fault argues
   for, as it did for the mocks. It is the obvious follow-up: a
   regenerate-and-diff job in the shape of `Chart CRD drift`. It needs a runner

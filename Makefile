@@ -45,9 +45,11 @@ ACTIONLINT_VERSION := 1.7.12
 MOCKERY_VERSION := 2.53.8
 
 # The Kubernetes code generators. The wrapper drives them, code-generator
-# supplies them, and controller-gen writes the CRD. All three read what the
-# toolchain compiles, so they travel with it the way mockery and golangci-lint
-# do, and Renovate finds each through the comment above it.
+# supplies them, and controller-gen writes the CRD. The development image
+# compiles all three with the toolchain go.mod names, so a newer Go needs no
+# newer release of them. A newer release of them does change what they write,
+# and no job regenerates that, so each waits on the dependency dashboard.
+# Renovate finds each through the comment above it.
 #
 # The wrapper runs the generators out of a checkout of code-generator rather
 # than out of binaries, compiling them at the version named here. That is why
