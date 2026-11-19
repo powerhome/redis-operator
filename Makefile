@@ -22,18 +22,6 @@ ifneq ($(shell git status --porcelain),)
 endif
 
 PROJECT_PACKAGE := github.com/spotahome/redis-operator
-# Two things this image needs told to it.
-#
-# It is published for linux/amd64 only, so the platform is named rather than
-# left to Docker, which has no arm64 entry to fall back from and refuses to
-# start. Naming it costs nothing where the host is already amd64.
-#
-# It also carries a Go older than the one go.mod asks for, and pins
-# GOTOOLCHAIN to local so it will not fetch one. No published tag of it ships a
-# Go new enough. Letting it fetch the toolchain go.mod names is what makes the
-# generators run at all.
-CODEGEN_IMAGE := ghcr.io/slok/kube-code-generator:v0.6.0
-CODEGEN_PLATFORM := linux/amd64
 PORT := 9710
 
 # The only pin of golangci-lint. The lint job in CI reads it from here, so CI
@@ -55,6 +43,29 @@ ACTIONLINT_VERSION := 1.7.12
 # extractVersion takes the v off. See CIR-015.
 # renovate: datasource=github-releases depName=vektra/mockery extractVersion=^v(?<version>.+)$
 MOCKERY_VERSION := 2.53.8
+
+# The Kubernetes code generators. The wrapper drives them, code-generator
+# supplies them, and controller-gen writes the CRD. The development image
+# compiles all three with the toolchain go.mod names, so a newer Go needs no
+# newer release of them. A newer release of them does change what they write,
+# and no job regenerates that, so each waits on the dependency dashboard.
+# Renovate finds each through the comment above it.
+#
+# The wrapper runs the generators out of a checkout of code-generator rather
+# than out of binaries, compiling them at the version named here. That is why
+# the development image carries the source tree and not a published generator
+# image: a generator compiled by an older Go cannot type check what this
+# toolchain compiles, and no published image ships a Go new enough. See
+# CIR-016.
+#
+# code-generator tags its releases kubernetes-${version}, so extractVersion
+# takes the prefix off. The other two tag theirs v${version}.
+# renovate: datasource=github-releases depName=slok/kube-code-generator extractVersion=^v(?<version>.+)$
+KUBE_CODE_GENERATOR_VERSION := 0.6.0
+# renovate: datasource=github-tags depName=kubernetes/code-generator extractVersion=^kubernetes-(?<version>.+)$
+CODEGEN_VERSION := 1.32.3
+# renovate: datasource=github-releases depName=kubernetes-sigs/controller-tools extractVersion=^v(?<version>.+)$
+CONTROLLER_GEN_VERSION := 0.17.2
 
 # The chart tests name the helm they run rather than taking whichever one a
 # machine happens to have. `helm lint` and `helm template` change what they
@@ -132,6 +143,9 @@ image-dev-tools: ensure-docker
 	docker buildx bake \
 	  --set dev.args.uid=$(UID) \
 	  --set dev.args.MOCKERY_VERSION=$(MOCKERY_VERSION) \
+	  --set dev.args.KUBE_CODE_GENERATOR_VERSION=$(KUBE_CODE_GENERATOR_VERSION) \
+	  --set dev.args.CODEGEN_VERSION=$(CODEGEN_VERSION) \
+	  --set dev.args.CONTROLLER_GEN_VERSION=$(CONTROLLER_GEN_VERSION) \
 	  --set dev.tags="$(IMAGE_NAME)-dev:latest" \
 	  dev
 
@@ -182,16 +196,15 @@ test: test-unit test-helm test-integration
 
 # Generate kubernetes client
 .PHONY: generate-client
-generate-client:
+generate-client: image-dev-tools
 	@echo ">> Generating code for Kubernetes CRD types..."
 	docker run --rm \
-		--platform $(CODEGEN_PLATFORM) \
-		-e GOTOOLCHAIN=auto \
-		-v $(PWD):$(WORKDIR) \
-		-w $(WORKDIR) \
-		$(CODEGEN_IMAGE) \
-		--apis-in ./api \
-		--go-gen-out ./client/k8s
+	  -v $(PWD):$(WORKDIR) \
+	  -u $(UID):$(UID) \
+	  $(REPOSITORY)-dev \
+	  kube-code-generator \
+	    --apis-in ./api \
+	    --go-gen-out ./client/k8s
 
 # Make every version marker agree with VERSION above, after editing it.
 #
@@ -205,15 +218,14 @@ prepare-release:
 
 # Generate kubernetes Custom Resource Definitions
 .PHONY: generate-crd
-generate-crd:
+generate-crd: image-dev-tools
 	docker run --rm \
-		--platform $(CODEGEN_PLATFORM) \
-		-e GOTOOLCHAIN=auto \
-		-v $(PWD):$(WORKDIR) \
-		-w $(WORKDIR) \
-		$(CODEGEN_IMAGE) \
-		--apis-in ./api \
-		--crd-gen-out ./manifests
+	  -v $(PWD):$(WORKDIR) \
+	  -u $(UID):$(UID) \
+	  $(REPOSITORY)-dev \
+	  kube-code-generator \
+	    --apis-in ./api \
+	    --crd-gen-out ./manifests
 	cp -f manifests/databases.spotahome.com_redisfailovers.yaml manifests/kustomize/base
 	cp -f manifests/databases.spotahome.com_redisfailovers.yaml charts/redisoperator/crds/databases.spotahome.com_redisfailovers.yaml
 
