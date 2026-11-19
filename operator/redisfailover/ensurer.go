@@ -14,14 +14,15 @@ import (
 func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels map[string]string, or []metav1.OwnerReference, metricsClient metrics.Recorder) error {
 	w.warnPodNetworkingIsGoingAway(rf)
 
-	if rf.Spec.Redis.Exporter.Enabled {
-		if err := w.rfService.EnsureRedisService(rf, labels, or); err != nil {
-			return err
-		}
-	} else {
-		if err := w.rfService.EnsureNotPresentRedisService(rf); err != nil {
-			return err
-		}
+	// This is the service the Redis StatefulSet names, which makes it the
+	// only service that can publish a name for each Redis pod: an endpoint
+	// carries a hostname only where the pod's subdomain matches the service,
+	// and a StatefulSet sets that subdomain to its serviceName. The service
+	// exists whether or not the exporter does, and the exporter decides only
+	// what port it carries. See
+	// docs/cir/CIR-006-give-every-redis-pod-a-name.md.
+	if err := w.rfService.EnsureRedisService(rf, labels, or); err != nil {
+		return err
 	}
 
 	if !(len(rf.Spec.NetworkPolicyNsList) == 0) {

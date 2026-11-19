@@ -126,11 +126,9 @@ func TestEnsure(t *testing.T) {
 			mrfc := &mRFService.RedisFailoverCheck{}
 			mrfh := &mRFService.RedisFailoverHeal{}
 			mrfs := &mRFService.RedisFailoverClient{}
-			if test.exporter {
-				mrfs.On("EnsureRedisService", rf, mock.Anything, mock.Anything).Once().Return(nil)
-			} else {
-				mrfs.On("EnsureNotPresentRedisService", rf).Once().Return(nil)
-			}
+			// The service naming the Redis pods is ensured either way: the
+			// exporter decides what port it carries, not whether it exists.
+			mrfs.On("EnsureRedisService", rf, mock.Anything, mock.Anything).Once().Return(nil)
 
 			if !test.bootstrapping || test.bootstrappingAllowSentinels {
 				mrfs.On("EnsureSentinelService", rf, mock.Anything, mock.Anything).Once().Return(nil)

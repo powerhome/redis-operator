@@ -137,7 +137,7 @@ This redis-failover will be managed by the operator, resulting in the following 
 
 - `rfr-<NAME>`: Redis configmap
 - `rfr-<NAME>`: Redis statefulset
-- `rfr-<NAME>`: Redis service (if redis-exporter is enabled)
+- `rfr-<NAME>`: Redis service, which names each Redis pod in DNS
 - `rfs-<NAME>`: Sentinel configmap
 - `rfs-<NAME>`: Sentinel statefulset
 - `rfs-<NAME>`: Sentinel service
