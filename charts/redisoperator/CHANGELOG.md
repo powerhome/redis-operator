@@ -12,6 +12,29 @@ chart version installs. Changes to the operator are recorded in the
 
 ## Unreleased
 
+## [4.9.0] - 2026-11-19
+
+Installs operator `v5.3.0`, up from `v5.2.0`. That release moves the default
+Redis image to 7.2.17-alpine, which replaces the Redis and the Sentinel pods of
+every `RedisFailover` that takes the default. Every `RedisFailover` then has the
+Service `rfr-<name>`, which publishes a DNS record for each Redis pod. Where
+the Redis exporter is off, that release creates it. Where it exists already, it
+gains `publishNotReadyAddresses`. Read the upgrade note in the
+[repository changelog](https://github.com/powerhome/redis-operator/blob/master/CHANGELOG.md)
+before you upgrade.
+
+The `RedisFailover` custom resource definition the chart installs accepts 155
+properties it did not accept before. They come from the Kubernetes API types the
+operator compiles against, and every one of them is optional. The regeneration
+removes no property and changes no property's type, so a `RedisFailover` the
+earlier definition accepted is still accepted. Nothing else in the chart changed.
+
+Apply that definition yourself. It lives in `crds/`, which Helm installs once
+and never upgrades, so `helm upgrade` leaves whichever definition installed the
+chart. `kubectl apply -f` on this definition fails with
+`metadata.annotations: Too long`, so apply it with `kubectl apply
+--server-side`.
+
 ## [4.8.2] - 2026-11-13
 
 Installs operator `v5.2.0`, up from `v5.1.0`. That release moves the default

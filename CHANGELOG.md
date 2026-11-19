@@ -9,14 +9,15 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v5.3.0] - 2026-11-19
+
 ### Upgrade note
 
-This release moves the default Redis image to 7.2.17-alpine. Redis and Sentinel
-read that one default, so upgrading replaces the Redis pods and the Sentinel
-pods of every `RedisFailover` that takes it. Two fields opt out, one for each
-set: `spec.redis.image` and `spec.sentinel.image`. A `RedisFailover` that names
-both keeps every pod it has, and the rest of this note does not apply to it. A
-`RedisFailover` that names one of the two still rolls the other.
+This release moves the default Redis image to 7.2.17-alpine. A `RedisFailover`
+that takes the default rolls its Redis pods and its Sentinel pods, because both
+read that one field. `spec.redis.image` and `spec.sentinel.image` opt out, one
+set each. A `RedisFailover` that names both keeps every pod it has, and the
+rest of this note does not apply to it.
 
 The Sentinels roll under the gate
 [CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md) describes. The
@@ -41,21 +42,26 @@ replica it could promote.
 What a client sees while the master moves depends on how it reaches Redis.
 
 A client that connects through HAProxy, the `rfrm-haproxy-<name>` Service, sees
-no interruption. HAProxy picks the master by asking each Redis for
-`role:master`, so it finds the new one without asking Sentinel. HAProxy carried
-4534 writes across two measured rolls, and refused or stalled none of them.
+no error, and still loses writes. HAProxy picks the master by asking each Redis
+for `role:master`, so it finds the new one within a second or two without
+asking Sentinel. Across 4534 writes in two measured rolls it refused none and
+delayed none, and discarded 10 and 43 acknowledged writes. Replication is
+asynchronous, and the gate that holds the master asks whether a Sentinel has a
+promotable replica. It does not ask whether that replica holds every write the
+master took.
 
-A client that connects to the master Service, `rfrm-<name>`, sees writes refused
-and then one long stall. That Service selects the pod carrying the
-`redisfailovers-role: master` label. The operator writes that label on a
-reconcile, so the label trails the promotion Sentinel carried out. While it
-trails, the Service points at a pod that is already a replica, which answers
-`-READONLY`, or at no pod at all. Each of two measured rolls refused about 90
-writes across 19 seconds, and then refused connections for 27 and 58 seconds.
-Give such a client a connect timeout and a retry.
+A client that connects to the master Service, `rfrm-<name>`, loses writes too,
+and sees refusals and a long stall on top. That Service selects the pod
+carrying the `redisfailovers-role: master` label. The operator writes that
+label on a reconcile, so the label trails the promotion Sentinel carried out.
+While it trails, the Service points at a pod that is already a replica, which
+answers `-READONLY`, or at no pod at all. Each of two measured rolls refused
+about 90 writes across 19 seconds, then refused connections for 27 and 58
+seconds, and lost 54 acknowledged writes. Give such a client a connect timeout
+and a retry.
 
-A client that cannot tolerate a refused write, or a stall of that length,
-should stop writing until the roll finishes.
+A client that cannot lose an acknowledged write should stop writing until the
+roll finishes, whichever path it uses.
 
 A `RedisFailover` with `spec.redis.replicas: 1` has no replica to promote, so
 its only Redis restarts. Data that pod holds in an `emptyDir` leaves with it.
@@ -72,29 +78,37 @@ annotations. Its endpoints report a Redis that is loading its dataset, or one
 that is terminating, as ready. A scrape configuration selecting on that
 condition will scrape those pods.
 
-The CustomResourceDefinition this release ships accepts 155 fields it did not
-accept before. They come from the Kubernetes API types the operator compiles
+The CustomResourceDefinition this release ships accepts 155 properties it did
+not accept before. They come from the Kubernetes API types the operator compiles
 against. The committed schema predated them: `fileKeyRef` on an environment
 variable, `restartPolicyRules` on a container, `podCertificate` on a projected
 volume, and `protocol` and `mode` on a probe, among others. Every one of them
 is optional, and each appears inside `spec.redis` and `spec.sentinel` wherever
 that schema already embedded a pod, a container or a volume.
 
-The regeneration removes no field and changes no field's type, so a
+The regeneration removes no property and changes no property's type, so a
 `RedisFailover` the earlier schema accepted is still accepted. Applying the new
 definition replaces no pod.
 
 ### Added
 
-- Accept every field the Kubernetes API types carry. The
-  `CustomResourceDefinition` is generated from those types, and the committed
-  copy had fallen 155 properties behind them. Regenerating it adds those
+- [Recognize a Redis instance by name or by address](https://github.com/powerhome/redis-operator/pull/187).
+  Sentinel repeats whatever an instance announced for itself. The same Redis
+  therefore reads as its pod's address until it announces a name, and as the
+  name from then on. One type now holds both forms and answers whether a
+  reported address names that instance. Two checks read it: how many replicas a
+  Sentinel could promote, and the master a replica reports. Nothing announces a
+  name in this release, so no failover behaves differently. This is what lets a
+  later release hand Sentinel a name and still roll back to this one. A Sentinel
+  keeps announcing until something replaces its pod.
+- [Accept every field the Kubernetes API types carry](https://github.com/powerhome/redis-operator/pull/189).
+  The `CustomResourceDefinition` is generated from those types, and the
+  committed copy sat 155 properties behind them. Regenerating it adds those
   fields and removes none. See
   [CIR-016](docs/cir/CIR-016-generate-kubernetes-code-against-the-pinned-toolchain.md).
-
-- Give every Redis pod a name in DNS. The Service the Redis StatefulSet names,
-  `rfr-<name>`, exists for every `RedisFailover` rather than only for one that
-  enables the Redis exporter. That Service publishes
+- [Give every Redis pod a name in DNS](https://github.com/powerhome/redis-operator/pull/188).
+  The Service the Redis StatefulSet names, `rfr-<name>`, exists for every
+  `RedisFailover` rather than only for one that enables the Redis exporter. That Service publishes
   `<pod>.rfr-<name>.<namespace>.svc` for each Redis pod, and it publishes those
   records for pods that are not ready. The exporter still contributes the port
   it is scraped on and the annotations that get it scraped. See
@@ -102,6 +116,7 @@ definition replaces no pod.
 
 ### Changed
 
+- [Build with Go 1.27.4](https://github.com/powerhome/redis-operator/pull/176). The builder image moves from Go 1.27.3 and stays pinned by digest. This carries the toolchain fixes Go published since v5.2.0. The operator itself behaves the same.
 - [Test against Kubernetes 1.35, 1.36 and 1.37](https://github.com/powerhome/redis-operator/pull/184). The integration matrix is what this project supports, so 1.34 leaves it and 1.37 arrives. The operator compiles against `k8s.io/client-go` v0.37.2, which supports one minor either side of its own, and 1.34 sits outside that. The operator refuses no cluster on 1.34, and nothing in it changes for one. CI no longer tests that release. kind v0.33.0 publishes a node image for each of the three, so `make test-integration` still runs what CI runs.
 
 ### Security
@@ -292,7 +307,9 @@ This applies only to a `RedisFailover` that elected its own master before it sta
 
 Raising the storage on a `RedisFailover` no longer stops every Redis in it at the same moment. Where the storage driver grows a mounted filesystem, nothing restarts. Where it needs a pod restart before the filesystem follows the volume, the operator restarts them one at a time, replicas before the master.
 
-That restart is a Sentinel failover, and clients reaching Redis through the `rfrm-` master service lose writes while it happens. At the default three replicas we measured about a minute. Clients reaching it through HAProxy lost none. The `rfrm-` service follows a new master only once the operator relabels the pod, which it does on a 30 second loop.
+That restart is a Sentinel failover, and clients lose writes while it happens, whichever path they take. Through the `rfrm-` master service we measured about a minute at the default three replicas. That service follows a new master only once the operator relabels the pod, which it does on a 30 second loop.
+
+An earlier version of this note said clients reaching Redis through HAProxy lost none. That is wrong. Across four measured rolls the HAProxy path lost between 10 and 44 acknowledged writes each time, and returned no error for any of them. It reports the write as accepted, and the promotion discards it. A client that cannot lose an acknowledged write should stop writing until the roll finishes.
 
 The kustomize manifests and the plain deployment examples install `ghcr.io/powerhome/redis-operator:v4.7.0`. At `v4.6.0` they named the upstream project's image, so anyone who installed from them has been running a different operator.
 
