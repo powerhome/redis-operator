@@ -60,6 +60,28 @@ should stop writing until the roll finishes.
 A `RedisFailover` with `spec.redis.replicas: 1` has no replica to promote, so
 its only Redis restarts. Data that pod holds in an `emptyDir` leaves with it.
 
+Every `RedisFailover` has the Service `rfr-<name>`, the one the Redis
+StatefulSet names. Where the Redis exporter is off, this release creates it,
+carrying no port. Where it exists already, this release sets
+`publishNotReadyAddresses` on it. Either way that Service publishes a DNS
+record for each Redis pod. A Redis reading its dataset from disk answers to its
+name while it does so. Neither change replaces a pod.
+
+Where the Redis exporter is on, that same Service carries the Prometheus scrape
+annotations. Its endpoints report a Redis that is loading its dataset, or one
+that is terminating, as ready. A scrape configuration selecting on that
+condition will scrape those pods.
+
+### Added
+
+- Give every Redis pod a name in DNS. The Service the Redis StatefulSet names,
+  `rfr-<name>`, exists for every `RedisFailover` rather than only for one that
+  enables the Redis exporter. That Service publishes
+  `<pod>.rfr-<name>.<namespace>.svc` for each Redis pod, and it publishes those
+  records for pods that are not ready. The exporter still contributes the port
+  it is scraped on and the annotations that get it scraped. See
+  [CIR-006](docs/cir/CIR-006-give-every-redis-pod-a-name.md).
+
 ### Changed
 
 - [Test against Kubernetes 1.35, 1.36 and 1.37](https://github.com/powerhome/redis-operator/pull/184). The integration matrix is what this project supports, so 1.34 leaves it and 1.37 arrives. The operator compiles against `k8s.io/client-go` v0.37.2, which supports one minor either side of its own, and 1.34 sits outside that. The operator refuses no cluster on 1.34, and nothing in it changes for one. CI no longer tests that release. kind v0.33.0 publishes a node image for each of the three, so `make test-integration` still runs what CI runs.
