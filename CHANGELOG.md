@@ -9,6 +9,8 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ## Unreleased
 
+## [v5.3.0] - 2026-11-19
+
 ### Upgrade note
 
 This release moves the default Redis image to 7.2.17-alpine. Redis and Sentinel
@@ -86,15 +88,23 @@ definition replaces no pod.
 
 ### Added
 
-- Accept every field the Kubernetes API types carry. The
-  `CustomResourceDefinition` is generated from those types, and the committed
-  copy had fallen 155 properties behind them. Regenerating it adds those
+- [Recognize a Redis instance by name or by address](https://github.com/powerhome/redis-operator/pull/187).
+  Sentinel repeats whatever an instance announced for itself. The same Redis
+  therefore reads as its pod's address until it announces a name, and as the
+  name from then on. One type now holds both forms and answers whether a
+  reported address names that instance. Two checks read it: how many replicas a
+  Sentinel could promote, and the master a replica reports. Nothing announces a
+  name in this release, so no failover behaves differently. This is what lets a
+  later release hand Sentinel a name and still roll back to this one. A Sentinel
+  keeps announcing until something replaces its pod.
+- [Accept every field the Kubernetes API types carry](https://github.com/powerhome/redis-operator/pull/189).
+  The `CustomResourceDefinition` is generated from those types, and the
+  committed copy sat 155 properties behind them. Regenerating it adds those
   fields and removes none. See
   [CIR-016](docs/cir/CIR-016-generate-kubernetes-code-against-the-pinned-toolchain.md).
-
-- Give every Redis pod a name in DNS. The Service the Redis StatefulSet names,
-  `rfr-<name>`, exists for every `RedisFailover` rather than only for one that
-  enables the Redis exporter. That Service publishes
+- [Give every Redis pod a name in DNS](https://github.com/powerhome/redis-operator/pull/188).
+  The Service the Redis StatefulSet names, `rfr-<name>`, exists for every
+  `RedisFailover` rather than only for one that enables the Redis exporter. That Service publishes
   `<pod>.rfr-<name>.<namespace>.svc` for each Redis pod, and it publishes those
   records for pods that are not ready. The exporter still contributes the port
   it is scraped on and the annotations that get it scraped. See
