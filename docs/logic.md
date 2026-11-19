@@ -5,7 +5,7 @@
 The Redis-Operator creates Redis Failovers, with all the needed pieces. So, when a event arrives from Kubernetes (add or sync), the following steps are executed:
 
 - Ensure: checks that all the pieces needed are created. It is important to notice that if a change is performed manually on the objects created, the operator will override them. This is done to ensure a healthy status. It will create the following:
-  - Redis service (if exporter enabled)
+  - Redis service, which names each Redis pod in DNS
   - Redis configmap
   - Redis shutdown configmap
   - Redis statefulset

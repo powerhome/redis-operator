@@ -1080,6 +1080,7 @@ func TestRedisService(t *testing.T) {
 		rfNamespace     string
 		rfLabels        map[string]string
 		rfAnnotations   map[string]string
+		exporter        bool
 		expectedService corev1.Service
 	}{
 		{
@@ -1093,11 +1094,6 @@ func TestRedisService(t *testing.T) {
 						"app.kubernetes.io/name":      name,
 						"app.kubernetes.io/part-of":   "redis-failover",
 					},
-					Annotations: map[string]string{
-						"prometheus.io/scrape": "true",
-						"prometheus.io/path":   "/metrics",
-						"prometheus.io/port":   "http",
-					},
 					OwnerReferences: []metav1.OwnerReference{
 						{
 							Name: "testing",
@@ -1105,19 +1101,13 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
 						"app.kubernetes.io/part-of":   "redis-failover",
-					},
-					Ports: []corev1.ServicePort{
-						{
-							Name:     "http-metrics",
-							Port:     9121,
-							Protocol: corev1.ProtocolTCP,
-						},
 					},
 				},
 			},
@@ -1134,11 +1124,6 @@ func TestRedisService(t *testing.T) {
 						"app.kubernetes.io/name":      "custom-name",
 						"app.kubernetes.io/part-of":   "redis-failover",
 					},
-					Annotations: map[string]string{
-						"prometheus.io/scrape": "true",
-						"prometheus.io/path":   "/metrics",
-						"prometheus.io/port":   "http",
-					},
 					OwnerReferences: []metav1.OwnerReference{
 						{
 							Name: "testing",
@@ -1146,19 +1131,13 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      "custom-name",
 						"app.kubernetes.io/part-of":   "redis-failover",
-					},
-					Ports: []corev1.ServicePort{
-						{
-							Name:     "http-metrics",
-							Port:     9121,
-							Protocol: corev1.ProtocolTCP,
-						},
 					},
 				},
 			},
@@ -1175,11 +1154,6 @@ func TestRedisService(t *testing.T) {
 						"app.kubernetes.io/name":      name,
 						"app.kubernetes.io/part-of":   "redis-failover",
 					},
-					Annotations: map[string]string{
-						"prometheus.io/scrape": "true",
-						"prometheus.io/path":   "/metrics",
-						"prometheus.io/port":   "http",
-					},
 					OwnerReferences: []metav1.OwnerReference{
 						{
 							Name: "testing",
@@ -1187,19 +1161,13 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
 						"app.kubernetes.io/part-of":   "redis-failover",
-					},
-					Ports: []corev1.ServicePort{
-						{
-							Name:     "http-metrics",
-							Port:     9121,
-							Protocol: corev1.ProtocolTCP,
-						},
 					},
 				},
 			},
@@ -1217,10 +1185,38 @@ func TestRedisService(t *testing.T) {
 						"app.kubernetes.io/part-of":   "redis-failover",
 						"some":                        "label",
 					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
+					Selector: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+				},
+			},
+		},
+		{
+			name:          "with Annotations provided",
+			rfAnnotations: map[string]string{"some": "annotation"},
+			expectedService: corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      redisName,
+					Namespace: namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
 					Annotations: map[string]string{
-						"prometheus.io/scrape": "true",
-						"prometheus.io/path":   "/metrics",
-						"prometheus.io/port":   "http",
+						"some": "annotation",
 					},
 					OwnerReferences: []metav1.OwnerReference{
 						{
@@ -1229,25 +1225,22 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
 						"app.kubernetes.io/part-of":   "redis-failover",
 					},
-					Ports: []corev1.ServicePort{
-						{
-							Name:     "http-metrics",
-							Port:     9121,
-							Protocol: corev1.ProtocolTCP,
-						},
-					},
 				},
 			},
 		},
 		{
-			name:          "with Annotations provided",
+			// The one case where both annotation maps are non-empty, which is the
+			// merge the exporter's defaults go through.
+			name:          "with the exporter enabled and Annotations provided",
+			exporter:      true,
 			rfAnnotations: map[string]string{"some": "annotation"},
 			expectedService: corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1271,8 +1264,51 @@ func TestRedisService(t *testing.T) {
 					},
 				},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeClusterIP,
-					ClusterIP: corev1.ClusterIPNone,
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
+					Selector: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					Ports: []corev1.ServicePort{
+						{
+							Name:     "http-metrics",
+							Port:     9121,
+							Protocol: corev1.ProtocolTCP,
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "with the exporter enabled",
+			exporter: true,
+			expectedService: corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      redisName,
+					Namespace: namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/component": "redis",
+						"app.kubernetes.io/name":      name,
+						"app.kubernetes.io/part-of":   "redis-failover",
+					},
+					Annotations: map[string]string{
+						"prometheus.io/scrape": "true",
+						"prometheus.io/path":   "/metrics",
+						"prometheus.io/port":   "http",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "testing",
+						},
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Type:                     corev1.ServiceTypeClusterIP,
+					ClusterIP:                corev1.ClusterIPNone,
+					PublishNotReadyAddresses: true,
 					Selector: map[string]string{
 						"app.kubernetes.io/component": "redis",
 						"app.kubernetes.io/name":      name,
@@ -1303,6 +1339,7 @@ func TestRedisService(t *testing.T) {
 				rf.Namespace = test.rfNamespace
 			}
 			rf.Spec.Redis.ServiceAnnotations = test.rfAnnotations
+			rf.Spec.Redis.Exporter.Enabled = test.exporter
 
 			generatedService := corev1.Service{}
 
