@@ -13,12 +13,11 @@ Also check this project's [releases](https://github.com/powerhome/redis-operator
 
 ### Upgrade note
 
-This release moves the default Redis image to 7.2.17-alpine. Redis and Sentinel
-read that one default, so upgrading replaces the Redis pods and the Sentinel
-pods of every `RedisFailover` that takes it. Two fields opt out, one for each
-set: `spec.redis.image` and `spec.sentinel.image`. A `RedisFailover` that names
-both keeps every pod it has, and the rest of this note does not apply to it. A
-`RedisFailover` that names one of the two still rolls the other.
+This release moves the default Redis image to 7.2.17-alpine. A `RedisFailover`
+that takes the default rolls its Redis pods and its Sentinel pods, because both
+read that one field. `spec.redis.image` and `spec.sentinel.image` opt out, one
+set each. A `RedisFailover` that names both keeps every pod it has, and the
+rest of this note does not apply to it.
 
 The Sentinels roll under the gate
 [CIR-009](docs/cir/CIR-009-run-the-sentinels-as-a-set.md) describes. The
@@ -302,7 +301,9 @@ This applies only to a `RedisFailover` that elected its own master before it sta
 
 Raising the storage on a `RedisFailover` no longer stops every Redis in it at the same moment. Where the storage driver grows a mounted filesystem, nothing restarts. Where it needs a pod restart before the filesystem follows the volume, the operator restarts them one at a time, replicas before the master.
 
-That restart is a Sentinel failover, and clients reaching Redis through the `rfrm-` master service lose writes while it happens. At the default three replicas we measured about a minute. Clients reaching it through HAProxy lost none. The `rfrm-` service follows a new master only once the operator relabels the pod, which it does on a 30 second loop.
+That restart is a Sentinel failover, and clients lose writes while it happens, whichever path they take. Through the `rfrm-` master service we measured about a minute at the default three replicas. That service follows a new master only once the operator relabels the pod, which it does on a 30 second loop.
+
+An earlier version of this note said clients reaching Redis through HAProxy lost none. That is wrong. Four measured rolls lost between 10 and 44 acknowledged writes each, and HAProxy returns no error for any of them. It reports the write as accepted, and the promotion discards it. A client that cannot lose an acknowledged write should stop writing until the roll finishes.
 
 The kustomize manifests and the plain deployment examples install `ghcr.io/powerhome/redis-operator:v4.7.0`. At `v4.6.0` they named the upstream project's image, so anyone who installed from them has been running a different operator.
 
