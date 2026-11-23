@@ -42,7 +42,7 @@ ACTIONLINT_VERSION := 1.7.12
 # moves it with the toolchain. mockery tags its releases v${version}, so
 # extractVersion takes the v off. See CIR-015.
 # renovate: datasource=github-releases depName=vektra/mockery extractVersion=^v(?<version>.+)$
-MOCKERY_VERSION := 2.53.8
+MOCKERY_VERSION := 3.9.2
 
 # The Kubernetes code generators. The wrapper drives them, code-generator
 # supplies them, and controller-gen writes the CRD. The development image
