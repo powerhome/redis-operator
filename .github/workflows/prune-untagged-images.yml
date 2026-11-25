@@ -25,7 +25,7 @@ jobs:
       # This step runs first so that any manifest it leaves unreachable is
       # collected by the step below in the same run rather than a week later.
       - name: Remove the images of pull requests that have finished
-        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        uses: dataaxiom/ghcr-cleanup-action@ac45a8c04b1eb4b27974ca79a0a74f344c93664b # v1.3.0
         with:
           owner: powerhome
           package: redis-operator
@@ -52,7 +52,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prune untagged manifests not referenced by any tag
-        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        uses: dataaxiom/ghcr-cleanup-action@ac45a8c04b1eb4b27974ca79a0a74f344c93664b # v1.3.0
         with:
           owner: powerhome
           package: redis-operator
